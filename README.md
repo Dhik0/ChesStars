@@ -9,3 +9,5 @@
 
 ## 下载安装
 前往右侧 [**Releases**](https://github.com/Dhik0/ChesStars/releases) 页面下载最新版本的 `ChesStars-vX.X.X.apk` 安装即可。
+
+This material is unofficial and is not endorsed by Supercell. For more information see Supercell's Fan Content Policy: www.supercell.com/fan-content-policy.
