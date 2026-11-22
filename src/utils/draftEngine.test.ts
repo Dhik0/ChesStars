@@ -11,7 +11,10 @@ import {
 import { brawlerCN, matchScore, normalizeName, ROLE_NAME_ALIAS } from '../data/localization';
 import {
   applyPick,
+  banCount,
   banRecommendations,
+  banSideOfIndex,
+  bannedIds,
   brawlerMatchups,
   clearSlot,
   counterDetail,
@@ -21,6 +24,11 @@ import {
   detectCompWarnings,
   evaluateBrawler,
   evaluatePick,
+  firstEmptyBanSlot,
+  isBanned,
+  isBannedBySide,
+  isEmptyBan,
+  isTaken,
   nextSlot,
   passesFilter,
   pickNumberOfSlot,
@@ -32,6 +40,7 @@ import {
   slotPickNumbers,
   totalPicked,
   COUNTER_LIGHT_PP,
+  EMPTY_BAN,
   TAG_THRESHOLD,
   type CounterDetail,
   type DraftState,
@@ -679,7 +688,9 @@ describe('未选先手的前置态', () => {
   it('createDraft 默认 firstPick 为 null，且没有任何 Ban/Pick 记录', () => {
     const s = createDraft(BOUNTY_MAP, 'bounty');
     expect(s.firstPick).toBeNull();
-    expect(s.bans).toEqual([]);
+    // Ban 位是定长 6 格（null = 未填），位置即归属，不能是空数组
+    expect(s.bans).toEqual([null, null, null, null, null, null]);
+    expect(banCount(s)).toBe(0);
     expect(s.ally).toEqual([]);
     expect(s.enemy).toEqual([]);
     expect(s.active).toEqual({ kind: 'ban', index: 0 });
@@ -721,7 +732,7 @@ describe('重置整局', () => {
     };
 
     const reset = resetDraft(full);
-    expect(reset.bans).toEqual([]);
+    expect(reset.bans).toEqual([null, null, null, null, null, null]);
     expect(reset.ally).toEqual([]);
     expect(reset.enemy).toEqual([]);
     expect(reset.active).toEqual({ kind: 'ban', index: 0 });
@@ -743,7 +754,7 @@ describe('重置整局', () => {
     expect(after.length).toBeGreaterThan(before.length);
 
     const afterIds = new Set(after.map((c) => c.id));
-    for (const id of [...dirty.bans, ...dirty.ally, ...dirty.enemy]) {
+    for (const id of [...bannedIds(dirty), ...dirty.ally, ...dirty.enemy]) {
       expect(afterIds.has(id)).toBe(true);
     }
     // 满员 = 英雄表总数
@@ -753,6 +764,121 @@ describe('重置整局', () => {
   it('空局重置是幂等的（不产生额外状态差异）', () => {
     const empty = createDraft(BOUNTY_MAP, 'bounty', 'enemy');
     expect(resetDraft(empty)).toEqual(empty);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 5.9 Ban 位规则（v1.1.0：跨队可重复 / 同队互斥 / 空 Ban）
+ * ------------------------------------------------------------------ */
+
+describe('Ban 位规则', () => {
+  it('Ban 槽归属：前 3 格己方、后 3 格敌方', () => {
+    expect(banSideOfIndex(0)).toBe('ally');
+    expect(banSideOfIndex(2)).toBe('ally');
+    expect(banSideOfIndex(3)).toBe('enemy');
+    expect(banSideOfIndex(5)).toBe('enemy');
+  });
+
+  it('同队 3 位互斥：同一英雄不能在自己队里 Ban 两次', () => {
+    let s = draft();
+    s = applyPick(s, idOf('BROCK')); // 己方第 1 位
+    s = applyPick(s, idOf('PIPER')); // 己方第 2 位
+    s = applyPick(s, idOf('BROCK')); // 同队重复 → 应被拒绝
+
+    expect(banCount(s)).toBe(2);
+    expect(s.bans[2]).toBeNull();
+    expect(s.active).toEqual({ kind: 'ban', index: 2 });
+  });
+
+  it('跨队允许 Ban 掉同一英雄（盲 Ban 撞车）', () => {
+    const brock = idOf('BROCK');
+    let s = draft({ bans: [brock, null, null, null, null, null] });
+    s = { ...s, active: { kind: 'ban', index: 3 } };
+    s = applyPick(s, brock);
+
+    expect(s.bans[3]).toBe(brock);
+    expect(banCount(s)).toBe(2);
+    // 去重后只有 1 个英雄被 Ban
+    expect(bannedIds(s)).toEqual([brock]);
+  });
+
+  it('Pick 池剔除双方非空 Ban（重复 Ban 自动去重）', () => {
+    const brock = idOf('BROCK');
+    const state = draft({
+      bans: [brock, null, null, brock, null, null],
+      active: { kind: 'ally', index: 0 },
+    });
+    const list = pickRecommendations(IDX, state, 500);
+    expect(list.some((c) => c.id === brock)).toBe(false);
+  });
+
+  it('Ban 推荐保留「对方已 Ban」的英雄，方便重复 Ban', () => {
+    const brock = idOf('BROCK');
+    const allyBanned = draft({ bans: [brock, null, null, null, null, null] });
+    // 己方视角：本队已 Ban → 剔除
+    expect(banRecommendations(IDX, allyBanned).some((c) => c.id === brock)).toBe(false);
+    // 敌方视角：对方已 Ban → 保留
+    const enemyView = { ...allyBanned, active: { kind: 'ban' as const, index: 3 } };
+    expect(banRecommendations(IDX, enemyView).some((c) => c.id === brock)).toBe(true);
+  });
+
+  it('空 Ban 占满槽位但不锁任何英雄', () => {
+    const s = applyPick(draft(), EMPTY_BAN);
+
+    expect(s.bans[0]).toBe(EMPTY_BAN);
+    expect(isEmptyBan(s.bans[0])).toBe(true);
+    expect(banCount(s)).toBe(1);
+    expect(bannedIds(s)).toEqual([]);
+    // 没有任何英雄因此变得不可选
+    const list = banRecommendations(IDX, s, 500);
+    expect(list).toHaveLength(META.brawlers.length);
+    expect(isTaken(s, idOf('BROCK'))).toBe(false);
+  });
+
+  it('空 Ban 可在多个槽位重复使用（含跨队）', () => {
+    let s = draft();
+    for (let i = 0; i < 6; i += 1) s = applyPick(s, EMPTY_BAN);
+
+    expect(s.bans).toEqual([EMPTY_BAN, EMPTY_BAN, EMPTY_BAN, EMPTY_BAN, EMPTY_BAN, EMPTY_BAN]);
+    expect(banCount(s)).toBe(6);
+    expect(bannedIds(s)).toEqual([]);
+  });
+
+  it('空 Ban 支持清空重选', () => {
+    let s = applyPick(draft(), EMPTY_BAN);
+    expect(s.active).toEqual({ kind: 'ban', index: 1 });
+
+    s = clearSlot(s, { kind: 'ban', index: 0 });
+    expect(s.bans[0]).toBeNull();
+    expect(banCount(s)).toBe(0);
+    expect(s.active).toEqual({ kind: 'ban', index: 0 });
+    expect(firstEmptyBanSlot(s)).toBe(0);
+  });
+
+  it('清空中间 Ban 位不会把敌方的 Ban 挤进己方', () => {
+    const bans = [1, 2, 3, 4, 5, 6];
+    const s = clearSlot(draft({ bans }), { kind: 'ban', index: 1 });
+
+    expect(s.bans).toEqual([1, null, 3, 4, 5, 6]);
+    expect(isBannedBySide(s, 'enemy', 4)).toBe(true);
+    expect(isBannedBySide(s, 'ally', 4)).toBe(false);
+  });
+
+  it('6 槽填满（含空 Ban / 重复 Ban）即自动进入 Pick 阶段', () => {
+    const brock = idOf('BROCK');
+    let s = draft();
+    s = applyPick(s, brock); // 己方 1
+    s = applyPick(s, EMPTY_BAN); // 己方 2
+    s = applyPick(s, idOf('PIPER')); // 己方 3
+    s = applyPick(s, brock); // 敌方 1（跨队重复）
+    s = applyPick(s, EMPTY_BAN); // 敌方 2
+    s = applyPick(s, EMPTY_BAN); // 敌方 3
+
+    expect(banCount(s)).toBe(6);
+    expect(bannedIds(s)).toEqual([brock, idOf('PIPER')]);
+    // 去重后只剩 2 个英雄被 Ban，但流程照样推进到第 1 手 Pick
+    expect(nextSlot(s)).toEqual({ kind: 'ally', index: 0 });
+    expect(s.active).toEqual({ kind: 'ally', index: 0 });
   });
 });
 
@@ -958,7 +1084,7 @@ describe('端到端完整对局', () => {
       expect(list.length).toBeGreaterThan(0);
       s = applyPick(s, list[0]!.id);
     }
-    expect(s.bans).toHaveLength(6);
+    expect(banCount(s)).toBe(6);
 
     for (let i = 0; i < 6; i += 1) {
       const list = recommend(IDX, s, 5);
@@ -970,9 +1096,10 @@ describe('端到端完整对局', () => {
     expect(s.enemy).toHaveLength(3);
     expect(totalPicked(s)).toBe(6);
 
-    // 12 个英雄互不重复
-    const all = [...s.bans, ...s.ally, ...s.enemy];
-    expect(new Set(all).size).toBe(12);
+    // 双方允许撞车 Ban 同一英雄，但 6 个 Pick 绝不重复、也绝不与被 Ban 的英雄重复
+    const picked = [...s.ally, ...s.enemy];
+    expect(new Set(picked).size).toBe(6);
+    for (const id of picked) expect(isBanned(s, id)).toBe(false);
     expect(nextSlot(s)).toBeNull();
   });
 

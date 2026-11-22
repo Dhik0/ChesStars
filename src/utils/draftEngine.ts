@@ -16,6 +16,25 @@ import type { MapBrawlerStat, MatchupEdge, PickOrder } from '../types/meta';
 
 export type Side = 'ally' | 'enemy';
 
+/** Ban 槽位总数（双方各 3 个，盲 Ban 同时进行） */
+export const BAN_SLOTS = 6;
+/** 单边 Ban 位数：前 3 槽属蓝队（己方），后 3 槽属红队（敌方） */
+export const BAN_SLOTS_PER_TEAM = 3;
+/** 每队选人位数 */
+export const TEAM_SLOTS = 3;
+
+/**
+ * 「空 Ban」哨兵：占满当前 Ban 槽但不锁定任何英雄，也不参与推荐计算。
+ * 用负数是因为真实英雄 id 都是 8 位正整数，绝不会撞上。
+ */
+export const EMPTY_BAN = -1;
+
+/** Ban 槽的取值：null = 尚未填写；EMPTY_BAN = 空 Ban；其余 = 真实英雄 id */
+export type BanValue = number | null;
+
+/** 该英雄是否为空 Ban 占位 */
+export const isEmptyBan = (id: number | null | undefined): boolean => id === EMPTY_BAN;
+
 export interface ActiveSlot {
   kind: 'ban' | 'ally' | 'enemy';
   /** ban: 0-5；ally/enemy: 0-2 */
@@ -27,7 +46,12 @@ export interface DraftState {
   mode: string;
   ally: number[];
   enemy: number[];
-  bans: number[];
+  /**
+   * Ban 位：**固定 6 格**，位置即归属（0-2 蓝队 / 3-5 红队），
+   * `null` 表示该槽还没填。用定长数组而不是「填一个 push 一个」，
+   * 是为了清空中间某格时后面的槽不会整体前移、把红队的 Ban 挤进蓝队。
+   */
+  bans: BanValue[];
   /**
    * 先手方（谁先选第一个英雄）。
    * `null` = 还没选先手方：进图后的前置态，禁止任何 Ban/Pick 录入，
@@ -241,14 +265,60 @@ export function sideOfPick(state: DraftState, n: number): Side {
   return base === 'ally' ? 'enemy' : 'ally';
 }
 
-/** 是否已占用（ban 或 pick 过） */
+/** 是否已占用（被 Ban 或已 Pick）——Pick 池的判定口径，双方 Ban 一并剔除 */
 export function isTaken(state: DraftState, id: number): boolean {
-  return state.bans.includes(id) || state.ally.includes(id) || state.enemy.includes(id);
+  return isBanned(state, id) || isPicked(state, id);
 }
 
 /** 已选（不含 ban） */
 export function isPicked(state: DraftState, id: number): boolean {
   return state.ally.includes(id) || state.enemy.includes(id);
+}
+
+/* ---------------- Ban 槽位 ---------------- */
+
+/** 归一化 Ban 数组：恒定 6 格，缺失位补 null */
+function normalizeBans(bans: readonly BanValue[]): BanValue[] {
+  return Array.from({ length: BAN_SLOTS }, (_, i) => bans[i] ?? null);
+}
+
+/** Ban 槽 index 归属哪一方（0-2 蓝 / 3-5 红） */
+export function banSideOfIndex(index: number): Side {
+  return index < BAN_SLOTS_PER_TEAM ? 'ally' : 'enemy';
+}
+
+/** 已填的 Ban 槽数量（含「空 Ban」占位）——阶段流转按这个判定 */
+export function banCount(state: DraftState): number {
+  return state.bans.filter((v) => v !== null && v !== undefined).length;
+}
+
+/** 第一个还没填的 Ban 槽 index；全满返回 null */
+export function firstEmptyBanSlot(state: DraftState): number | null {
+  for (let i = 0; i < BAN_SLOTS; i += 1) {
+    if ((state.bans[i] ?? null) === null) return i;
+  }
+  return null;
+}
+
+/** 双方所有非空 Ban 的英雄 id（去重；「空 Ban」不贡献任何 id） */
+export function bannedIds(state: DraftState): number[] {
+  const out: number[] = [];
+  for (const v of state.bans) {
+    if (typeof v === 'number' && v !== EMPTY_BAN && !out.includes(v)) out.push(v);
+  }
+  return out;
+}
+
+/** 该英雄是否已被任意一方 Ban */
+export function isBanned(state: DraftState, id: number): boolean {
+  if (id === EMPTY_BAN) return false;
+  return state.bans.some((v) => v === id);
+}
+
+/** 该英雄是否已被指定阵营 Ban 过（同队互斥用） */
+export function isBannedBySide(state: DraftState, side: Side, id: number): boolean {
+  if (id === EMPTY_BAN) return false;
+  return state.bans.some((v, i) => v === id && banSideOfIndex(i) === side);
 }
 
 /** 我方视角的对手列表：录入我方时对手是敌方；录入敌方时对手是我方 */
@@ -322,11 +392,22 @@ export function banRecommendations(
   const map = idx.mapByName.get(state.mapName);
   if (!map) return [];
 
+  /**
+   * Ban 池的剔除口径与 Pick 池不同：
+   * - 已被任何一方 **Pick** 的英雄不能再 Ban；
+   * - 同队已 Ban 的英雄剔除（队内 3 位互斥）；
+   * - 对方已 Ban 的英雄**保留**——排位盲 Ban 里双方同时 Ban 同一英雄是常态，
+   *   保留下来才能让红队 Ban 掉蓝队刚 Ban 的人。
+   * 非 Ban 阶段（active 指向 Pick）则退回全量剔除。
+   */
+  const banSide = state.active.kind === 'ban' ? banSideOfIndex(state.active.index) : null;
+
   const result: BanCandidate[] = [];
   const maxUse = maxUseRate(idx, state.mapName);
   // 遍历全量英雄：该图没数据的也要能选（实战中会有人选冷门/新英雄）
   for (const ref of idx.meta.brawlers) {
-    if (isTaken(state, ref.id)) continue;
+    if (isPicked(state, ref.id)) continue;
+    if (banSide ? isBannedBySide(state, banSide, ref.id) : isBanned(state, ref.id)) continue;
     const { stat, hasData } = statFor(idx, state.mapName, ref.id, ref.name);
     const banScore = banScoreOf(idx, state.mapName, stat);
     const reasons = banReasons(idx, state.mapName, stat, banScore);
@@ -1167,19 +1248,20 @@ export function pickNumberOfSlot(state: DraftState, side: Side, index: number): 
  * 槽位流转
  * ------------------------------------------------------------------ */
 
-export const BAN_SLOTS = 6;
-export const TEAM_SLOTS = 3;
-
 /**
  * 智能跳转：从当前激活槽位往后找下一个合理空槽。
  * 顺序：先补完当前阵营/当前阶段，再按 BP 序列推进；全部填满返回 null。
+ *
+ * Ban 阶段的推进只看「已填槽位数（含空 Ban）」而不是去重后的英雄数——
+ * 双方重复 Ban 同一英雄、或连续空 Ban，都不会让流程卡在 Ban 阶段。
  */
 export function nextSlot(state: DraftState): ActiveSlot | null {
-  const { bans, ally, enemy } = state;
+  const { ally, enemy } = state;
 
-  // Ban 阶段未满 → 继续填 Ban
-  if (state.active.kind === 'ban' && bans.length < BAN_SLOTS) {
-    return { kind: 'ban', index: bans.length };
+  // Ban 阶段未满 → 继续填 Ban（按槽位顺序找第一个空格）
+  if (state.active.kind === 'ban') {
+    const idx = firstEmptyBanSlot(state);
+    if (idx !== null) return { kind: 'ban', index: idx };
   }
 
   // Pick 阶段：从第 (已选数 + 1) 手开始按序列找第一个还有空位的阵营
@@ -1193,40 +1275,60 @@ export function nextSlot(state: DraftState): ActiveSlot | null {
   // 序列走完但仍有空位（用户手动跳选过）→ 补任意空槽
   if (ally.length < TEAM_SLOTS) return { kind: 'ally', index: ally.length };
   if (enemy.length < TEAM_SLOTS) return { kind: 'enemy', index: enemy.length };
-  if (bans.length < BAN_SLOTS) return { kind: 'ban', index: bans.length };
+  const banIdx = firstEmptyBanSlot(state);
+  if (banIdx !== null) return { kind: 'ban', index: banIdx };
   return null;
 }
 
 /** 解析实际写入目标：激活槽位有效就用它，否则回退到 nextSlot */
 function resolveTargetSlot(state: DraftState): ActiveSlot | null {
   const a = state.active;
-  if (a.kind === 'ban' && state.bans.length < BAN_SLOTS) return a;
+  // Ban 槽必须自己还在 6 格范围内、且是空的才认；
+  // 点开一个已填的槽不会把英雄覆盖进去，index 越界（如 6）也不认。
+  if (a.kind === 'ban' && a.index >= 0 && a.index < BAN_SLOTS && (state.bans[a.index] ?? null) === null) {
+    return a;
+  }
   if (a.kind === 'ally' && state.ally.length < TEAM_SLOTS) return a;
   if (a.kind === 'enemy' && state.enemy.length < TEAM_SLOTS) return a;
   return nextSlot(state);
 }
 
-/** 填入英雄：写入对应槽位，返回新状态（纯函数） */
+/**
+ * 填入英雄：写入对应槽位，返回新状态（纯函数）。
+ *
+ * Ban 与 Pick 的规则不同：
+ * - Pick：任何已被 Ban（双方）或已选的英雄都不能再选；
+ * - Ban：允许 Ban 掉对方已经 Ban 的英雄（盲 Ban 重复），但队内 3 位互斥；
+ * - 「空 Ban」不锁英雄，可重复填任意槽位。
+ */
 export function applyPick(state: DraftState, brawlerId: number): DraftState {
   const next = cloneState(state);
-  if (isTaken(next, brawlerId)) return next;
-
   const target = resolveTargetSlot(next);
   if (!target) return next;
 
-  if (target.kind === 'ban') next.bans = [...next.bans, brawlerId];
-  else if (target.kind === 'ally') next.ally = [...next.ally, brawlerId];
-  else next.enemy = [...next.enemy, brawlerId];
+  if (target.kind === 'ban') {
+    if (!isEmptyBan(brawlerId)) {
+      if (isPicked(next, brawlerId)) return next;
+      if (isBannedBySide(next, banSideOfIndex(target.index), brawlerId)) return next;
+    }
+    next.bans[target.index] = brawlerId;
+  } else if (target.kind === 'ally') {
+    if (isTaken(next, brawlerId)) return next;
+    next.ally = [...next.ally, brawlerId];
+  } else {
+    if (isTaken(next, brawlerId)) return next;
+    next.enemy = [...next.enemy, brawlerId];
+  }
 
   const slot = nextSlot(next);
   next.active = slot ?? target;
   return next;
 }
 
-/** 清空某个槽位 */
+/** 清空某个槽位（Ban 位只置 null，后面的槽不前移，避免串队） */
 export function clearSlot(state: DraftState, slot: ActiveSlot): DraftState {
   const next = cloneState(state);
-  if (slot.kind === 'ban') next.bans = next.bans.filter((_, i) => i !== slot.index);
+  if (slot.kind === 'ban') next.bans[slot.index] = null;
   else if (slot.kind === 'ally') next.ally = next.ally.filter((_, i) => i !== slot.index);
   else next.enemy = next.enemy.filter((_, i) => i !== slot.index);
   next.active = slot;
@@ -1238,7 +1340,7 @@ export function cloneState(state: DraftState): DraftState {
     ...state,
     ally: [...state.ally],
     enemy: [...state.enemy],
-    bans: [...state.bans],
+    bans: normalizeBans(state.bans),
     active: { ...state.active },
   };
 }
@@ -1254,7 +1356,7 @@ export function createDraft(
     mode,
     ally: [],
     enemy: [],
-    bans: [],
+    bans: normalizeBans([]),
     firstPick,
     active: { kind: 'ban', index: 0 },
   };
@@ -1267,7 +1369,7 @@ export function createDraft(
 export function resetDraft(state: DraftState): DraftState {
   return {
     ...state,
-    bans: [],
+    bans: normalizeBans([]),
     ally: [],
     enemy: [],
     active: { kind: 'ban', index: 0 },

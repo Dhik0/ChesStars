@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronDown, ChevronRight, Lightbulb, Settings } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
 import { mapCN, modeCN, modeColor } from '../data/localization';
 import type { CompWarning } from '../utils/draftEngine';
 import MapThumb from './MapThumb';
@@ -11,10 +11,11 @@ interface TopBarProps {
   mapGames: number;
   /** 数据门槛标签，如「传奇 I+」 */
   tierLabel: string;
+  /** 数据日期（YYYY-MM-DD），未知时为 null */
+  dataDate?: string | null;
   warnings: CompWarning[];
   /** 点击整块地图详情 → 返回「选择地图」页换图 */
   onOpenMap: () => void;
-  onOpenSettings: () => void;
   /**
    * 版式：
    *   - `card`（竖屏，默认）：160px 大地图详情卡，**不吸顶**，跟随英雄池一起向上滚走；
@@ -29,15 +30,17 @@ interface TopBarProps {
  * 竖屏下它只是英雄池滚动容器里的第一块内容——进图时完整展示，
  * 往下滑就自然滚出视野，把整个上半屏让给英雄池（不再吸顶）。
  * 横屏下退化成单行地图条，省出的高度全给左栏的 Ban / 选角槽。
+ *
+ * 这里**不再有设置入口**：设置已升级为底部导航的一级页面，顶栏只负责「换地图」。
  */
 export default function TopBar({
   mapName,
   mode,
   mapGames,
   tierLabel,
+  dataDate = null,
   warnings,
   onOpenMap,
-  onOpenSettings,
   variant = 'card',
 }: TopBarProps) {
   const accent = modeColor(mode);
@@ -62,43 +65,32 @@ export default function TopBar({
   if (variant === 'strip') {
     return (
       <div className="shrink-0 border-b border-slate-800/70 bg-slate-950/95 px-1.5 pb-1 pt-1 safe-top">
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={onOpenMap}
-            className="flex h-[38px] min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 px-1 transition-colors active:bg-slate-800"
-            aria-label="切换地图"
+        <button
+          type="button"
+          onClick={onOpenMap}
+          className="flex h-[38px] w-full min-w-0 items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 px-1 transition-colors active:bg-slate-800"
+          aria-label="切换地图"
+        >
+          <MapThumb
+            mapName={mapName}
+            mode={mode}
+            variant="cover"
+            iconSize={13}
+            className="h-[30px] w-[30px] shrink-0 rounded"
+          />
+          <span className="min-w-0 flex-1 truncate text-[13px] font-bold leading-tight text-slate-50">
+            {mapCN(mapName)}
+          </span>
+          <span className="h-3.5 w-px shrink-0 bg-slate-700" />
+          <ModeIcon mode={mode} size={13} />
+          <span
+            className="max-w-[68px] shrink-0 truncate text-[10.5px] font-semibold leading-tight"
+            style={{ color: accent }}
           >
-            <MapThumb
-              mapName={mapName}
-              mode={mode}
-              variant="cover"
-              iconSize={13}
-              className="h-[30px] w-[30px] shrink-0 rounded"
-            />
-            <span className="min-w-0 flex-1 truncate text-[13px] font-bold leading-tight text-slate-50">
-              {mapCN(mapName)}
-            </span>
-            <span className="h-3.5 w-px shrink-0 bg-slate-700" />
-            <ModeIcon mode={mode} size={13} />
-            <span
-              className="max-w-[68px] shrink-0 truncate text-[10.5px] font-semibold leading-tight"
-              style={{ color: accent }}
-            >
-              {modeCN(mode)}
-            </span>
-            <ChevronDown size={12} className="shrink-0 text-slate-500" />
-          </button>
-
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg border border-slate-700/70 bg-slate-950/60 text-slate-400 transition-colors active:bg-slate-800"
-            aria-label="设置"
-          >
-            <Settings size={16} />
-          </button>
-        </div>
+            {modeCN(mode)}
+          </span>
+          <ChevronDown size={12} className="shrink-0 text-slate-500" />
+        </button>
         {warningsRow}
       </div>
     );
@@ -107,7 +99,7 @@ export default function TopBar({
   /* ---------------- 竖屏：完整详情卡（随列表滚动） ---------------- */
   return (
     <div className="shrink-0 px-2 pb-1.5 pt-1.5 safe-top">
-      <div className="relative flex h-[160px] items-stretch rounded-xl border border-slate-800 bg-slate-900/80 p-1.5">
+      <div className="flex h-[160px] items-stretch rounded-xl border border-slate-800 bg-slate-900/80 p-1.5">
         <button
           type="button"
           onClick={onOpenMap}
@@ -124,7 +116,7 @@ export default function TopBar({
           />
 
           {/* 右侧：名称 / 模式 / 样本量 / 门槛 */}
-          <span className="flex min-w-0 flex-1 flex-col py-0.5 pr-9">
+          <span className="flex min-w-0 flex-1 flex-col py-0.5 pr-1">
             <span className="truncate text-[17px] font-bold leading-tight text-slate-50">
               {mapCN(mapName)}
             </span>
@@ -150,6 +142,14 @@ export default function TopBar({
               <span className="rounded bg-slate-800 px-1 py-px text-[9.5px] font-medium leading-tight text-slate-400">
                 {tierLabel}
               </span>
+              {dataDate && (
+                <span
+                  className="rounded bg-slate-800/60 px-1 py-px text-[9.5px] font-medium leading-tight tabular-nums text-slate-500"
+                  title="数据日期"
+                >
+                  {dataDate}
+                </span>
+              )}
             </span>
 
             <span className="mt-auto flex items-center justify-end gap-0.5 text-[9.5px] text-slate-500">
@@ -157,15 +157,6 @@ export default function TopBar({
               <ChevronRight size={11} />
             </span>
           </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="absolute right-1.5 top-1.5 flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700/70 bg-slate-950/60 text-slate-400 transition-colors active:bg-slate-800"
-          aria-label="设置"
-        >
-          <Settings size={17} />
         </button>
       </div>
 

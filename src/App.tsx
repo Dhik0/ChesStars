@@ -1,16 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Flame, Loader2, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Ban as EmptyBanIcon, Flame, Loader2, RefreshCw } from 'lucide-react';
+import BottomNav, { type MainTab } from './components/BottomNav';
 import BrawlerDetail from './components/BrawlerDetail';
 import BrawlerTile from './components/BrawlerTile';
 import DraftBar from './components/DraftBar';
 import MapPicker from './components/MapPicker';
 import MatchupSheet from './components/MatchupSheet';
-import SettingsSheet from './components/SettingsSheet';
+import SettingsView from './components/SettingsView';
 import TopBar from './components/TopBar';
+import UpdateDialog from './components/UpdateDialog';
+import { APP_VERSION } from './config/app';
 import { brawlerCN } from './data/localization';
 import { metaStore, type MetaSnapshot } from './services/metaStore';
 import {
+  checkForUpdate,
+  ignoreVersion,
+  isVersionIgnored,
+  type UpdateCheckResult,
+  type UpdateInfo,
+} from './services/updateChecker';
+import {
+  EMPTY_BAN,
   applyPick,
+  bannedIds,
   clearSlot,
   createDraft,
   detectCompWarnings,
@@ -24,12 +36,13 @@ import {
   type DraftState,
   type Side,
 } from './utils/draftEngine';
+import { openExternal } from './utils/openExternal';
 import { buildBrawlerPool, rankMap } from './utils/pool';
 import { useViewport } from './utils/useViewport';
 
 const LS_MAP = 'brawl.draft.map';
 
-/** 首屏是「选择地图」，选完才进 BP 面板 */
+/** 「BP 助手」Tab 内的二级页面：首屏是「选择地图」，选完才进 BP 面板 */
 type Screen = 'select' | 'draft';
 
 export default function App() {
@@ -37,14 +50,19 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   const [draft, setDraft] = useState<DraftState | null>(null);
-  /** 当前页面：启动时停在选图页，选定地图后才进 BP */
+  /** 一级页面（底部导航）：左侧选图 + BP 主流程 / 右侧设置 */
+  const [tab, setTab] = useState<MainTab>('draft');
+  /** BP 助手内的二级页面：启动时停在选图页，选定地图后才进 BP */
   const [screen, setScreen] = useState<Screen>('select');
   /** 撤回栈（最多保留 30 步）。重做已按需求彻底移除 */
   const [history, setHistory] = useState<DraftState[]>([]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
   /** 长按弹窗：当前查看详细对位的英雄 */
   const [matchupId, setMatchupId] = useState<number | null>(null);
+  /** 发现的新版本（null = 没有更新或检查失败） */
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  /** 更新弹窗开关（启动自动检查命中且未被忽略时打开） */
+  const [updateOpen, setUpdateOpen] = useState(false);
 
   /** 横屏（左右双栏）/ 矮视口（竖屏悬浮小窗） */
   const vp = useViewport();
@@ -76,6 +94,23 @@ export default function App() {
     return () => {
       alive = false;
       unsub();
+    };
+  }, []);
+
+  /* ---------------- 新版本检测（静默、非阻塞） ----------------
+   * 启动时后台问一次 GitHub Releases：超时 / 限流 / 断网全部静默忽略，
+   * 只有真的拿到更高版本才记下来。用户点过「忽略此版本」的不再自动弹窗，
+   * 但底部「设置」Tab 上的小圆点照旧保留（用户想装时还能找到入口）。
+   */
+  useEffect(() => {
+    let alive = true;
+    void checkForUpdate().then((res) => {
+      if (!alive || res.status !== 'update' || !res.info) return;
+      setUpdateInfo(res.info);
+      if (!isVersionIgnored(res.info.version)) setUpdateOpen(true);
+    });
+    return () => {
+      alive = false;
     };
   }, []);
 
@@ -207,6 +242,49 @@ export default function App() {
     applyState(applyPick(draft, id));
   };
 
+  /**
+   * 空 Ban：占满当前 Ban 槽但不锁任何英雄（对面这手没 Ban 到人 / 盲 Ban 撞车时用）。
+   * 走同一条 applyState 通道，所以撤回、清空重选都天然可用。
+   */
+  const handleEmptyBan = () => {
+    if (!draft || !draft.firstPick) return;
+    applyState(applyPick(draft, EMPTY_BAN));
+  };
+
+  /* ---------------- 版本更新 ---------------- */
+
+  /** 手动检查：结果交给设置页反馈，同时刷新红点与横幅 */
+  const handleCheckUpdate = async (): Promise<UpdateCheckResult> => {
+    const res = await checkForUpdate();
+    if (res.status === 'update' && res.info) setUpdateInfo(res.info);
+    else if (res.status === 'latest') setUpdateInfo(null);
+    return res;
+  };
+
+  const handleDownloadUpdate = () => {
+    if (updateInfo) openExternal(updateInfo.htmlUrl);
+  };
+
+  const handleIgnoreUpdate = () => {
+    if (updateInfo) ignoreVersion(updateInfo.version);
+    setUpdateOpen(false);
+  };
+
+  /**
+   * 更新弹窗是**全局浮层**：它挂在最外层壳上，选图页 / BP 页 / 设置页
+   * 三个层级都能看到，启动检测到新版本时不管停在哪一屏都不会漏。
+   */
+  const updateOverlay =
+    updateOpen && updateInfo ? (
+      <UpdateDialog
+        info={updateInfo}
+        current={APP_VERSION}
+        onClose={() => setUpdateOpen(false)}
+        onIgnore={handleIgnoreUpdate}
+        onDownload={handleDownloadUpdate}
+      />
+    ) : null;
+
   /* ---------------- 渲染：加载 / 错误 ---------------- */
 
   if (error) {
@@ -238,17 +316,87 @@ export default function App() {
     );
   }
 
+  /* ---------------- 全局浮层 ---------------- */
+
+  const overlays = (
+    <>
+      {updateOverlay}
+
+      {detailCandidate && (
+        <BrawlerDetail candidate={detailCandidate} onClose={() => setDetailId(null)} />
+      )}
+
+      {matchupId !== null && draft && (
+        <MatchupSheet
+          idx={snap.index}
+          mapName={draft.mapName}
+          mode={draft.mode}
+          brawlerId={matchupId}
+          onClose={() => setMatchupId(null)}
+          onOpenBreakdown={() => {
+            setDetailId(matchupId);
+            setMatchupId(null);
+          }}
+        />
+      )}
+    </>
+  );
+
+  /* ---------------- 外壳：内容区 + 底部一级导航 ---------------- */
+
+  /**
+   * `navVisible` 由各页面决定：
+   *   - 选图页 / 设置页：常驻（设置是这里的唯一入口，必须可达）；
+   *   - BP 页：竖向空间充足时（非矮视口竖屏）常驻，否则让位给英雄网格与 BP 台
+   *     ——此时回设置要走顶部地图卡回到选图页，BP 进度不会因此丢失。
+   */
+  const shell = (content: ReactNode, navVisible: boolean) => (
+    <div
+      className={`flex h-dvh flex-col overflow-hidden bg-slate-950 text-slate-200 ${
+        navVisible ? 'has-bottom-nav' : ''
+      }`}
+    >
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{content}</div>
+      {navVisible && (
+        <BottomNav tab={tab} onChange={setTab} hasUpdate={updateInfo !== null} />
+      )}
+      {overlays}
+    </div>
+  );
+
+  /* ---------------- 一级页面：设置 ---------------- */
+
+  if (tab === 'settings') {
+    return shell(
+      <SettingsView
+        snapshot={snap}
+        onSaveUrl={(u) => metaStore.setRemoteUrl(u)}
+        onPull={() => metaStore.pullNow()}
+        onClearCache={() => metaStore.clearCache()}
+        updateInfo={updateInfo}
+        onCheckUpdate={handleCheckUpdate}
+        onShowUpdate={() => setUpdateOpen(true)}
+      />,
+      true,
+    );
+  }
+
+  /* ---------------- 一级页面：BP 助手 → 选图 ---------------- */
+
   // 首屏选图：尚未建局（draft 为 null）时没有返回按钮
-  if (screen === 'select' || !draft) {
-    return (
+  if (!draft || screen === 'select') {
+    return shell(
       <MapPicker
         maps={snap.meta.maps}
         current={draft?.mapName ?? ''}
         onSelect={handleSelectMap}
         onClose={draft ? () => setScreen('draft') : undefined}
-      />
+      />,
+      true,
     );
   }
+
+  /* ---------------- 一级页面：BP 助手 → BP 禁选 ---------------- */
 
   /** 双方各 3 人都选完，BP 结束，不再推荐 */
   const isComplete =
@@ -270,6 +418,38 @@ export default function App() {
   const secGridCls = landscape ? 'grid gap-x-1.5 gap-y-2' : 'grid grid-cols-5 gap-x-1.5 gap-y-2';
   const gridStyle = landscape ? autoFill : undefined;
 
+  /** Ban 阶段：当前激活的是哪个 Ban 位（决定推荐按哪一队算） */
+  const banPhase = draft.active.kind === 'ban';
+  /**
+   * 本队已 Ban 的英雄会从推荐里剔除，所以列表里出现的 Ban 英雄都是「对方已 Ban」。
+   * 这里刻意不用 useMemo：它位于若干 early return 之后，用 hook 会打乱 hooks 顺序。
+   */
+  const otherTeamBanned = new Set(banPhase ? bannedIds(draft) : []);
+
+  /**
+   * 「空 Ban」入口：放在选人面板最前面，Ban 阶段常驻。
+   * 点它 = 这个 Ban 位不 Ban 人（盲 Ban 时对面没被 Ban 到 / 双方撞车都算常见）。
+   */
+  const emptyBanEntry = banPhase ? (
+    <button
+      type="button"
+      onClick={handleEmptyBan}
+      className="mx-1 mb-1.5 flex items-center gap-2 rounded-lg border border-dashed border-slate-600/70 bg-slate-900/60 px-2 py-1.5 text-left transition-colors active:bg-slate-800"
+      aria-label="空 Ban：本槽位不 Ban 任何英雄"
+    >
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-600/80 bg-slate-950/70 text-slate-400">
+        <EmptyBanIcon size={14} />
+      </span>
+      <span className="min-w-0 flex-1 leading-tight">
+        <span className="block text-[12px] font-semibold text-slate-200">空 Ban</span>
+        <span className="block text-[10px] text-slate-500">
+          本槽位不 Ban 英雄 · 可重复使用
+        </span>
+      </span>
+      <span className="shrink-0 text-[10px] text-slate-500">跳过</span>
+    </button>
+  ) : null;
+
   const poolContent = isComplete ? (
     <div className="flex h-full flex-col items-center justify-center gap-1.5 px-6 text-center">
       <p className="text-[13px] font-semibold text-slate-300">本局 BP 已完成</p>
@@ -277,112 +457,89 @@ export default function App() {
         点击任一槽位可清空重选，或点「重置」重开本局
       </p>
     </div>
-  ) : candidates.length === 0 ? (
-    <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
-      <p className="text-[12px] text-slate-500">没有可用英雄（已全部 Ban 完 / 选完）</p>
-    </div>
   ) : (
     <>
-      {/* 第一区：高优先推荐（推荐分前 12 名，实战秒选） */}
-      <section
-        ref={topSectionRef}
-        className="mx-1 mb-1.5 rounded-lg border border-sky-500/30 bg-sky-500/[0.07] px-1.5 pb-1.5 pt-1"
-      >
-        <header className="mb-1 flex items-baseline justify-between gap-2">
-          <span className="flex items-center gap-1">
-            <Flame size={11} className="shrink-0 text-sky-400" />
-            <h3 className="text-[11px] font-bold tracking-wide text-sky-300">高优先推荐</h3>
-            <span className="text-[9px] tabular-nums text-sky-400/60">{pool.top.length}</span>
-          </span>
-          <span className="shrink-0 text-[9px] text-slate-500">
-            {draft.firstPick ? '点按填入 · 长按看对位' : '长按看对位'}
-          </span>
-        </header>
-        {/* Top 区比稀有度区更大：实战秒选更好点，也把稀有度分区推到折叠线附近 */}
-        <div className={topGridCls} style={gridStyle}>
-          {pool.top.map((c) => (
-            <BrawlerTile
-              key={c.id}
-              candidate={c}
-              rank={ranks.get(c.id) ?? 0}
-              onPick={() => handlePick(c.id)}
-              onLongPress={() => setMatchupId(c.id)}
-            />
-          ))}
+      {emptyBanEntry}
+      {candidates.length === 0 ? (
+        <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
+          <p className="text-[12px] text-slate-500">没有可用英雄（已全部 Ban 完 / 选完）</p>
         </div>
-      </section>
+      ) : (
+        <>
+          {/* 第一区：高优先推荐（推荐分前 12 名，实战秒选） */}
+          <section
+            ref={topSectionRef}
+            className="mx-1 mb-1.5 rounded-lg border border-sky-500/30 bg-sky-500/[0.07] px-1.5 pb-1.5 pt-1"
+          >
+            <header className="mb-1 flex items-baseline justify-between gap-2">
+              <span className="flex items-center gap-1">
+                <Flame size={11} className="shrink-0 text-sky-400" />
+                <h3 className="text-[11px] font-bold tracking-wide text-sky-300">高优先推荐</h3>
+                <span className="text-[9px] tabular-nums text-sky-400/60">{pool.top.length}</span>
+              </span>
+              <span className="shrink-0 text-[9px] text-slate-500">
+                {draft.firstPick ? '点按填入 · 长按看对位' : '长按看对位'}
+              </span>
+            </header>
+            {/* Top 区比稀有度区更大：实战秒选更好点，也把稀有度分区推到折叠线附近 */}
+            <div className={topGridCls} style={gridStyle}>
+              {pool.top.map((c) => (
+                <BrawlerTile
+                  key={c.id}
+                  candidate={c}
+                  rank={ranks.get(c.id) ?? 0}
+                  bannedElsewhere={otherTeamBanned.has(c.id)}
+                  onPick={() => handlePick(c.id)}
+                  onLongPress={() => setMatchupId(c.id)}
+                />
+              ))}
+            </div>
+          </section>
 
-      {/* 其余：按官方稀有度从低到高分栏，去重后不重复出现 */}
-      {pool.sections.map((sec) => (
-        <section
-          key={sec.key}
-          className="mx-1 mb-1.5 rounded-lg border px-1.5 pb-1.5 pt-1"
-          style={{ backgroundColor: `${sec.color}1A`, borderColor: `${sec.color}33` }}
-        >
-          <header className="mb-1 flex items-baseline justify-between gap-2">
-            <span className="flex items-center gap-1">
-              <span
-                className="h-1.5 w-1.5 shrink-0 rounded-full"
-                style={{ backgroundColor: sec.color }}
-              />
-              <h3 className="text-[11px] font-bold tracking-wide" style={{ color: sec.color }}>
-                {sec.label}
-              </h3>
-              <span className="text-[9px] tabular-nums text-slate-500">{sec.items.length}</span>
-            </span>
-          </header>
-          <div className={secGridCls} style={gridStyle}>
-            {sec.items.map((c) => (
-              <BrawlerTile
-                key={c.id}
-                candidate={c}
-                rank={ranks.get(c.id) ?? 0}
-                onPick={() => handlePick(c.id)}
-                onLongPress={() => setMatchupId(c.id)}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
-    </>
-  );
-
-  const overlays = (
-    <>
-      {settingsOpen && (
-        <SettingsSheet
-          snapshot={snap}
-          onClose={() => setSettingsOpen(false)}
-          onSaveUrl={(u) => metaStore.setRemoteUrl(u)}
-          onPull={() => metaStore.pullNow()}
-          onClearCache={() => metaStore.clearCache()}
-        />
-      )}
-
-      {detailCandidate && (
-        <BrawlerDetail candidate={detailCandidate} onClose={() => setDetailId(null)} />
-      )}
-
-      {matchupId !== null && (
-        <MatchupSheet
-          idx={snap.index}
-          mapName={draft.mapName}
-          mode={draft.mode}
-          brawlerId={matchupId}
-          onClose={() => setMatchupId(null)}
-          onOpenBreakdown={() => {
-            setDetailId(matchupId);
-            setMatchupId(null);
-          }}
-        />
+          {/* 其余：按官方稀有度从低到高分栏，去重后不重复出现 */}
+          {pool.sections.map((sec) => (
+            <section
+              key={sec.key}
+              className="mx-1 mb-1.5 rounded-lg border px-1.5 pb-1.5 pt-1"
+              style={{ backgroundColor: `${sec.color}1A`, borderColor: `${sec.color}33` }}
+            >
+              <header className="mb-1 flex items-baseline justify-between gap-2">
+                <span className="flex items-center gap-1">
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: sec.color }}
+                  />
+                  <h3 className="text-[11px] font-bold tracking-wide" style={{ color: sec.color }}>
+                    {sec.label}
+                  </h3>
+                  <span className="text-[9px] tabular-nums text-slate-500">
+                    {sec.items.length}
+                  </span>
+                </span>
+              </header>
+              <div className={secGridCls} style={gridStyle}>
+                {sec.items.map((c) => (
+                  <BrawlerTile
+                    key={c.id}
+                    candidate={c}
+                    rank={ranks.get(c.id) ?? 0}
+                    bannedElsewhere={otherTeamBanned.has(c.id)}
+                    onPick={() => handlePick(c.id)}
+                    onLongPress={() => setMatchupId(c.id)}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </>
       )}
     </>
   );
 
   /* ---------------- 横屏：左战局固定 + 右英雄池通栏 ---------------- */
   if (landscape) {
-    return (
-      <div className="flex h-dvh flex-row overflow-hidden bg-slate-950 text-slate-200">
+    return shell(
+      <div className="flex h-full flex-row overflow-hidden">
         <aside className="flex w-[43%] min-w-[220px] max-w-[350px] shrink-0 flex-col border-r border-slate-800/80 bg-slate-950">
           <TopBar
             variant="strip"
@@ -390,9 +547,9 @@ export default function App() {
             mode={draft.mode}
             mapGames={mapGames}
             tierLabel={tierLabel}
+            dataDate={snap.dataDate}
             warnings={warnings}
             onOpenMap={() => setScreen('select')}
-            onOpenSettings={() => setSettingsOpen(true)}
           />
           <DraftBar
             variant="landscape"
@@ -416,15 +573,15 @@ export default function App() {
         >
           {poolContent}
         </main>
-
-        {overlays}
-      </div>
+      </div>,
+      // 横屏双栏：竖向空间全给 BP 台，底部导航让位（换图 / 设置走顶栏地图条）
+      false,
     );
   }
 
   /* ---------------- 竖屏：地图卡进滚动流 + 底部 BP 台 ---------------- */
-  return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-slate-950 text-slate-200">
+  return shell(
+    <div className="flex h-full flex-col overflow-hidden">
       {/* 地图详情卡是滚动容器里的第一块内容，往下滑就滚走（不吸顶） */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-1.5">
         <TopBar
@@ -433,9 +590,9 @@ export default function App() {
           mode={draft.mode}
           mapGames={mapGames}
           tierLabel={tierLabel}
+          dataDate={snap.dataDate}
           warnings={warnings}
           onOpenMap={() => setScreen('select')}
-          onOpenSettings={() => setSettingsOpen(true)}
         />
         {poolContent}
       </div>
@@ -453,8 +610,8 @@ export default function App() {
         onChooseFirst={handleChooseFirst}
         canUndo={history.length > 0}
       />
-
-      {overlays}
-    </div>
+    </div>,
+    // 矮视口（悬浮小窗 / 分屏）时底部导航让位，避免把英雄池压成一条缝
+    !vp.short,
   );
 }

@@ -13,6 +13,11 @@ interface BrawlerTileProps {
   candidate: Candidate;
   /** 当前列表里的推荐排名（1 起） */
   rank: number;
+  /**
+   * 该英雄已被「对方」Ban 掉（Ban 阶段会保留在列表里，方便重复 Ban）。
+   * 打一枚小角标，避免用户以为是列表漏筛。
+   */
+  bannedElsewhere?: boolean;
   onPick: () => void;
   /** 长按 / 右键：打开该英雄在本图的详细对位 */
   onLongPress: () => void;
@@ -38,7 +43,13 @@ function PickBadge({ order }: { order: Candidate['pickOrder'] }) {
  * 自上而下对应对方第 1/2/3 个槽位；对方还没亮牌时不占位。
  * 卡片分数展示的是**本图基础分**，与底部槽位同口径；动态推荐分只用于排序。
  */
-export default function BrawlerTile({ candidate, rank, onPick, onLongPress }: BrawlerTileProps) {
+export default function BrawlerTile({
+  candidate,
+  rank,
+  bannedElsewhere = false,
+  onPick,
+  onLongPress,
+}: BrawlerTileProps) {
   const c = candidate;
   const press = useLongPress({ onLongPress, onClick: onPick });
 
@@ -85,6 +96,12 @@ export default function BrawlerTile({ candidate, rank, onPick, onLongPress }: Br
           <span className="absolute left-0 top-0 rounded-br-[3px] bg-black/70 px-1 text-[8px] font-bold leading-[11px] tabular-nums text-slate-200">
             {rank}
           </span>
+          {/* 对方已 Ban：允许重复 Ban，但要让用户知道这手已经 Ban 过 */}
+          {bannedElsewhere && (
+            <span className="absolute right-0 top-0 rounded-bl-[3px] bg-enemy/85 px-1 text-[8px] font-bold leading-[11px] text-white">
+              已Ban
+            </span>
+          )}
         </div>
       </div>
 

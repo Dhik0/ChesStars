@@ -121,8 +121,12 @@ describe('英雄池分区', () => {
   });
 
   it('Ban 满 6 人后总数减少，分区依然不重不漏', () => {
-    const state = { ...createDraft(MAP.map_name, MAP.mode, 'ally') };
-    state.bans = META.brawlers.slice(0, 6).map((b) => b.id);
+    // Ban 满即进入 Pick 阶段：这里要验的是 Pick 池，所以 active 直接指向己方第 1 手
+    const state = {
+      ...createDraft(MAP.map_name, MAP.mode, 'ally'),
+      bans: META.brawlers.slice(0, 6).map((b) => b.id),
+      active: { kind: 'ally' as const, index: 0 },
+    };
     const cands = recommend(IDX, state, 200);
     const { top, sections } = buildBrawlerPool(cands);
     const all = [...ids(top), ...sections.flatMap((s) => ids(s.items))];

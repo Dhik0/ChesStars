@@ -23,6 +23,9 @@ interface MapPickerProps {
  *
  * 布局：按 6 个模式分组，每组竖屏两列、横屏三到四列自适应网格，
  * 卡片内左侧是地图缩略图。分组头放大模式图标 + 标题，滑动时能一眼认出模式。
+ *
+ * 它是「BP 助手」这个一级 Tab 下的一个页面（不是浮层）：撑满内容区，
+ * 底部由 App 统一挂底部导航栏。
  */
 export default function MapPicker({ maps, current, onSelect, onClose }: MapPickerProps) {
   const [query, setQuery] = useState('');
@@ -42,7 +45,7 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
   const hitCount = grouped.reduce((n, g) => n + g.items.length, 0);
 
   return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-slate-950 animate-fade-in">
+    <div className="flex h-full min-h-0 flex-col bg-slate-950 animate-fade-in">
       <div className="shrink-0 border-b border-slate-800 px-2 pb-2 pt-2 safe-top">
         {/* 竖屏：标题一行 + 搜索一行；横屏：标题 / 搜索 / 关闭 同一行，省出的高度全给地图网格 */}
         <div className="grid grid-flow-row-dense grid-cols-[minmax(0,1fr)_auto] items-center gap-2 landscape:grid-cols-[auto_minmax(0,1fr)_auto] landscape:gap-3">

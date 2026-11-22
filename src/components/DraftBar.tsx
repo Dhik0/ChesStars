@@ -1,11 +1,16 @@
+import { Fragment } from 'react';
 import { RotateCcw, Undo2 } from 'lucide-react';
 import type { MetaIndex } from '../data/metaIndex';
-import type { ActiveSlot, DraftState, Side } from '../utils/draftEngine';
+import type { ActiveSlot, BanValue, DraftState, Side } from '../utils/draftEngine';
 import {
   BAN_SLOTS,
+  BAN_SLOTS_PER_TEAM,
   TEAM_SLOTS,
+  banCount,
+  banSideOfIndex,
   counterDetail,
   counterLight,
+  isEmptyBan,
   pickNumber,
   slotBase,
   slotPickNumbers,
@@ -290,6 +295,80 @@ function SlotCell({
   );
 }
 
+/* ------------------------------------------------------------------ *
+ * Ban 位
+ * ------------------------------------------------------------------ */
+
+interface BanCellProps {
+  index: number;
+  value: BanValue;
+  active: boolean;
+  getBrawler: DraftBarProps['getBrawler'];
+  onActivate: () => void;
+  onClear: () => void;
+}
+
+/**
+ * 单个 Ban 格。三种形态：
+ *   空槽 → 显示全局序号；空 Ban → 中性 `Ø` 占位；有英雄 → 灰度头像 + 红叉。
+ * 槽位归属（蓝 1-3 / 红 4-6）只体现在 aria-label 与空格序号配色上，
+ * 不额外占宽度——Ban 行本来就挤。
+ */
+function BanCell({ index, value, active, getBrawler, onActivate, onClear }: BanCellProps) {
+  const side = banSideOfIndex(index);
+  const sideLabel = side === 'ally' ? '己方' : '敌方';
+  const teamIndex = (index % BAN_SLOTS_PER_TEAM) + 1;
+  const blank = isEmptyBan(value);
+  const filled = value !== null && value !== undefined;
+  const info = typeof value === 'number' && !blank ? getBrawler(value) : undefined;
+
+  return (
+    <button
+      type="button"
+      onClick={() => (filled ? onClear() : onActivate())}
+      className={`relative flex aspect-square min-w-0 max-w-[var(--ban-max)] flex-1 items-center justify-center overflow-hidden rounded border transition-all ${
+        active
+          ? 'border-slate-400 bg-slate-800 ring-2 ring-slate-200/80 shadow-[0_0_8px_rgba(255,255,255,0.35)]'
+          : blank
+            ? 'border-dashed border-slate-500/80 bg-slate-900'
+            : 'border-slate-700/80 bg-slate-900'
+      }`}
+      aria-label={`${sideLabel} Ban 第 ${teamIndex} 位（全局第 ${index + 1} 格）${
+        info ? `：${info.cn}` : blank ? '：空 Ban' : '（空）'
+      }`}
+      title={blank ? `${sideLabel}空 Ban（未锁定英雄）` : undefined}
+    >
+      {info && typeof value === 'number' ? (
+        <>
+          <Avatar
+            id={value}
+            name={info.name}
+            fill
+            rounded="rounded-sm"
+            className="opacity-60 grayscale"
+          />
+          <span className="absolute inset-0 flex items-center justify-center">
+            <span className="h-[1.5px] w-[70%] rotate-45 bg-enemy/90" />
+            <span className="absolute h-[1.5px] w-[70%] -rotate-45 bg-enemy/90" />
+          </span>
+        </>
+      ) : blank ? (
+        <span className="text-[13px] font-bold leading-none text-slate-400" aria-hidden>
+          Ø
+        </span>
+      ) : (
+        <span
+          className={`text-[10px] tabular-nums ${
+            side === 'ally' ? 'text-ally/45' : 'text-enemy/45'
+          }`}
+        >
+          {index + 1}
+        </span>
+      )}
+    </button>
+  );
+}
+
 /** Ban 行最右侧的先手切换按钮：蓝先 / 红先，点一下直接换边（无图标，纯文字） */
 function SideSwitch({
   side,
@@ -357,7 +436,7 @@ export default function DraftBar({
       <button
         type="button"
         onClick={onReset}
-        disabled={!state.bans.length && !state.ally.length && !state.enemy.length}
+        disabled={!banCount(state) && !state.ally.length && !state.enemy.length}
         className="flex h-[var(--act-h)] items-center justify-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 text-[12px] font-semibold text-slate-300 transition-colors active:bg-slate-800 active:text-slate-100 disabled:opacity-35 disabled:active:bg-slate-900/80"
         aria-label="重置本局"
       >
@@ -388,12 +467,17 @@ export default function DraftBar({
   const banPhase = state.active.kind === 'ban';
   /** 蛇形顺位：先手方 1/4/5，后手方 2/3/6 */
   const pickNos = slotPickNumbers(state);
+  const filledBans = banCount(state);
   const phaseTop = banPhase ? 'Ban' : `第${pickNumber(state)}手`;
-  const phaseBottom = banPhase ? `${state.bans.length}/${BAN_SLOTS}` : state.active.kind === 'ally' ? '我选' : '敌选';
+  const phaseBottom = banPhase
+    ? `${filledBans}/${BAN_SLOTS}`
+    : state.active.kind === 'ally'
+      ? '我选'
+      : '敌选';
 
   return (
     <footer className={shell}>
-      {/* Ban 行：6 个 Ban 位 + 最右侧先手切换 */}
+      {/* Ban 行：6 个 Ban 位（前 3 己方 / 后 3 敌方）+ 最右侧先手切换 */}
       <div className="flex shrink-0 items-center gap-1.5">
         <span className={`shrink-0 leading-tight ${landscape ? 'w-9' : 'w-11'}`}>
           <span
@@ -411,46 +495,28 @@ export default function DraftBar({
         </span>
 
         <div className="flex min-w-0 flex-1 items-center gap-1">
-          {Array.from({ length: BAN_SLOTS }, (_, i) => {
-            const id = state.bans[i];
-            const info = id !== undefined ? getBrawler(id) : undefined;
-            const active = isActive(state.active, 'ban', i);
-            return (
-              <button
-                key={`ban-${i}`}
-                type="button"
-                onClick={() =>
-                  id !== undefined
-                    ? onClear({ kind: 'ban', index: i })
-                    : onActivate({ kind: 'ban', index: i })
-                }
-                className={`relative flex aspect-square min-w-0 max-w-[var(--ban-max)] flex-1 items-center justify-center overflow-hidden rounded border transition-all ${
-                  active
-                    ? 'border-slate-400 bg-slate-800 ring-2 ring-slate-200/80 shadow-[0_0_8px_rgba(255,255,255,0.35)]'
-                    : 'border-slate-700/80 bg-slate-900'
-                }`}
-                aria-label={`Ban 位 ${i + 1}${info ? `：${info.cn}` : '（空）'}`}
-              >
-                {info ? (
-                  <>
-                    <Avatar
-                      id={id!}
-                      name={info.name}
-                      fill
-                      rounded="rounded-sm"
-                      className="opacity-60 grayscale"
+          {[0, BAN_SLOTS_PER_TEAM].map((start, group) => (
+            <Fragment key={start}>
+              {/* 队内 3 位之间细缝、两队之间一道竖线：不占宽度也能看出分组 */}
+              {group > 0 && <span className="h-5 w-px shrink-0 bg-slate-700/80" aria-hidden />}
+              <div className="flex min-w-0 flex-1 items-center gap-1">
+                {Array.from({ length: BAN_SLOTS_PER_TEAM }, (_, k) => {
+                  const i = start + k;
+                  return (
+                    <BanCell
+                      key={`ban-${i}`}
+                      index={i}
+                      value={state.bans[i] ?? null}
+                      active={isActive(state.active, 'ban', i)}
+                      getBrawler={getBrawler}
+                      onActivate={() => onActivate({ kind: 'ban', index: i })}
+                      onClear={() => onClear({ kind: 'ban', index: i })}
                     />
-                    <span className="absolute inset-0 flex items-center justify-center">
-                      <span className="h-[1.5px] w-[70%] rotate-45 bg-enemy/90" />
-                      <span className="absolute h-[1.5px] w-[70%] -rotate-45 bg-enemy/90" />
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-[10px] text-slate-600">{i + 1}</span>
-                )}
-              </button>
-            );
-          })}
+                  );
+                })}
+              </div>
+            </Fragment>
+          ))}
         </div>
 
         <SideSwitch side={state.firstPick} onSwitch={onChooseFirst} compact={landscape} />

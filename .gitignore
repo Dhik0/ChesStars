@@ -25,3 +25,5 @@ keystore.properties
 Thumbs.db
 .vscode/
 .idea/
+
+android/app/release/

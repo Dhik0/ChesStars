@@ -24,3 +24,25 @@
   },
   "include": ["src", "vite.config.ts", "capacitor.config.ts"]
 }
+
+/* ============================================================================
+ * ChesStars 前端发版 & 推送速查清单
+ * ============================================================================
+ * 1. 核对版本号（已改则跳过）：
+ *    - package.json -> "version": "1.x.x"
+ *    - android/app/build.gradle -> versionCode +1, versionName "1.x.x"
+ *
+ * 2. 构建前端并同步到 Android 工程：
+ *    npm run build && npx cap sync android
+ *
+ * 3. 提交并推送代码到 GitHub：
+ *    git status
+ *    git add .
+ *    git commit -m "chore: release v1.x.x"
+ *    git push origin main
+ *
+ * 4. 打包 & 发布 Release（需带 APK 时）：
+ *    - Android Studio: Build -> Generate Signed Bundle / APK -> release
+ *    - 产物路径: android/app/release/app-release.apk -> 重命名为 ChesStars-v1.x.x.apk
+ *    - GitHub -> Releases -> Draft a new release -> 新建 Tag: v1.x.x -> 上传 APK 并发布
+ * ============================================================================ */
