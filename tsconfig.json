@@ -37,6 +37,7 @@
  *
  * 3. 提交并推送代码到 GitHub：
  *    git status
+ *    Add-Content .gitignore "`nandroid/app/release/"
  *    git add .
  *    git commit -m "chore: release v1.x.x"
  *    git push origin main
