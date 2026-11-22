@@ -26,8 +26,16 @@
 }
 
 /* ============================================================================
- * ChesStars 前端发版 & 推送速查清单
+ * ChesStars 前端 Git 推送 & 发版速查清单
  * ============================================================================
+ * 【场景 A：日常小修改（仅备份代码，不发新安装包）】
+ *    git pull origin main          # 若在 GitHub 网页改过 README，先拉取一次
+ *    git add .
+ *    git commit -m "fix: 修改说明"  # 前缀常用：fix: 修bug / feat: 新功能 / docs: 文档
+ *    git push origin main
+ *
+ * ----------------------------------------------------------------------------
+ * 【场景 B：发布新版本（需要更新版本号并上传新 APK）】
  * 1. 核对版本号（已改则跳过）：
  *    - package.json -> "version": "1.x.x"
  *    - android/app/build.gradle -> versionCode +1, versionName "1.x.x"
@@ -36,13 +44,11 @@
  *    npm run build && npx cap sync android
  *
  * 3. 提交并推送代码到 GitHub：
- *    git status
- *    Add-Content .gitignore "`nandroid/app/release/"
  *    git add .
  *    git commit -m "chore: release v1.x.x"
  *    git push origin main
  *
- * 4. 打包 & 发布 Release（需带 APK 时）：
+ * 4. 打包 & 发布 Release：
  *    - Android Studio: Build -> Generate Signed Bundle / APK -> release
  *    - 产物路径: android/app/release/app-release.apk -> 重命名为 ChesStars-v1.x.x.apk
  *    - GitHub -> Releases -> Draft a new release -> 新建 Tag: v1.x.x -> 上传 APK 并发布
