@@ -1,0 +1,248 @@
+import { buildIndex, type MetaIndex } from '../data/metaIndex';
+import {
+  validateMeta,
+  type BrawlMeta,
+  type MetaSource,
+} from '../types/meta';
+
+/**
+ * 数据仓库：离线优先 + 远程热更新（Stale-While-Revalidate）
+ *
+ * 读取优先级：
+ *   1. localStorage 缓存（上次成功加载/更新的完整 JSON）→ source = 'cache'
+ *   2. 打包内置 ./data/brawl_meta.json（断网零延迟兜底）→ source = 'builtin'
+ *   3. 后台静默拉取远程 URL，成功且 updated_at 更新则替换 → source = 'remote'
+ */
+
+/** 默认远程更新地址（jsDelivr 加速的 GitHub 仓库） */
+export const DEFAULT_REMOTE_URL =
+  'https://cdn.jsdelivr.net/gh/Dhik0/-brawl-draft-core-@main/dist/brawl_meta.json';
+
+const LS_META = 'brawl.meta.v2.payload';
+const LS_URL = 'brawl.meta.v2.remoteUrl';
+
+/** 远程检查超时（毫秒），超时即放弃且不阻塞界面 */
+export const REMOTE_TIMEOUT_MS = 5000;
+
+/** 内置兜底文件路径：兼容 dev（/）与 Capacitor（./）两种 base */
+export function builtinMetaUrl(): string {
+  const base = import.meta.env.BASE_URL || './';
+  return `${base}${base.endsWith('/') ? '' : '/'}data/brawl_meta.json`;
+}
+
+export interface MetaSnapshot {
+  meta: BrawlMeta;
+  index: MetaIndex;
+  source: MetaSource;
+  /** 当前数据文件自带的更新时间 */
+  updatedAt: string;
+  totalBattles: number;
+  remoteUrl: string;
+  /** 最近一次远程检查的失败原因（成功后清空） */
+  lastError: string | null;
+  loading: boolean;
+}
+
+export interface PullResult {
+  ok: boolean;
+  /** 远程数据是否比当前新 */
+  updated: boolean;
+  message: string;
+}
+
+type Listener = (snap: MetaSnapshot) => void;
+
+/** 带超时的 fetch，返回解析后的 unknown */
+async function fetchJson(url: string, timeoutMs: number): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as unknown;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function readUrl(): string {
+  try {
+    return localStorage.getItem(LS_URL) ?? DEFAULT_REMOTE_URL;
+  } catch {
+    return DEFAULT_REMOTE_URL;
+  }
+}
+
+function readCache(): BrawlMeta | null {
+  try {
+    const raw = localStorage.getItem(LS_META);
+    if (!raw) return null;
+    return validateMeta(JSON.parse(raw) as unknown);
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(meta: BrawlMeta): boolean {
+  try {
+    localStorage.setItem(LS_META, JSON.stringify(meta));
+    return true;
+  } catch {
+    // 配额不足（如无痕模式）时静默失败，不影响本次会话使用
+    return false;
+  }
+}
+
+function isNewer(incoming: BrawlMeta, current: BrawlMeta): boolean {
+  const a = Date.parse(incoming.updated_at);
+  const b = Date.parse(current.updated_at);
+  if (Number.isNaN(a)) return false;
+  if (Number.isNaN(b)) return true;
+  return a > b;
+}
+
+class MetaStore {
+  private snapshot: MetaSnapshot | null = null;
+  private listeners = new Set<Listener>();
+  private initPromise: Promise<MetaSnapshot> | null = null;
+
+  getSnapshot(): MetaSnapshot | null {
+    return this.snapshot;
+  }
+
+  subscribe(fn: Listener): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  private emit(): void {
+    if (!this.snapshot) return;
+    for (const fn of this.listeners) fn(this.snapshot);
+  }
+
+  private setMeta(meta: BrawlMeta, source: MetaSource, lastError: string | null): void {
+    this.snapshot = {
+      meta,
+      index: buildIndex(meta),
+      source,
+      updatedAt: meta.updated_at,
+      totalBattles: meta.total_battles,
+      remoteUrl: readUrl(),
+      lastError,
+      loading: false,
+    };
+    this.emit();
+  }
+
+  /** 首次加载：缓存优先，其次内置，全部失败才报错 */
+  async init(): Promise<MetaSnapshot> {
+    if (this.snapshot) return this.snapshot;
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = (async () => {
+      const cached = readCache();
+      if (cached) {
+        this.setMeta(cached, 'cache', null);
+        // 有缓存也不阻塞：后台静默检查更新
+        void this.silentCheck();
+        return this.snapshot!;
+      }
+
+      try {
+        const raw = await fetchJson(builtinMetaUrl(), 15000);
+        const meta = validateMeta(raw);
+        this.setMeta(meta, 'builtin', null);
+        void this.silentCheck();
+        return this.snapshot!;
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        throw new Error(`内置数据加载失败：${reason}`);
+      }
+    })();
+
+    return this.initPromise;
+  }
+
+  /** 启动时静默检查：超时/失败一律忽略，只记录原因 */
+  async silentCheck(): Promise<void> {
+    if (!this.snapshot) return;
+    const url = readUrl();
+    try {
+      const raw = await fetchJson(url, REMOTE_TIMEOUT_MS);
+      const meta = validateMeta(raw);
+      if (isNewer(meta, this.snapshot.meta)) {
+        writeCache(meta);
+        this.setMeta(meta, 'remote', null);
+      } else if (this.snapshot.lastError) {
+        this.snapshot = { ...this.snapshot, lastError: null };
+        this.emit();
+      }
+    } catch (err) {
+      if (!this.snapshot) return;
+      const reason = err instanceof Error ? err.message : String(err);
+      this.snapshot = { ...this.snapshot, lastError: `远程检查失败：${reason}` };
+      this.emit();
+    }
+  }
+
+  /** 手动「立即拉取最新数据」，返回可读结果 */
+  async pullNow(): Promise<PullResult> {
+    if (!this.snapshot) return { ok: false, updated: false, message: '数据尚未初始化' };
+    const url = readUrl();
+    this.snapshot = { ...this.snapshot, loading: true };
+    this.emit();
+
+    try {
+      const raw = await fetchJson(url, 15000);
+      const meta = validateMeta(raw);
+      if (isNewer(meta, this.snapshot.meta)) {
+        writeCache(meta);
+        this.setMeta(meta, 'remote', null);
+        return {
+          ok: true,
+          updated: true,
+          message: `已更新至 ${meta.updated_at}（${meta.total_battles.toLocaleString()} 场对局）`,
+        };
+      }
+      this.snapshot = { ...this.snapshot, loading: false, lastError: null };
+      this.emit();
+      return { ok: true, updated: false, message: '已是最新数据' };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.snapshot = { ...this.snapshot, loading: false, lastError: `拉取失败：${reason}` };
+      this.emit();
+      return { ok: false, updated: false, message: `拉取失败：${reason}` };
+    }
+  }
+
+  /** 保存远程地址（空字符串回退默认值） */
+  setRemoteUrl(url: string): void {
+    const trimmed = url.trim() || DEFAULT_REMOTE_URL;
+    try {
+      localStorage.setItem(LS_URL, trimmed);
+    } catch {
+      /* 忽略存储失败 */
+    }
+    if (this.snapshot) {
+      this.snapshot = { ...this.snapshot, remoteUrl: trimmed };
+      this.emit();
+    }
+  }
+
+  /** 清除本地缓存，回到内置数据 */
+  async clearCache(): Promise<void> {
+    try {
+      localStorage.removeItem(LS_META);
+    } catch {
+      /* 忽略 */
+    }
+    const raw = await fetchJson(builtinMetaUrl(), 15000);
+    this.setMeta(validateMeta(raw), 'builtin', null);
+  }
+}
+
+export const metaStore = new MetaStore();

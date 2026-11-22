@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+shots/
+*.local
+
+# test / screenshots
+shot-*.png
+
+# android
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+*.keystore
+keystore.properties
+
+# os / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

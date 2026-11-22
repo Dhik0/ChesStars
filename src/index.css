@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+
+    /* 触控尺寸：小窗下统一按「手指点得到」来定 */
+    --tap-sm: 34px; /* 次要按钮 / 图标按钮 / 搜索框 */
+    --chip-h: 26px; /* 筛选标签高度 */
+    --row-h: 52px; /* 列表行高 */
+    --avatar: 38px; /* 列表头像 */
+    --font-name: 14px; /* 英雄名字号 */
+
+    /* 底部 BP 区尺寸：矮视口（悬浮小窗）由下方媒体查询整体压紧 */
+    --slot-h: 52px; /* 选角槽行高 */
+    --slot-avatar-w: 52px; /* 槽位内头像宽度 */
+    --slot-gap: 4px; /* 槽位间距 */
+    --ban-max: 40px; /* Ban 格最大边长 */
+    --act-h: 40px; /* 撤回 / 重置按钮高度 */
+    --draft-pt: 6px; /* BP 区上内边距 */
+    --draft-pb: max(8px, env(safe-area-inset-bottom, 0px)); /* BP 区下内边距 */
+    --draft-gap: 6px; /* BP 区内部行间距 */
+  }
+
+  /*
+   * 竖屏矮视口（安卓悬浮小窗 / 分屏）：
+   * 顶部地图卡 + 底部 BP 区曾把英雄池夹成一条缝，这里把底部整块压紧，
+   * 保证进入 BP 后英雄池仍能露出 2~3 排。
+   * 只作用于竖屏，横屏走左右双栏（槽位用弹性高度，不读这些变量）。
+   */
+  @media (max-height: 660px) and (orientation: portrait) {
+    :root {
+      --slot-h: 44px;
+      --slot-avatar-w: 44px;
+      --slot-gap: 3px;
+      --ban-max: 32px;
+      --act-h: 34px;
+      --draft-pt: 4px;
+      --draft-pb: max(4px, env(safe-area-inset-bottom, 0px));
+      --draft-gap: 4px;
+    }
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    background-color: #020617;
+    color: #e2e8f0;
+  }
+
+  body {
+    /* 小窗场景彻底禁止页面级横向滚动与橡皮筋 */
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  button {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  input {
+    font-size: 16px; /* 防止 iOS/Android WebView 聚焦时自动放大 */
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  /* dvh 在老 WebView 不支持时回退到 vh，避免容器高度塌陷 */
+  .h-dvh {
+    height: 100vh;
+    height: 100dvh;
+  }
+  .max-h-dvh-86 {
+    max-height: 86vh;
+    max-height: 86dvh;
+  }
+  .max-h-dvh-88 {
+    max-height: 88vh;
+    max-height: 88dvh;
+  }
+}
