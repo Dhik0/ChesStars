@@ -27,3 +27,6 @@ Thumbs.db
 .idea/
 
 android/app/release/
+
+.workbuddy-ai/
+.tmp/
