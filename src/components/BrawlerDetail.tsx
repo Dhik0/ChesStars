@@ -224,6 +224,8 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
               <div className="mb-2 divide-y divide-slate-800 rounded-lg border border-slate-800 bg-slate-950/50">
                 {candidate.counterDetails.map((d) => {
                   const good = d.delta > 0;
+                  const pred =
+                    d.predictedWr !== null ? `预期 ${Math.round(d.predictedWr * 100)}%` : null;
                   return (
                     <div key={d.opponentId} className="flex items-center gap-2 px-2 py-1.5">
                       <Avatar id={d.opponentId} name={d.opponentName} size={22} />
@@ -232,11 +234,16 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
                       </span>
                       {!d.hasSample && (
                         <span className="shrink-0 rounded bg-slate-800 px-1 text-[9px] text-slate-500">
-                          样本不足
+                          无对位
+                        </span>
+                      )}
+                      {d.hasSample && pred && (
+                        <span className="shrink-0 text-[9px] tabular-nums text-slate-500">
+                          {pred}
                         </span>
                       )}
                       <span className="shrink-0 text-[9px] tabular-nums text-slate-600">
-                        {d.samples}场
+                        {d.hasSample ? `${d.samples}场` : ''}
                       </span>
                       <span
                         className={`shrink-0 text-[12px] font-semibold tabular-nums ${
@@ -254,7 +261,8 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
 
           {candidate.counterDetails.length > 0 && (
             <p className="mt-2 text-[10px] leading-relaxed text-slate-600">
-              对位差值取自后端 Log5 残差（百分点），已按样本量收缩；样本不足的对手不计入克制均值。
+              对位差值取自后端 Log5 残差（百分点），已按有效样本分层平滑；
+              预期胜率 = Log5(双方本图基准胜率) + 残差。场次为原始交手数，仅供参考。
             </p>
           )}
         </div>

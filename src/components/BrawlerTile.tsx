@@ -2,8 +2,8 @@ import type { Candidate } from '../utils/draftEngine';
 import { TEAM_SLOTS, counterLight } from '../utils/draftEngine';
 import {
   COUNTER_LIGHT_CLASS,
-  COUNTER_LIGHT_TEXT,
   baseScoreColor,
+  counterTip,
   orderTag,
 } from '../utils/display';
 import { useLongPress } from '../utils/useLongPress';
@@ -64,16 +64,12 @@ export default function BrawlerTile({
       className="flex cursor-pointer select-none flex-col items-center"
     >
       <div className="flex w-full items-stretch gap-[2px]">
-        {/* 固定 3 格：自上而下对应对方第 1/2/3 槽；未选人 / 无样本一律中性灰 */}
+        {/* 固定 3 格：自上而下对应对方第 1/2/3 槽；未选人 / 无对位一律中性灰 */}
         <span className="flex w-[4px] shrink-0 flex-col gap-[2px] py-[1px]">
           {Array.from({ length: TEAM_SLOTS }, (_, i) => {
             const d = bars[i];
             const light = counterLight(d);
-            const tip = !d
-              ? `对方第 ${i + 1} 槽尚未选人`
-              : d.hasSample
-                ? `对 ${d.opponentName} ${d.rawDelta > 0 ? '+' : ''}${d.rawDelta.toFixed(1)}pp（${COUNTER_LIGHT_TEXT[light]} · ${d.samples}场）`
-                : `对 ${d.opponentName} 无可用对位样本`;
+            const tip = d ? counterTip(d, d.opponentName) : `对方第 ${i + 1} 槽尚未选人`;
             return (
               <span
                 key={i}

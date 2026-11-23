@@ -17,8 +17,8 @@ import {
 } from '../utils/draftEngine';
 import {
   COUNTER_LIGHT_CLASS,
-  COUNTER_LIGHT_TEXT,
   baseScoreColor,
+  counterTip,
   orderTag,
 } from '../utils/display';
 import { useLongPress } from '../utils/useLongPress';
@@ -202,7 +202,8 @@ function SlotCell({
 
   /**
    * 中轴竖排色条：**固定 3 格**，自上而下对应对方第 1/2/3 行槽位。
-   * 绿=我方占优 / 红=被压制 / 黄=均势 / 灰=对方该位空着或无对位样本（统一中性灰占位）。
+   * 绿=我方占优且本图预期胜率过半 / 红=被压制 / 中性灰=残差不够或预期不过半 /
+   * 深灰=对方该位空着或无对位记录。
    */
   const strip =
     id !== undefined ? (
@@ -221,11 +222,12 @@ function SlotCell({
           const detail = detailByOpp.get(oppId);
           const light = counterLight(detail);
           const name = getBrawler(oppId)?.cn ?? '';
-          const tip = detail?.hasSample
-            ? `对 ${name} ${detail.rawDelta > 0 ? '+' : ''}${detail.rawDelta.toFixed(1)}pp（${COUNTER_LIGHT_TEXT[light]} · ${detail.samples}场）`
-            : `对 ${name} 无可用对位样本`;
           return (
-            <span key={i} className={`flex-1 rounded-[1px] ${COUNTER_LIGHT_CLASS[light]}`} title={tip} />
+            <span
+              key={i}
+              className={`flex-1 rounded-[1px] ${COUNTER_LIGHT_CLASS[light]}`}
+              title={counterTip(detail, name)}
+            />
           );
         })}
       </span>

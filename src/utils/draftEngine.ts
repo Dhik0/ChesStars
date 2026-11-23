@@ -218,11 +218,20 @@ const COUNTER_SYNERGY: Record<number, number> = { 2: 1.15, 3: 1.35 };
 export const TAG_THRESHOLD = 4;
 
 /**
- * 底部状态灯的「优势/劣势」分界（百分点）。
- * delta >= +3 → 绿灯；delta <= -3 → 红灯；其余 → 黄灯。
- * 样本不足或没有这条对位 → 灰灯（不猜）。
+ * 克制色条的绿/红分界（百分点）。
+ *
+ * 后端导出的 `delta` 已按 `eff_n >= 15` 与 `|delta| >= 2.0` 过滤过，
+ * 这里只决定「上不上色」：|delta| < 2.5 一律中性灰。
  */
-export const COUNTER_LIGHT_PP = 3;
+export const COUNTER_LIGHT_PP = 2.5;
+/** 绿灯所需的最小正残差（百分点） */
+export const COUNTER_GREEN_PP = COUNTER_LIGHT_PP;
+/** 红灯所需的最大负残差（百分点） */
+export const COUNTER_RED_PP = -COUNTER_LIGHT_PP;
+
+/** 本图基准胜率的钳制区间，与后端 analyzer.rs 的 BASE_RATE_FLOOR/CEIL 一致 */
+export const BASE_RATE_MIN = 0.05;
+export const BASE_RATE_MAX = 0.95;
 
 /** 顺位序列（3v3 蛇形）：先手 A1 → B1 → B2 → A2 → A3 → B3 */
 const PICK_SEQUENCE: Side[] = ['ally', 'enemy', 'enemy', 'ally', 'ally', 'enemy'];
@@ -230,6 +239,56 @@ const PICK_SEQUENCE: Side[] = ['ally', 'enemy', 'enemy', 'ally', 'ally', 'enemy'
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 const pct = (v: number): string => `${Math.round(v * 100)}%`;
+
+/* ------------------------------------------------------------------ *
+ * 胜率口径：归一化 + Log5（与后端 analyzer.rs 完全同口径）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 把胜率字段归一化成概率 `[0, 1]` 并钳制到 `[0.05, 0.95]`。
+ *
+ * JSON 里的 `win_rate` / `smoothed_wr` 实测都是 **0~1** 的小数（如 0.578），
+ * 但后端历史上出现过百分比口径的导出，所以这里做了兼容：
+ * 大于 1 的值一律按百分数除以 100，避免 `57.8` 被当成 5780% 使用。
+ */
+export function toProbability(value: number | null | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0.5;
+  const p = value > 1 ? value / 100 : value;
+  return clamp(p, BASE_RATE_MIN, BASE_RATE_MAX);
+}
+
+/**
+ * 英雄在某张图的基准胜率。
+ *
+ * 后端 Log5 的 `p_a` 用的是**贝叶斯平滑后**的胜率（`(wins + m/2) / (games + m)`），
+ * 也就是 JSON 里的 `smoothed_wr`；只有缺失时才退回原始 `win_rate`。
+ */
+export function baseRateOf(
+  stat: { win_rate: number; smoothed_wr?: number } | null | undefined,
+): number {
+  if (!stat) return 0.5;
+  return toProbability(stat.smoothed_wr ?? stat.win_rate);
+}
+
+/** Log5 预期对位胜率：`E = pA(1-pB) / (pA(1-pB) + (1-pA)pB)` */
+export function log5(pA: number, pB: number): number {
+  const a = clamp(pA, BASE_RATE_MIN, BASE_RATE_MAX);
+  const b = clamp(pB, BASE_RATE_MIN, BASE_RATE_MAX);
+  const num = a * (1 - b);
+  const den = num + (1 - a) * b;
+  return den <= Number.EPSILON ? 0.5 : num / den;
+}
+
+/**
+ * 本图预期胜率 = Log5 基准 + 残差。
+ *
+ * ⚠️ `deltaPp` 的单位是**百分点**（后端导出 2.00 ~ 13.81），必须先 /100
+ * 才能和概率相加。单位错位会让 4.0pp 变成 400%，直接失真。
+ */
+export function predictedWinRate(pA: number, pB: number, deltaPp: number): number {
+  const delta = Number.isFinite(deltaPp) ? deltaPp / 100 : 0;
+  return clamp(log5(pA, pB) + delta, 0, 1);
+}
 
 /* ------------------------------------------------------------------ *
  * 状态推导
@@ -582,27 +641,26 @@ function compScoreFor(
  * Pick 推荐
  * ------------------------------------------------------------------ */
 
-/** 一条对位明细（算分、状态灯、弹窗共用） */
+/** 一条对位明细（算分、色条、弹窗共用） */
 export interface CounterDetail {
   opponentId: number;
   opponentName: string;
-  /** 按样本收缩后的 delta（百分点），参与算分 */
+  /**
+   * 后端原始 delta（百分点），**不做任何收缩或抹零**。
+   * BP 推荐排序直接用它，保证后端分层平滑后的排序精度不被前端打折。
+   */
   delta: number;
-  /** 后端原始 delta（百分点），用于展示与状态灯，不做收缩 */
-  rawDelta: number;
-  /** 该对位的交手场次 */
+  /** 该对位的原始交手场次（后端已按 eff_n 过滤，前端不再按此拦截） */
   samples: number;
   /** 数据来源：该图专属 / 模式兜底 / 没有这条对位 */
   source: 'map' | 'mode' | 'none';
-  /** 样本是否足够采信 */
+  /** 是否存在可用的对位边（false 只代表「没有这条对位」，不代表样本少） */
   hasSample: boolean;
-}
-
-/** 对位边的采信权重：低于 minSamples 不可用，达到 trustSamples 完全采信 */
-function trustOf(edge: MatchupEdge, minSamples: number, trustSamples: number): number | null {
-  if (edge.samples < minSamples) return null;
-  if (trustSamples <= 0) return 1;
-  return Math.min(1, edge.samples / trustSamples);
+  /**
+   * 本图预期胜率（概率 0~1）：`Log5(双方本图基准胜率) + delta/100`。
+   * 任一方在该图没有基准胜率时为 null——此时无法断言「> 50%」，绿灯不亮。
+   */
+  predictedWr: number | null;
 }
 
 /**
@@ -625,7 +683,10 @@ function lookupEdge(
 
 /**
  * 取一条对位边：**地图层优先**（该图专属），地图层没收录时退到模式层。
- * v3 的地图层样本普遍偏少，所以采信门槛由调用方按来源分别判定。
+ *
+ * ⚠️ v1.1.2 起这里**不再**按 `samples` 判门槛：后端已用有效样本 `eff_n >= 15`
+ * 与 `|delta| >= 2.0` 统一过滤，地图条目里 `samples < 10` 是借用同模式样本后
+ * 的正常结果，前端再拦一次会丢掉约 57% 的克制条目。
  */
 export function resolveMatchup(
   idx: MetaIndex,
@@ -645,22 +706,12 @@ export function resolveMatchup(
   return null;
 }
 
-/** 按来源取采信权重 */
-function trustForSource(
-  idx: MetaIndex,
-  source: 'map' | 'mode',
-  edge: MatchupEdge,
-): number | null {
-  const p = idx.meta.params;
-  return source === 'map'
-    ? trustOf(edge, p.map_matchup_min_samples, p.map_matchup_trust_samples)
-    : trustOf(edge, p.matchup_min_samples, p.map_matchup_trust_samples);
-}
-
 /**
- * 计算候选英雄对一组对手的平均对位 delta（百分点，已按样本收缩）与明细。
- * 只对「样本足够」的对位求平均——不足的按缺失处理，而不是塞一个 0 进去，
- * 否则会把所有候选都拉平。
+ * 计算候选英雄对一组对手的平均对位 delta（百分点）与明细。
+ *
+ * 后端导出的边全部采信（不做样本收缩）：`eff_n` 过滤 + 分层平滑已经在后端完成，
+ * 前端再乘一个 `samples / trust` 的系数等于把真实克制关系抹回 0。
+ * 只有「查不到这条对位」才按缺失处理，不计入均值。
  */
 export function counterDetail(
   idx: MetaIndex,
@@ -673,6 +724,10 @@ export function counterDetail(
   let sum = 0;
   let trusted = 0;
 
+  // 候选英雄的本图基准胜率（Log5 的 pA），只算一次
+  const candStat = getMapStat(idx, mapName, candId);
+  const pA = candStat ? baseRateOf(candStat) : null;
+
   for (const oppId of opponentIds) {
     const ref = idx.brawlerById.get(oppId);
     const name = ref ? ref.name : String(oppId);
@@ -683,43 +738,57 @@ export function counterDetail(
         opponentId: oppId,
         opponentName: name,
         delta: 0,
-        rawDelta: 0,
         samples: 0,
         source: 'none',
         hasSample: false,
+        predictedWr: null,
       });
       continue;
     }
 
-    const trust = trustForSource(idx, hit.source, hit.edge);
-    const usable = trust !== null;
-    const trustedDelta = usable ? hit.edge.delta * trust : 0;
+    // 对手的本图基准胜率（Log5 的 pB）；任一方缺数据就不猜预期胜率
+    const oppStat = getMapStat(idx, mapName, oppId);
+    const predictedWr =
+      pA !== null && oppStat
+        ? predictedWinRate(pA, baseRateOf(oppStat), hit.edge.delta)
+        : null;
+
     details.push({
       opponentId: oppId,
       opponentName: name,
-      delta: trustedDelta,
-      rawDelta: hit.edge.delta,
+      delta: hit.edge.delta,
       samples: hit.edge.samples,
       source: hit.source,
-      hasSample: usable,
+      hasSample: true,
+      predictedWr,
     });
-    if (usable) {
-      sum += trustedDelta;
-      trusted += 1;
-    }
+    sum += hit.edge.delta;
+    trusted += 1;
   }
 
   return { avgDelta: trusted === 0 ? 0 : sum / trusted, trustedCount: trusted, details };
 }
 
-/** 状态灯档位：绿=优势 / 红=劣势 / 黄=五五开 / 灰=无数据 */
+/** 色条档位：绿=优势 / 红=劣势 / 中性灰 / 深灰=无对位 */
 export type CounterLight = 'good' | 'bad' | 'even' | 'none';
 
-/** 把一条对位明细映射成状态灯；样本不足或无对位一律灰灯 */
+/**
+ * 把一条对位明细映射成色条。
+ *
+ * 这是**纯展示判定**，与 BP 算分解耦：
+ * - 红灯：`delta <= -2.5` 即被压制，直接红；
+ * - 绿灯：`delta >= 2.5` **且**本图预期胜率 > 50%。
+ *   本图基准只有 25% 的弱势英雄，哪怕 +4.0pp 预期也只有 29%，不能亮绿；
+ * - 其余（残差不够大、预期胜率不过半、缺基准胜率、无对位）一律中性灰。
+ */
 export function counterLight(d: CounterDetail | undefined): CounterLight {
   if (!d || !d.hasSample) return 'none';
-  if (d.rawDelta >= COUNTER_LIGHT_PP) return 'good';
-  if (d.rawDelta <= -COUNTER_LIGHT_PP) return 'bad';
+  // 红灯只看残差：被压制的结论与自身基础胜率无关，-2.5pp 就是被压
+  if (d.delta <= COUNTER_RED_PP) return 'bad';
+  // 绿灯必须「残差够大」且「本图预期胜率过半」两个条件同时成立
+  if (d.delta >= COUNTER_GREEN_PP && d.predictedWr !== null && d.predictedWr > 0.5) {
+    return 'good';
+  }
   return 'even';
 }
 
@@ -805,15 +874,17 @@ function collectEdges(
  * 某英雄在当前地图的完整对位表，按 |delta| 从高到低拆成「劣势 / 优势」两组。
  *
  * 这里用**后端原始 delta**（不做样本收缩）——弹窗的职责是把数据摊开给人看，
- * 每一行都带样本数，可信度由使用者自己判断。样本量低于 `minSamples` 的边
- * 仍然保留（否则冷门英雄会一片空白），但会在 UI 上标注。
+ * 每一行都带样本数，可信度由使用者自己判断。
+ *
+ * v1.1.2 起 `minSamples` 默认 **0**：后端已按有效样本过滤过，弹窗不再按原始
+ * `samples` 二次裁剪（否则 57% 的地图条目会从列表里消失）。
  */
 export function brawlerMatchups(
   idx: MetaIndex,
   mapName: string,
   mode: string,
   brawlerId: number,
-  minSamples = 1,
+  minSamples = 0,
 ): MatchupBreakdown {
   const mapEntry = idx.mapByName.get(mapName);
   const mapBrawlers = mapEntry?.brawlers ?? [];
@@ -956,7 +1027,7 @@ export function evaluatePick(
   if (oppIds.length === 0) {
     reasons.push({ tone: 'neutral', text: '敌方尚未亮牌，对位修正暂不生效' });
   } else if (trustedCount === 0) {
-    reasons.push({ tone: 'neutral', text: '对位样本不足，克制项按中性处理' });
+    reasons.push({ tone: 'neutral', text: '没有可用对位记录，克制项按中性处理' });
   } else {
     const tone: TagTone =
       avgDelta >= TAG_THRESHOLD ? 'good' : avgDelta <= -TAG_THRESHOLD ? 'bad' : 'neutral';
@@ -968,7 +1039,7 @@ export function evaluatePick(
   }
 
   if (trustedCount > 0 && trustedCount < oppIds.length) {
-    reasons.push({ tone: 'neutral', text: '部分对位样本不足，未计入克制均值' });
+    reasons.push({ tone: 'neutral', text: '部分对手没有对位记录，未计入克制均值' });
   }
 
   if (greens >= 2) {

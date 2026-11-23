@@ -24,13 +24,21 @@
  *   1. 对位边结构变了：`{ opponent_id, games, win_rate, smoothed_wr }`
  *      → `{ opponent, delta, samples }`。
  *      - `delta` 是 Log5 预期胜率残差，单位为**百分点**（+12.3 表示该英雄对位多赢 12.3 个百分点）。
- *      - `samples` 是这条对位的交手场次。
+ *      - `samples` 是这条对位的交手场次（**原始场次**，不是有效样本 eff_n）。
  *      - 边本身不再带 win_rate，胜率层面的信息已被残差吸收。
  *   2. 对位边下沉到地图层：`maps[].brawlers[].matchups[]` 是**该图专属**的对位，
  *      模式层 `modes[].brawlers[].matchups[]` 仍然保留，作为该图样本不足时的兜底。
  *   3. 地图覆盖 26 张（新增 Flowing Springs / Goldarm Gulch，样本量很小）。
  *   4. params 里 `matchup_prior_weight` 被 `matchup_smoothing_c` 取代，
  *      并新增地图层对位的两个门槛（min / trust samples）。
+ *
+ * v1.1.2（后端「地图分层去偏 + 互斥分层贝叶斯平滑」）新增：
+ *   - `matchup_min_eff_samples` / `matchup_min_abs_delta`：后端导出门槛
+ *     （`eff_n >= 15` 且 `|delta| >= 0.02`），前端**不再**按 `samples` 二次过滤；
+ *   - `same_mode_weight` / `same_mode_cap` / `other_mode_weight` / `other_mode_cap`：
+ *     借用同模式其他图 / 其他模式样本时的折算权重与封顶，仅用于解释数据来源。
+ *   注意：`samples` 是原始场次，`eff_n` 才是含借用样本的有效样本量。
+ *   后端按 eff_n 过滤后，约 57% 的地图条目原始 `samples < 10`，属正常现象。
  *
  * 与需求文档的差异（实测结论，代码按实测结构实现）：
  *   1. 1v1 克制矩阵不在 mode 顶层，而是嵌在 brawlers[].matchups[] 内，
@@ -177,6 +185,24 @@ export interface MetaParams {
   map_matchup_trust_samples: number;
   /** 时间衰减半衰期（天） */
   decay_half_life_days: number;
+
+  /* ---------------- v1.1.2 扩展字段（全部可选，缺失时按默认值兜底） ---------------- */
+
+  /**
+   * 对位导出所需的最小**有效样本量**（`eff_n`，含借用样本）。
+   * 后端已按此过滤，前端不得再拿 `samples` 做二次拦截。
+   */
+  matchup_min_eff_samples?: number;
+  /** 对位导出所需的最小绝对残差（概率口径，0.02 = 2 个百分点） */
+  matchup_min_abs_delta?: number;
+  /** 同模式其他地图样本的折算权重（互斥分层平滑） */
+  same_mode_weight?: number;
+  /** 同模式其他地图折算样本的封顶 */
+  same_mode_cap?: number;
+  /** 其他模式样本的折算权重 */
+  other_mode_weight?: number;
+  /** 其他模式折算样本的封顶 */
+  other_mode_cap?: number;
 }
 
 /** 段位筛选审计（v3 新增，仅用于展示数据质量） */
@@ -363,6 +389,13 @@ export function validateMeta(raw: unknown): BrawlMeta {
       paramsRaw.decay_half_life_days,
       'params.decay_half_life_days',
     ),
+    // v1.1.2 扩展参数：旧版 JSON 没有这些字段，缺失时按后端默认值兜底
+    matchup_min_eff_samples: optionalNum(paramsRaw.matchup_min_eff_samples, 15),
+    matchup_min_abs_delta: optionalNum(paramsRaw.matchup_min_abs_delta, 0.02),
+    same_mode_weight: optionalNum(paramsRaw.same_mode_weight, 0.6),
+    same_mode_cap: optionalNum(paramsRaw.same_mode_cap, 40),
+    other_mode_weight: optionalNum(paramsRaw.other_mode_weight, 0.3),
+    other_mode_cap: optionalNum(paramsRaw.other_mode_cap, 25),
   };
 
   const brawlers = requireArray(raw.brawlers, 'brawlers').map((b, i) => {

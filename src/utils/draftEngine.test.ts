@@ -33,11 +33,13 @@ import {
   passesFilter,
   pickNumberOfSlot,
   pickRecommendations,
+  predictedWinRate,
   recommend,
   resetDraft,
   resolveMatchup,
   sideOfPick,
   slotPickNumbers,
+  toProbability,
   totalPicked,
   COUNTER_LIGHT_PP,
   EMPTY_BAN,
@@ -88,9 +90,39 @@ describe('Schema v3 校验与索引', () => {
     // v3 新参数
     expect(META.params.matchup_smoothing_c).toBeGreaterThan(0);
     expect(META.params.map_matchup_min_samples).toBeGreaterThan(0);
-    expect(META.params.map_matchup_trust_samples).toBeGreaterThan(
+    expect(META.params.map_matchup_trust_samples).toBeGreaterThanOrEqual(
       META.params.map_matchup_min_samples,
     );
+  });
+
+  it('兼容 v1.1.2 新增的 6 个分层平滑参数（缺失时按默认值兜底）', () => {
+    const p = META.params;
+    expect(p.matchup_min_eff_samples).toBeGreaterThan(0);
+    expect(p.matchup_min_abs_delta).toBeGreaterThan(0);
+    expect(p.same_mode_weight).toBeGreaterThan(0);
+    expect(p.same_mode_cap).toBeGreaterThan(0);
+    expect(p.other_mode_weight).toBeGreaterThan(0);
+    expect(p.other_mode_cap).toBeGreaterThan(0);
+
+    // 旧版 JSON 没有这些字段也不能报错
+    const legacy = structuredClone(RAW) as { params: Record<string, unknown> };
+    for (const k of [
+      'matchup_min_eff_samples',
+      'matchup_min_abs_delta',
+      'same_mode_weight',
+      'same_mode_cap',
+      'other_mode_weight',
+      'other_mode_cap',
+    ]) {
+      delete legacy.params[k];
+    }
+    const fallback = validateMeta(legacy).params;
+    expect(fallback.matchup_min_eff_samples).toBe(15);
+    expect(fallback.matchup_min_abs_delta).toBeCloseTo(0.02, 6);
+    expect(fallback.same_mode_weight).toBeCloseTo(0.6, 6);
+    expect(fallback.same_mode_cap).toBe(40);
+    expect(fallback.other_mode_weight).toBeCloseTo(0.3, 6);
+    expect(fallback.other_mode_cap).toBe(25);
   });
 
   it('拒绝 schema_version 不匹配的数据', () => {
@@ -484,27 +516,27 @@ describe('敌方槽位录入视角', () => {
 });
 
 /* ------------------------------------------------------------------ *
- * 5.5 Log5 残差 / 状态灯 / 详细对位（v3 新增）
+ * 5.5 Log5 残差 / 克制色条 / 详细对位（v3 起，v1.1.2 重定口径）
  * ------------------------------------------------------------------ */
 
-describe('Log5 残差与状态灯', () => {
+describe('Log5 残差与克制色条', () => {
   const detail = (over: Partial<CounterDetail> = {}): CounterDetail => ({
     opponentId: 1,
     opponentName: 'TEST',
     delta: 0,
-    rawDelta: 0,
     samples: 0,
     source: 'map',
     hasSample: true,
+    predictedWr: 0.5,
     ...over,
   });
 
-  it('counterDetail 直接消费地图层 delta，并带回样本数', () => {
+  it('counterDetail 直接消费后端 delta，不做样本收缩/抹零', () => {
     const mapStats = IDX.mapStatTable.get(BOUNTY_MAP)!;
     const brock = idOf('BROCK');
     const edge = mapStats
       .get(brock)!
-      .matchups.find((e) => e.samples >= 20 && mapStats.has(e.opponent))!;
+      .matchups.find((e) => mapStats.has(e.opponent))!;
 
     // 从对手视角看 BROCK，delta 应当符号相反
     const { details } = counterDetail(IDX, BOUNTY_MAP, 'bounty', edge.opponent, [brock]);
@@ -512,20 +544,137 @@ describe('Log5 残差与状态灯', () => {
     expect(d.source).toBe('map');
     expect(d.hasSample).toBe(true);
     expect(d.samples).toBe(edge.samples);
-    expect(d.rawDelta).toBeCloseTo(-edge.delta, 6);
+    // 原样透传，不再乘 samples/trust
+    expect(d.delta).toBeCloseTo(-edge.delta, 6);
   });
 
-  it('状态灯：±3pp 分界，样本不足或无对位一律灰灯', () => {
-    expect(COUNTER_LIGHT_PP).toBe(3);
-    expect(counterLight(detail({ rawDelta: 3 }))).toBe('good');
-    expect(counterLight(detail({ rawDelta: 12.4 }))).toBe('good');
-    expect(counterLight(detail({ rawDelta: 2.99 }))).toBe('even');
-    expect(counterLight(detail({ rawDelta: -3 }))).toBe('bad');
-    expect(counterLight(detail({ rawDelta: -2.99 }))).toBe('even');
-    // 差值再大，只要样本不足也不亮绿/红
-    expect(counterLight(detail({ rawDelta: 20, hasSample: false }))).toBe('none');
+  it('新数据里大量地图条目的原始 samples < 10（前端不得按 samples 拦截）', () => {
+    let total = 0;
+    let small = 0;
+    for (const m of META.maps) {
+      for (const b of m.brawlers) {
+        for (const e of b.matchups) {
+          total += 1;
+          if (e.samples < 10) small += 1;
+        }
+      }
+    }
+    expect(total).toBeGreaterThan(1000);
+    // 后端按 eff_n 过滤后，约 57% 的条目本图真实场次不足 10
+    expect(small / total).toBeGreaterThan(0.4);
+  });
+
+  it('samples < 10 的后端条目在前端不被丢弃（端到端）', () => {
+    let hit:
+      | { map: string; mode: string; cand: number; opp: number; delta: number; samples: number }
+      | null = null;
+    for (const m of META.maps) {
+      const stats = IDX.mapStatTable.get(m.map_name)!;
+      for (const b of m.brawlers) {
+        const e = b.matchups.find((x) => x.samples < 10 && stats.has(x.opponent));
+        if (e) {
+          hit = {
+            map: m.map_name,
+            mode: m.mode,
+            cand: b.id,
+            opp: e.opponent,
+            delta: e.delta,
+            samples: e.samples,
+          };
+          break;
+        }
+      }
+      if (hit) break;
+    }
+    expect(hit).not.toBeNull();
+
+    const { details, trustedCount } = counterDetail(IDX, hit!.map, hit!.mode, hit!.cand, [
+      hit!.opp,
+    ]);
+    const d = details[0]!;
+    expect(trustedCount).toBe(1);
+    expect(d.hasSample).toBe(true);
+    expect(d.samples).toBe(hit!.samples);
+    expect(d.delta).toBeCloseTo(hit!.delta, 6);
+  });
+
+  it('胜率字段归一化：0~1 与 0~100 两种口径都落成概率并钳制 [0.05, 0.95]', () => {
+    expect(toProbability(0.578)).toBeCloseTo(0.578, 6);
+    expect(toProbability(57.8)).toBeCloseTo(0.578, 6);
+    expect(toProbability(0)).toBeCloseTo(0.05, 6);
+    expect(toProbability(1)).toBeCloseTo(0.95, 6);
+    expect(toProbability(120)).toBeCloseTo(0.95, 6);
+    // 缺失/非法值退回中性 0.5
+    expect(toProbability(undefined)).toBe(0.5);
+    expect(toProbability(Number.NaN)).toBe(0.5);
+  });
+
+  it('delta 是百分点：4.0pp 只加 0.04 概率，不会被当成 4.0', () => {
+    expect(predictedWinRate(0.5, 0.5, 4.0)).toBeCloseTo(0.54, 6);
+    expect(predictedWinRate(0.5, 0.5, 0)).toBeCloseTo(0.5, 6);
+    expect(predictedWinRate(0.5, 0.5, -2.5)).toBeCloseTo(0.475, 6);
+  });
+
+  it('色条分界：|delta| < 2.5 中性；≤ -2.5 红；≥ 2.5 且预期 > 50% 才绿', () => {
+    expect(COUNTER_LIGHT_PP).toBe(2.5);
+    expect(counterLight(detail({ delta: 2.5, predictedWr: 0.55 }))).toBe('good');
+    expect(counterLight(detail({ delta: 12.4, predictedWr: 0.62 }))).toBe('good');
+    expect(counterLight(detail({ delta: 2.49, predictedWr: 0.6 }))).toBe('even');
+    expect(counterLight(detail({ delta: 0, predictedWr: 0.5 }))).toBe('even');
+    expect(counterLight(detail({ delta: -2.5, predictedWr: 0.4 }))).toBe('bad');
+    expect(counterLight(detail({ delta: -12.4, predictedWr: 0.2 }))).toBe('bad');
+    expect(counterLight(detail({ delta: -2.49, predictedWr: 0.4 }))).toBe('even');
+    // 没有对位边 → 深灰
+    expect(counterLight(detail({ delta: 20, hasSample: false }))).toBe('none');
     expect(counterLight(detail({ source: 'none', hasSample: false }))).toBe('none');
     expect(counterLight(undefined)).toBe('none');
+  });
+
+  it('绿灯兜底：本图弱势英雄 +4.0pp 预期仅 29% → 灰条而非绿条', () => {
+    const pA = 0.25;
+    const pB = 0.5;
+    const delta = 4.0; // 百分点
+    const predicted = predictedWinRate(pA, pB, delta);
+    expect(predicted).toBeCloseTo(0.29, 6);
+    expect(predicted).toBeLessThanOrEqual(0.5);
+
+    const d = detail({ delta, samples: 12, predictedWr: predicted });
+    expect(counterLight(d)).toBe('even');
+  });
+
+  it('本图强势英雄 +4.0pp 预期 56% → 正常绿条', () => {
+    const pA = 0.52;
+    const pB = 0.5;
+    const delta = 4.0;
+    const predicted = predictedWinRate(pA, pB, delta);
+    expect(predicted).toBeCloseTo(0.56, 6);
+    expect(predicted).toBeGreaterThan(0.5);
+
+    const d = detail({ delta, samples: 12, predictedWr: predicted });
+    expect(counterLight(d)).toBe('good');
+  });
+
+  it('samples = 3 也照常上色：绿条不被丢弃，红条不被置灰', () => {
+    const green = detail({
+      delta: 4.0,
+      samples: 3,
+      predictedWr: predictedWinRate(0.52, 0.5, 4.0),
+    });
+    expect(green.hasSample).toBe(true);
+    expect(counterLight(green)).toBe('good');
+
+    const red = detail({
+      delta: -3.2,
+      samples: 3,
+      predictedWr: predictedWinRate(0.52, 0.5, -3.2),
+    });
+    expect(red.hasSample).toBe(true);
+    expect(counterLight(red)).toBe('bad');
+  });
+
+  it('缺本图基准胜率时不给绿灯（无法断言预期过半）', () => {
+    const d = detail({ delta: 8, predictedWr: null });
+    expect(counterLight(d)).toBe('even');
   });
 
   it('详细对位按 |delta| 拆分：劣势升序、优势降序，且都带样本数', () => {
