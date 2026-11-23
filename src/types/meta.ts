@@ -1,10 +1,26 @@
 /**
- * Brawl Meta Schema v3 — 类型定义
+ * Brawl Meta Schema v5 — 类型定义
  *
- * 本文件严格依据 public/data/brawl_meta.json 的真实结构编写，字段名与层级完全对应：
+ * v5 相对 v3/v4 的关键变化：后端新增**无序对位查表**，对位不再依赖 Top-K 列表。
+ *
+ *   maps[].matchup_table:  [min_id, max_id, delta_pp, n_eff][]
+ *   modes[].matchup_table: [min_id, max_id, delta_pp, n_eff][]
+ *   global_matchups:       [min_id, max_id, delta_pp, n_eff][]
+ *
+ *   - `min_id` / `max_id`：一对英雄的 id 按数值排好序，**同一对只出现一次**，
+ *     所以 `(A,B)` 与 `(B,A)` 命中同一条记录，天然对称；
+ *   - `delta_pp`：**百分点**（`4.44` 就是 +4.44%），方向为 `min_id` 对 `max_id`，
+ *     查询反向时取负号，**不要再乘 100**；
+ *   - `n_eff`：有效样本量（后端已做分层平滑折算）。
+ *
+ * v5 取消了 Top-K 截断与均势剪枝，因此查表**命中即有效**——`delta_pp === 0`
+ * 表示「有五五开数据」，不是「没有数据」。只有三层查表全部未命中才是无数据。
+ *
+ * 本文件同时兼容 v3/v4 旧结构（没有 matchup_table，旧缓存不会导致崩溃），
+ * 字段名与层级完全对应：
  *
  *   {
- *     schema_version: 3,
+ *     schema_version: 5,
  *     updated_at: "2026-11-22T02:03:49Z",
  *     season_start: "2026-07-20",
  *     total_battles: 168215,
@@ -15,8 +31,9 @@
  *       map_matchup_min_samples, map_matchup_trust_samples, decay_half_life_days
  *     },
  *     brawlers: [{ id, name }],                       // 108 条，数组（非字典）
- *     maps:     [{ map_name, mode, total_games, brawlers: MapBrawlerStat[] }],   // 26 张
- *     modes:    [{ mode, total_games, brawlers: ModeBrawlerStat[] }],            // 6 个
+ *     maps:     [{ map_name, mode, total_games, brawlers: MapBrawlerStat[], matchup_table }],  // 26 张
+ *     modes:    [{ mode, total_games, brawlers: ModeBrawlerStat[], matchup_table }],           // 6 个
+ *     global_matchups: [min_id, max_id, delta_pp, n_eff][],                                    // v5 新增
  *     roles:    { version, roles: [{ key, label, description, brawlers: string[], brawler_ids: [] }] }
  *   }
  *
@@ -41,16 +58,36 @@
  *   后端按 eff_n 过滤后，约 57% 的地图条目原始 `samples < 10`，属正常现象。
  *
  * 与需求文档的差异（实测结论，代码按实测结构实现）：
- *   1. 1v1 克制矩阵不在 mode 顶层，而是嵌在 brawlers[].matchups[] 内，
- *      以 opponent 指向对手，需要按 (map|mode, selfId, oppId) 建索引。
+ *   1. v3/v4 的 1v1 克制矩阵不在 mode 顶层，而是嵌在 brawlers[].matchups[] 内，
+ *      以 opponent 指向对手（Top-K 截断）。v5 起顶层 `matchup_table` 才是对位查询的
+ *      唯一来源，`brawlers[].matchups` 只留给「最佳/最差对手」这类榜单展示。
  *   2. `brawlers` 是数组而非字典；`roles[].brawler_ids` 全为空数组，
  *      角色归属只能靠 `roles[].brawlers` 里的英文名匹配（且大小写/拼写存在差异）。
  *   3. 候选集以地图层为准：个别地图只覆盖 74~108 个英雄。
  *   4. `tier_audit.unknown_tier_battles` 等于总场次，说明本批数据未能解析出段位，
  *      高段位筛选在数据侧尚未真正生效（前端不依赖该字段做计算，仅展示）。
+ *   5. v5 的 `score` 是**跨图统一标尺**（后端废除了逐图 Min–Max 归一化）：
+ *      头部主力约 65~90，常规主力 55~65，冷门/劣势英雄大多低于 50（中位数约 27）。
+ *      所以分数配色不能再用「第一名 100 分」那套阈值。
  */
 
-export const SCHEMA_VERSION = 3;
+/** 当前解析的目标版本 */
+export const SCHEMA_VERSION = 5;
+
+/**
+ * 仍然能解析的旧版本。
+ *
+ * v3/v4 没有 `matchup_table`，解析时按空表处理：数据能正常加载（旧缓存不崩），
+ * 但 3×3 对位格会因为没有查表数据而留空——由 `shouldReplaceMeta` 按版本号
+ * 触发一次刷新，把缓存换到 v5。
+ */
+export const LEGACY_SCHEMA_VERSIONS: readonly number[] = [3, 4];
+
+/** 全部可解析版本（升序） */
+export const SUPPORTED_SCHEMA_VERSIONS: readonly number[] = [
+  ...LEGACY_SCHEMA_VERSIONS,
+  SCHEMA_VERSION,
+].sort((a, b) => a - b);
 
 /** 选人顺位：先手万金油 / 中位 / 后手 */
 export type PickOrder = 'FIRST' | 'MIDDLE' | 'LAST';
@@ -139,6 +176,15 @@ export interface ModeBrawlerStat {
   matchups: MatchupEdge[];
 }
 
+/**
+ * v5 无序对位查表的一行：`[min_id, max_id, delta_pp, n_eff]`。
+ *
+ * - 两个 id 已按数值升序排列，同一对英雄只有一条记录；
+ * - `delta_pp` 是**百分点**，方向为 `min_id` 对 `max_id`；
+ * - `n_eff` 是有效样本量（后端分层平滑后的折算样本，不是原始交手场次）。
+ */
+export type MatchupTuple = [minId: number, maxId: number, deltaPp: number, nEff: number];
+
 /** 一张地图 */
 export interface MapEntry {
   map_name: string;
@@ -146,6 +192,8 @@ export interface MapEntry {
   mode: string;
   total_games: number;
   brawlers: MapBrawlerStat[];
+  /** 该图专属的无序对位查表（v5）；旧版数据为空数组 */
+  matchup_table: MatchupTuple[];
 }
 
 /** 一个模式 */
@@ -153,6 +201,8 @@ export interface ModeEntry {
   mode: string;
   total_games: number;
   brawlers: ModeBrawlerStat[];
+  /** 该模式的无序对位查表（v5）；旧版数据为空数组 */
+  matchup_table: MatchupTuple[];
 }
 
 /** 角色定义 */
@@ -227,6 +277,8 @@ export interface BrawlMeta {
   brawlers: BrawlerRef[];
   maps: MapEntry[];
   modes: ModeEntry[];
+  /** 全局无序对位查表（v5）：地图/模式都查不到时最后兜底；旧版数据为空数组 */
+  global_matchups: MatchupTuple[];
   roles: MetaRoles;
 }
 
@@ -285,6 +337,32 @@ function validateMatchups(raw: unknown, path: string): MatchupEdge[] {
       samples: requireNum(edge.samples, `${ep}.samples`),
     } satisfies MatchupEdge;
   });
+}
+
+/**
+ * 校验 v5 的无序对位查表 `[min_id, max_id, delta_pp, n_eff][]`。
+ *
+ * 缺字段（v3/v4 旧数据）按空表处理，保证旧缓存不崩；单行结构不对则**跳过该行**
+ * 而不是整体报错——查表是纯附加数据，一行脏数据不该让整份 meta 加载失败。
+ * 若后端意外把两个 id 写反，这里统一按「小的在前」规整并同步翻转 delta 符号，
+ * 保证 `delta_pp` 的方向始终是 `min_id → max_id`。
+ */
+function validateMatchupTable(raw: unknown, path: string): MatchupTuple[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new MetaValidationError(`${path} 必须是数组，实际为 ${typeof raw}`);
+  }
+  const out: MatchupTuple[] = [];
+  for (const row of raw) {
+    if (!Array.isArray(row) || row.length < 4) continue;
+    const [a, b, delta, nEff] = row as unknown[];
+    if (!isNum(a) || !isNum(b) || !isNum(delta) || !isNum(nEff)) continue;
+    if (a === b) continue;
+    const minId = Math.min(a, b);
+    const maxId = Math.max(a, b);
+    out.push([minId, maxId, a <= b ? delta : -delta, Math.max(0, nEff)]);
+  }
+  return out;
 }
 
 function validateMapBrawler(raw: unknown, path: string): MapBrawlerStat {
@@ -368,9 +446,9 @@ export function validateMeta(raw: unknown): BrawlMeta {
   if (!isObj(raw)) throw new MetaValidationError('根节点必须是对象');
 
   const schemaVersion = requireNum(raw.schema_version, 'schema_version');
-  if (schemaVersion !== SCHEMA_VERSION) {
+  if (!SUPPORTED_SCHEMA_VERSIONS.includes(schemaVersion)) {
     throw new MetaValidationError(
-      `schema_version 不兼容: 期望 ${SCHEMA_VERSION}，实际 ${schemaVersion}`,
+      `schema_version 不兼容: 支持 ${SUPPORTED_SCHEMA_VERSIONS.join('/')}，实际 ${schemaVersion}`,
     );
   }
 
@@ -414,6 +492,7 @@ export function validateMeta(raw: unknown): BrawlMeta {
       brawlers: requireArray(m.brawlers, `${p}.brawlers`).map((b, j) =>
         validateMapBrawler(b, `${p}.brawlers[${j}]`),
       ),
+      matchup_table: validateMatchupTable(m.matchup_table, `${p}.matchup_table`),
     } satisfies MapEntry;
   });
 
@@ -426,6 +505,7 @@ export function validateMeta(raw: unknown): BrawlMeta {
       brawlers: requireArray(m.brawlers, `${p}.brawlers`).map((b, j) =>
         validateModeBrawler(b, `${p}.brawlers[${j}]`),
       ),
+      matchup_table: validateMatchupTable(m.matchup_table, `${p}.matchup_table`),
     } satisfies ModeEntry;
   });
 
@@ -452,6 +532,7 @@ export function validateMeta(raw: unknown): BrawlMeta {
     brawlers,
     maps,
     modes,
+    global_matchups: validateMatchupTable(raw.global_matchups, 'global_matchups'),
     roles,
   };
 }

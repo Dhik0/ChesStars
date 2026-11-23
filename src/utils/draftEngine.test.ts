@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { validateMeta, type BrawlMeta } from '../types/meta';
+import { validateMeta, type BrawlMeta, type MatchupTuple } from '../types/meta';
 import {
   buildIndex,
   getClass,
   getMapMatchup,
+  lookupMatchup,
   type MetaIndex,
 } from '../data/metaIndex';
 import { brawlerCN, matchScore, normalizeName, ROLE_NAME_ALIAS } from '../data/localization';
@@ -29,6 +30,7 @@ import {
   isBannedBySide,
   isEmptyBan,
   isTaken,
+  matchupCell,
   nextSlot,
   passesFilter,
   pickNumberOfSlot,
@@ -36,12 +38,11 @@ import {
   predictedWinRate,
   recommend,
   resetDraft,
-  resolveMatchup,
   sideOfPick,
   slotPickNumbers,
   toProbability,
   totalPicked,
-  COUNTER_LIGHT_PP,
+  MATCHUP_LIGHT_PP,
   EMPTY_BAN,
   TAG_THRESHOLD,
   type CounterDetail,
@@ -56,8 +57,55 @@ const RAW = JSON.parse(
   readFileSync(resolve(process.cwd(), 'public/data/brawl_meta.json'), 'utf-8'),
 ) as unknown;
 
+/** 仓库里内置的那份（当前是 v3，没有 matchup_table），用于校验旧数据兼容性 */
 const META: BrawlMeta = validateMeta(RAW);
-const IDX: MetaIndex = buildIndex(META);
+
+/**
+ * 测试夹具：把 v3 的 Top-K 边折叠成 v5 的无序查表。
+ *
+ * 真实 v5 数据（`schema_version: 5` 且带 `matchup_table`）直接原样返回，
+ * 夹具不介入；只有拿到 v3/v4 旧数据时才按「同一对只留一条、正反合并」折叠成
+ * `[min_id, max_id, delta_pp, n_eff]`，让引擎仍能在真实英雄规模上跑对称查表。
+ * 数值原样搬运，不做任何缩放——断言仍能对着真实数据里的某一条边核对。
+ */
+function deriveV5(meta: BrawlMeta): BrawlMeta {
+  const alreadyV5 =
+    meta.schema_version >= 5 &&
+    (meta.global_matchups.length > 0 || meta.maps.some((m) => m.matchup_table.length > 0));
+  if (alreadyV5) return meta;
+
+  const tableOf = (
+    brawlers: { id: number; matchups: { opponent: number; delta: number; samples: number }[] }[],
+  ): MatchupTuple[] => {
+    const rows = new Map<string, MatchupTuple>();
+    for (const b of brawlers) {
+      for (const e of b.matchups) {
+        const minId = Math.min(b.id, e.opponent);
+        const maxId = Math.max(b.id, e.opponent);
+        const key = `${minId}_${maxId}`;
+        if (rows.has(key)) continue;
+        rows.set(key, [minId, maxId, b.id <= e.opponent ? e.delta : -e.delta, e.samples]);
+      }
+    }
+    return [...rows.values()];
+  };
+
+  const globalRows = new Map<string, MatchupTuple>();
+  for (const mode of meta.modes) {
+    for (const row of tableOf(mode.brawlers)) globalRows.set(`${row[0]}_${row[1]}`, row);
+  }
+
+  return {
+    ...meta,
+    schema_version: 5,
+    maps: meta.maps.map((m) => ({ ...m, matchup_table: tableOf(m.brawlers) })),
+    modes: meta.modes.map((m) => ({ ...m, matchup_table: tableOf(m.brawlers) })),
+    global_matchups: [...globalRows.values()],
+  };
+}
+
+/** 引擎侧统一使用 v5 形态的索引 */
+const IDX: MetaIndex = buildIndex(deriveV5(META));
 
 const idOf = (name: string): number => {
   const found = META.brawlers.find((b) => normalizeName(b.name) === normalizeName(name));
@@ -79,9 +127,9 @@ function draft(over: Partial<DraftState> = {}): DraftState {
  * 1. Schema 校验与索引
  * ------------------------------------------------------------------ */
 
-describe('Schema v3 校验与索引', () => {
+describe('Schema v5 校验与索引', () => {
   it('真实数据能通过运行时校验', () => {
-    expect(META.schema_version).toBe(3);
+    expect(META.schema_version).toBe(5);
     // 地图数量会随后端数据更新变化，只校验下限
     expect(META.maps.length).toBeGreaterThanOrEqual(26);
     expect(META.modes).toHaveLength(6);
@@ -93,6 +141,19 @@ describe('Schema v3 校验与索引', () => {
     expect(META.params.map_matchup_trust_samples).toBeGreaterThanOrEqual(
       META.params.map_matchup_min_samples,
     );
+  });
+
+  it('v5 三张查表都到位，且 3×3 数据源不再是 Top-K 列表', () => {
+    // 每张图 / 每个模式都必须带查表；全局兜底也不能为空
+    for (const m of META.maps) expect(m.matchup_table.length).toBeGreaterThan(0);
+    for (const m of META.modes) expect(m.matchup_table.length).toBeGreaterThan(0);
+    expect(META.global_matchups.length).toBeGreaterThan(0);
+
+    // 表里的 id 已经排好序，delta 是百分点量级（不是 0~1 的概率）
+    const [minId, maxId, delta, nEff] = META.maps[0]!.matchup_table[0]!;
+    expect(minId).toBeLessThan(maxId);
+    expect(Math.abs(delta)).toBeLessThan(100);
+    expect(nEff).toBeGreaterThan(0);
   });
 
   it('兼容 v1.1.2 新增的 6 个分层平滑参数（缺失时按默认值兜底）', () => {
@@ -167,31 +228,24 @@ describe('Schema v3 校验与索引', () => {
     expect(total).toBe(META.maps.length);
   });
 
-  it('对位边只存单方向时，反向查询会自动取负', () => {
+  it('模式查表命中后，反向查询自动取负', () => {
     const mode = IDX.modeByName.get('bounty')!;
-    let pair: { self: number; opp: number; delta: number; samples: number } | null = null;
-    for (const b of mode.brawlers) {
-      for (const e of b.matchups) {
-        const opp = mode.brawlers.find((x) => x.id === e.opponent);
-        if (!opp) continue;
-        if (!opp.matchups.some((x) => x.opponent === b.id)) {
-          pair = { self: b.id, opp: e.opponent, delta: e.delta, samples: e.samples };
-          break;
-        }
-      }
-      if (pair) break;
+    let pair: { self: number; opp: number; delta: number; nEff: number } | null = null;
+    for (const row of mode.matchup_table) {
+      pair = { self: row[0], opp: row[1], delta: row[2], nEff: row[3] };
+      break;
     }
     expect(pair).not.toBeNull();
 
     // 用一个不存在的地图名，强制只查模式层
-    const fwd = resolveMatchup(IDX, '__no_such_map__', 'bounty', pair!.self, pair!.opp);
-    const rev = resolveMatchup(IDX, '__no_such_map__', 'bounty', pair!.opp, pair!.self);
+    const fwd = lookupMatchup(IDX, '__no_such_map__', 'bounty', pair!.self, pair!.opp);
+    const rev = lookupMatchup(IDX, '__no_such_map__', 'bounty', pair!.opp, pair!.self);
     expect(fwd).not.toBeNull();
     expect(rev).not.toBeNull();
     expect(fwd!.source).toBe('mode');
-    expect(fwd!.edge.delta).toBeCloseTo(pair!.delta, 6);
-    expect(rev!.edge.delta).toBeCloseTo(-pair!.delta, 6);
-    expect(rev!.edge.samples).toBe(pair!.samples);
+    expect(fwd!.deltaPp).toBeCloseTo(pair!.delta, 6);
+    expect(rev!.deltaPp).toBeCloseTo(-pair!.delta, 6);
+    expect(rev!.nEff).toBe(pair!.nEff);
   });
 
   it('地图层对位边独立于模式层，且结构为 {opponent, delta, samples}', () => {
@@ -543,7 +597,8 @@ describe('Log5 残差与克制色条', () => {
     const d = details[0]!;
     expect(d.source).toBe('map');
     expect(d.hasSample).toBe(true);
-    expect(d.samples).toBe(edge.samples);
+    // samples 是查表里的有效样本 n_eff（v5 已分层折算），不是 Top-K 的原始场次
+    expect(d.samples).toBeGreaterThan(0);
     // 原样透传，不再乘 samples/trust
     expect(d.delta).toBeCloseTo(-edge.delta, 6);
   });
@@ -564,25 +619,27 @@ describe('Log5 残差与克制色条', () => {
     expect(small / total).toBeGreaterThan(0.4);
   });
 
-  it('samples < 10 的后端条目在前端不被丢弃（端到端）', () => {
+  it('原始 samples < 10 的后端条目在前端不被丢弃（端到端）', () => {
     let hit:
-      | { map: string; mode: string; cand: number; opp: number; delta: number; samples: number }
+      | { map: string; mode: string; cand: number; opp: number; delta: number; nEff: number }
       | null = null;
     for (const m of META.maps) {
       const stats = IDX.mapStatTable.get(m.map_name)!;
       for (const b of m.brawlers) {
         const e = b.matchups.find((x) => x.samples < 10 && stats.has(x.opponent));
-        if (e) {
-          hit = {
-            map: m.map_name,
-            mode: m.mode,
-            cand: b.id,
-            opp: e.opponent,
-            delta: e.delta,
-            samples: e.samples,
-          };
-          break;
-        }
+        if (!e) continue;
+        // 查表里的同一条记录（n_eff 是后端折算后的有效样本，和原始场次不是一个数）
+        const cell = lookupMatchup(IDX, m.map_name, m.mode, b.id, e.opponent);
+        if (!cell) continue;
+        hit = {
+          map: m.map_name,
+          mode: m.mode,
+          cand: b.id,
+          opp: e.opponent,
+          delta: cell.deltaPp,
+          nEff: cell.nEff,
+        };
+        break;
       }
       if (hit) break;
     }
@@ -594,7 +651,7 @@ describe('Log5 残差与克制色条', () => {
     const d = details[0]!;
     expect(trustedCount).toBe(1);
     expect(d.hasSample).toBe(true);
-    expect(d.samples).toBe(hit!.samples);
+    expect(d.samples).toBeCloseTo(hit!.nEff, 6);
     expect(d.delta).toBeCloseTo(hit!.delta, 6);
   });
 
@@ -615,31 +672,31 @@ describe('Log5 残差与克制色条', () => {
     expect(predictedWinRate(0.5, 0.5, -2.5)).toBeCloseTo(0.475, 6);
   });
 
-  it('色条分界：|delta| < 2.5 中性；≤ -2.5 红；≥ 2.5 且预期 > 50% 才绿', () => {
-    expect(COUNTER_LIGHT_PP).toBe(2.5);
-    expect(counterLight(detail({ delta: 2.5, predictedWr: 0.55 }))).toBe('good');
-    expect(counterLight(detail({ delta: 12.4, predictedWr: 0.62 }))).toBe('good');
-    expect(counterLight(detail({ delta: 2.49, predictedWr: 0.6 }))).toBe('even');
-    expect(counterLight(detail({ delta: 0, predictedWr: 0.5 }))).toBe('even');
-    expect(counterLight(detail({ delta: -2.5, predictedWr: 0.4 }))).toBe('bad');
-    expect(counterLight(detail({ delta: -12.4, predictedWr: 0.2 }))).toBe('bad');
-    expect(counterLight(detail({ delta: -2.49, predictedWr: 0.4 }))).toBe('even');
-    // 没有对位边 → 深灰
+  it('色条三态：|delta| ≥ 1.5 绿/红；< 1.5 黄（均势）；无记录才空白', () => {
+    expect(MATCHUP_LIGHT_PP).toBe(1.5);
+    expect(counterLight(detail({ delta: 1.5 }))).toBe('good');
+    expect(counterLight(detail({ delta: 12.4 }))).toBe('good');
+    expect(counterLight(detail({ delta: 1.49 }))).toBe('even');
+    expect(counterLight(detail({ delta: 0 }))).toBe('even');
+    expect(counterLight(detail({ delta: -1.49 }))).toBe('even');
+    expect(counterLight(detail({ delta: -1.5 }))).toBe('bad');
+    expect(counterLight(detail({ delta: -12.4 }))).toBe('bad');
+    // 只有「没有记录」才是空白
     expect(counterLight(detail({ delta: 20, hasSample: false }))).toBe('none');
     expect(counterLight(detail({ source: 'none', hasSample: false }))).toBe('none');
     expect(counterLight(undefined)).toBe('none');
   });
 
-  it('绿灯兜底：本图弱势英雄 +4.0pp 预期仅 29% → 灰条而非绿条', () => {
-    const pA = 0.25;
-    const pB = 0.5;
-    const delta = 4.0; // 百分点
-    const predicted = predictedWinRate(pA, pB, delta);
+  it('色条只看 delta：预期胜率再低也不影响绿/红（旧单向压制规则已移除）', () => {
+    // 本图基准 25% 的弱势英雄，+4.0pp 的预期胜率只有 29%，但色条必须照常亮绿
+    const predicted = predictedWinRate(0.25, 0.5, 4.0);
     expect(predicted).toBeCloseTo(0.29, 6);
-    expect(predicted).toBeLessThanOrEqual(0.5);
+    expect(counterLight(detail({ delta: 4.0, predictedWr: predicted }))).toBe('good');
 
-    const d = detail({ delta, samples: 12, predictedWr: predicted });
-    expect(counterLight(d)).toBe('even');
+    // 反过来，预期胜率再高也救不了负 delta
+    const strongButLosing = predictedWinRate(0.6, 0.5, -3.0);
+    expect(strongButLosing).toBeGreaterThan(0.5);
+    expect(counterLight(detail({ delta: -3.0, predictedWr: strongButLosing }))).toBe('bad');
   });
 
   it('本图强势英雄 +4.0pp 预期 56% → 正常绿条', () => {
@@ -672,9 +729,9 @@ describe('Log5 残差与克制色条', () => {
     expect(counterLight(red)).toBe('bad');
   });
 
-  it('缺本图基准胜率时不给绿灯（无法断言预期过半）', () => {
-    const d = detail({ delta: 8, predictedWr: null });
-    expect(counterLight(d)).toBe('even');
+  it('缺本图基准胜率时照常按 delta 上色（色条不依赖基准胜率）', () => {
+    expect(counterLight(detail({ delta: 8, predictedWr: null }))).toBe('good');
+    expect(counterLight(detail({ delta: -8, predictedWr: null }))).toBe('bad');
   });
 
   it('详细对位按 |delta| 拆分：劣势升序、优势降序，且都带样本数', () => {
@@ -1364,5 +1421,64 @@ describe('快捷过滤', () => {
 
     const counters = list.filter((c) => passesFilter(c, 'counter'));
     expect(counters.every((c) => c.pickOrder === 'LAST')).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 11. 3×3 对位格：真实数据上的换边镜像
+ * ------------------------------------------------------------------ */
+
+describe('3×3 对位格换边镜像（真实数据）', () => {
+  const MIRROR = { good: 'bad', bad: 'good', even: 'even', none: 'none' } as const;
+
+  it('Double Swoosh：任取 3 蓝 3 红，18 个格子颜色与数值都互为镜像', () => {
+    const map = IDX.mapByName.get('Double Swoosh')!;
+    expect(map).toBeDefined();
+
+    const blue = map.brawlers.slice(0, 3).map((b) => b.id);
+    const red = map.brawlers.slice(3, 6).map((b) => b.id);
+
+    for (const a of blue) {
+      for (const b of red) {
+        const fwd = matchupCell(IDX, map.map_name, map.mode, a, b);
+        const rev = matchupCell(IDX, map.map_name, map.mode, b, a);
+
+        if (fwd.deltaPp === null) {
+          expect(rev.deltaPp).toBeNull();
+        } else {
+          expect(rev.deltaPp).not.toBeNull();
+          expect(fwd.deltaPp + rev.deltaPp!).toBeCloseTo(0, 10);
+        }
+        expect(rev.light).toBe(MIRROR[fwd.light]);
+        expect(rev.source).toBe(fwd.source);
+      }
+    }
+  });
+
+  it('3×3 的每一格都不读 Top-K 列表：删掉全部 matchups 后结果不变', () => {
+    const v5 = deriveV5(META);
+    const stripped = {
+      ...v5,
+      maps: v5.maps.map((m) => ({
+        ...m,
+        brawlers: m.brawlers.map((b) => ({ ...b, matchups: [] })),
+      })),
+      modes: v5.modes.map((m) => ({
+        ...m,
+        brawlers: m.brawlers.map((b) => ({ ...b, matchups: [] })),
+      })),
+    };
+    const strippedIdx = buildIndex(stripped);
+    const map = IDX.mapByName.get('Double Swoosh')!;
+    const blue = map.brawlers.slice(0, 3).map((b) => b.id);
+    const red = map.brawlers.slice(3, 6).map((b) => b.id);
+
+    for (const a of blue) {
+      for (const b of red) {
+        expect(matchupCell(strippedIdx, map.map_name, map.mode, a, b)).toEqual(
+          matchupCell(IDX, map.map_name, map.mode, a, b),
+        );
+      }
+    }
   });
 });

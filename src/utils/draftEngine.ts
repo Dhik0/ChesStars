@@ -1,5 +1,5 @@
 import type { MetaIndex } from '../data/metaIndex';
-import { getClass, getMapMatchup, getMatchup, getMapStat } from '../data/metaIndex';
+import { getClass, getMapStat, lookupMatchup, type MatchupSource } from '../data/metaIndex';
 import { brawlerCN, normalizeName } from '../data/localization';
 import { CLASS_LABEL, CLASS_ORDER, type BrawlerClass } from '../data/brawlerProfile';
 import type { MapBrawlerStat, MatchupEdge, PickOrder } from '../types/meta';
@@ -216,18 +216,6 @@ const COUNTER_SYNERGY: Record<number, number> = { 2: 1.15, 3: 1.35 };
 
 /** 克制/被克制的标签阈值（百分点） */
 export const TAG_THRESHOLD = 4;
-
-/**
- * 克制色条的绿/红分界（百分点）。
- *
- * 后端导出的 `delta` 已按 `eff_n >= 15` 与 `|delta| >= 2.0` 过滤过，
- * 这里只决定「上不上色」：|delta| < 2.5 一律中性灰。
- */
-export const COUNTER_LIGHT_PP = 2.5;
-/** 绿灯所需的最小正残差（百分点） */
-export const COUNTER_GREEN_PP = COUNTER_LIGHT_PP;
-/** 红灯所需的最大负残差（百分点） */
-export const COUNTER_RED_PP = -COUNTER_LIGHT_PP;
 
 /** 本图基准胜率的钳制区间，与后端 analyzer.rs 的 BASE_RATE_FLOOR/CEIL 一致 */
 export const BASE_RATE_MIN = 0.05;
@@ -650,68 +638,29 @@ export interface CounterDetail {
    * BP 推荐排序直接用它，保证后端分层平滑后的排序精度不被前端打折。
    */
   delta: number;
-  /** 该对位的原始交手场次（后端已按 eff_n 过滤，前端不再按此拦截） */
+  /** 该对位的有效样本量（v5 的 `n_eff`，后端已完成分层平滑折算） */
   samples: number;
-  /** 数据来源：该图专属 / 模式兜底 / 没有这条对位 */
-  source: 'map' | 'mode' | 'none';
-  /** 是否存在可用的对位边（false 只代表「没有这条对位」，不代表样本少） */
+  /** 数据来源：该图查表 / 模式查表 / 全局兜底 / 三层都没命中 */
+  source: MatchupSource | 'none';
+  /** 是否存在可用的对位记录（false 只代表「三层查表都没有这一对」） */
   hasSample: boolean;
   /**
    * 本图预期胜率（概率 0~1）：`Log5(双方本图基准胜率) + delta/100`。
-   * 任一方在该图没有基准胜率时为 null——此时无法断言「> 50%」，绿灯不亮。
+   * 任一方在该图没有基准胜率时为 null——仅用于展示，不参与色条判定。
    */
   predictedWr: number | null;
 }
 
 /**
- * 取一条对位边，**正反都试**。
- *
- * v3 后端对同一对英雄只落一条边（实测约 35% 的对位没有反向记录），
- * 所以查不到正向时必须回退到反向并取负——否则一半克制关系会被当成「无样本」。
- */
-function lookupEdge(
-  get: (selfId: number, oppId: number) => MatchupEdge | undefined,
-  selfId: number,
-  oppId: number,
-): MatchupEdge | null {
-  const forward = get(selfId, oppId);
-  if (forward) return forward;
-  const reverse = get(oppId, selfId);
-  if (reverse) return { opponent: oppId, delta: -reverse.delta, samples: reverse.samples };
-  return null;
-}
-
-/**
- * 取一条对位边：**地图层优先**（该图专属），地图层没收录时退到模式层。
- *
- * ⚠️ v1.1.2 起这里**不再**按 `samples` 判门槛：后端已用有效样本 `eff_n >= 15`
- * 与 `|delta| >= 2.0` 统一过滤，地图条目里 `samples < 10` 是借用同模式样本后
- * 的正常结果，前端再拦一次会丢掉约 57% 的克制条目。
- */
-export function resolveMatchup(
-  idx: MetaIndex,
-  mapName: string,
-  mode: string,
-  selfId: number,
-  oppId: number,
-): { edge: MatchupEdge; source: 'map' | 'mode' } | null {
-  const mapEdge = lookupEdge(
-    (s, o) => getMapMatchup(idx, mapName, s, o),
-    selfId,
-    oppId,
-  );
-  if (mapEdge) return { edge: mapEdge, source: 'map' };
-  const modeEdge = lookupEdge((s, o) => getMatchup(idx, mode, s, o), selfId, oppId);
-  if (modeEdge) return { edge: modeEdge, source: 'mode' };
-  return null;
-}
-
-/**
  * 计算候选英雄对一组对手的平均对位 delta（百分点）与明细。
+ *
+ * 数据来源是 v5 的无序查表 `lookupMatchup`（地图 → 模式 → 全局），
+ * 不再读 `brawlers[].matchups` 的 Top-K 列表——后者只剩详情页榜单在用。
+ * 这样「A 对 B」与「B 对 A」永远是同一条记录的正负两面，换边严格对称。
  *
  * 后端导出的边全部采信（不做样本收缩）：`eff_n` 过滤 + 分层平滑已经在后端完成，
  * 前端再乘一个 `samples / trust` 的系数等于把真实克制关系抹回 0。
- * 只有「查不到这条对位」才按缺失处理，不计入均值。
+ * 只有「三层都查不到」才按缺失处理，不计入均值。
  */
 export function counterDetail(
   idx: MetaIndex,
@@ -731,7 +680,7 @@ export function counterDetail(
   for (const oppId of opponentIds) {
     const ref = idx.brawlerById.get(oppId);
     const name = ref ? ref.name : String(oppId);
-    const hit = resolveMatchup(idx, mapName, mode, candId, oppId);
+    const hit = lookupMatchup(idx, mapName, mode, candId, oppId);
 
     if (!hit) {
       details.push({
@@ -750,46 +699,101 @@ export function counterDetail(
     const oppStat = getMapStat(idx, mapName, oppId);
     const predictedWr =
       pA !== null && oppStat
-        ? predictedWinRate(pA, baseRateOf(oppStat), hit.edge.delta)
+        ? predictedWinRate(pA, baseRateOf(oppStat), hit.deltaPp)
         : null;
 
     details.push({
       opponentId: oppId,
       opponentName: name,
-      delta: hit.edge.delta,
-      samples: hit.edge.samples,
+      delta: hit.deltaPp,
+      samples: hit.nEff,
       source: hit.source,
       hasSample: true,
       predictedWr,
     });
-    sum += hit.edge.delta;
+    sum += hit.deltaPp;
     trusted += 1;
   }
 
   return { avgDelta: trusted === 0 ? 0 : sum / trusted, trustedCount: trusted, details };
 }
 
-/** 色条档位：绿=优势 / 红=劣势 / 中性灰 / 深灰=无对位 */
+/**
+ * 色条档位（三态灯 + 无数据）：
+ *   good = 绿（优势）/ bad = 红（劣势）/ even = 黄（均势，有五五开数据）/ none = 空白（无数据）
+ */
 export type CounterLight = 'good' | 'bad' | 'even' | 'none';
+
+/**
+ * 绿/红分界（百分点）。
+ *
+ * `|delta| >= 1.5` 才算「有方向」：绿=优势、红=劣势；
+ * `|delta| < 1.5` 是**有效数据但接近五五开**，亮黄灯——不能当成无数据抹掉。
+ *
+ * v5 后端取消了均势剪枝，查表命中里会大量出现 ±1pp 以内的条目，
+ * 所以「有数据但接近五五开」必须能和「完全没数据」区分开。
+ */
+export const MATCHUP_LIGHT_PP = 1.5;
+
+/**
+ * 纯数值版色条判定：`null`/非法值 → 空白；否则按 |delta| 与 1.5pp 的关系三态划分。
+ *
+ * 3×3 对位格（`matchupCell`）与明细色条（`counterLight`）共用它，
+ * 保证「同一个 delta 在两处画出来的颜色一定一样」。
+ */
+export function lightOfDelta(deltaPp: number | null | undefined): CounterLight {
+  if (typeof deltaPp !== 'number' || !Number.isFinite(deltaPp)) return 'none';
+  if (deltaPp >= MATCHUP_LIGHT_PP) return 'good';
+  if (deltaPp <= -MATCHUP_LIGHT_PP) return 'bad';
+  return 'even';
+}
 
 /**
  * 把一条对位明细映射成色条。
  *
- * 这是**纯展示判定**，与 BP 算分解耦：
- * - 红灯：`delta <= -2.5` 即被压制，直接红；
- * - 绿灯：`delta >= 2.5` **且**本图预期胜率 > 50%。
- *   本图基准只有 25% 的弱势英雄，哪怕 +4.0pp 预期也只有 29%，不能亮绿；
- * - 其余（残差不够大、预期胜率不过半、缺基准胜率、无对位）一律中性灰。
+ * 这是**纯展示判定**，与 BP 算分解耦，且**只看 delta 一个变量**：
+ * 同一对英雄在蓝方视角与红方视角拿到的 delta 互为相反数，
+ * 因此换边后必然 绿↔红、黄↔黄、空白↔空白。
+ *
+ * （旧版绿灯还要求「本图预期胜率 > 50%」，那条单向压制规则已移除——
+ * 它会让同一对位在换边后一边绿一边灰，破坏对称性。）
  */
 export function counterLight(d: CounterDetail | undefined): CounterLight {
   if (!d || !d.hasSample) return 'none';
-  // 红灯只看残差：被压制的结论与自身基础胜率无关，-2.5pp 就是被压
-  if (d.delta <= COUNTER_RED_PP) return 'bad';
-  // 绿灯必须「残差够大」且「本图预期胜率过半」两个条件同时成立
-  if (d.delta >= COUNTER_GREEN_PP && d.predictedWr !== null && d.predictedWr > 0.5) {
-    return 'good';
-  }
-  return 'even';
+  return lightOfDelta(d.delta);
+}
+
+/** 3×3 对位格的一格：颜色 + 原始数值（供悬浮提示与核对表使用） */
+export interface MatchupCellView {
+  light: CounterLight;
+  /** 百分点，+ 表示 idA 占优；无数据为 null */
+  deltaPp: number | null;
+  /** 有效样本量；无数据为 null */
+  nEff: number | null;
+  source: MatchupSource | 'none';
+}
+
+/**
+ * 3×3 对位格的**唯一**取数入口：直接吃 `lookupMatchup`，不经过任何列表兜底。
+ *
+ * 对称性由此函数保证：`matchupCell(A,B).deltaPp === -matchupCell(B,A).deltaPp`，
+ * 因此两格的颜色必然互为镜像。`deltaPp === 0` 会落到 `even`（黄），不是空白。
+ */
+export function matchupCell(
+  idx: MetaIndex,
+  mapName: string,
+  mode: string,
+  idA: number,
+  idB: number,
+): MatchupCellView {
+  const hit = lookupMatchup(idx, mapName, mode, idA, idB);
+  if (!hit) return { light: 'none', deltaPp: null, nEff: null, source: 'none' };
+  return {
+    light: lightOfDelta(hit.deltaPp),
+    deltaPp: hit.deltaPp,
+    nEff: hit.nEff,
+    source: hit.source,
+  };
 }
 
 const signedPp = (v: number): string => `${v > 0 ? '+' : ''}${v.toFixed(1)}`;

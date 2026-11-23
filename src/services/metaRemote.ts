@@ -171,20 +171,37 @@ export interface ReplaceOptions {
   hasCache: boolean;
 }
 
+/** 只关心这两个字段：时间戳 + 版本号 */
+type ReplaceProbe = Pick<BrawlMeta, 'updated_at'> & { schema_version?: number };
+
 /**
  * 是否需要用远程数据覆盖本地。
  *
- * 判定只看 `updated_at`（schema_version 由 validateMeta 单独把关）：
- *   - 远程更新 → 覆盖；
- *   - 远程更旧 → 不覆盖（避免把本地回滚成旧数据）；
- *   - 时间相同 → 只有本地还没有缓存时才落盘；
- *   - 远程时间戳解析不了 → 拒绝脏数据；本地解析不了 → 直接覆盖。
+ * 判定顺序：
+ *   1. **版本号不同**：升版必换、降版不换。
+ *      schema 升级（如 v4 → v5）意味着字段语义变了，哪怕 `updated_at` 相同也要换，
+ *      否则旧缓存会一直卡在「解析得动但少了新字段」的状态（对位格全空）。
+ *   2. 其余只看 `updated_at`：
+ *      - 远程更新 → 覆盖；
+ *      - 远程更旧 → 不覆盖（避免把本地回滚成旧数据）；
+ *      - 时间相同 → 只有本地还没有缓存时才落盘；
+ *      - 远程时间戳解析不了 → 拒绝脏数据；本地解析不了 → 直接覆盖。
  */
 export function shouldReplaceMeta(
-  incoming: Pick<BrawlMeta, 'updated_at'>,
-  current: Pick<BrawlMeta, 'updated_at'>,
+  incoming: ReplaceProbe,
+  current: ReplaceProbe,
   options: ReplaceOptions,
 ): boolean {
+  const nextVersion = incoming?.schema_version;
+  const prevVersion = current?.schema_version;
+  if (
+    typeof nextVersion === 'number' &&
+    typeof prevVersion === 'number' &&
+    nextVersion !== prevVersion
+  ) {
+    return nextVersion > prevVersion;
+  }
+
   const next = parseUpdatedAt(incoming?.updated_at);
   const prev = parseUpdatedAt(current?.updated_at);
   if (Number.isNaN(prev)) return true;

@@ -8,9 +8,8 @@ import {
   TEAM_SLOTS,
   banCount,
   banSideOfIndex,
-  counterDetail,
-  counterLight,
   isEmptyBan,
+  matchupCell,
   pickNumber,
   slotBase,
   slotPickNumbers,
@@ -18,7 +17,7 @@ import {
 import {
   COUNTER_LIGHT_CLASS,
   baseScoreColor,
-  counterTip,
+  matchupCellTip,
   orderTag,
 } from '../utils/display';
 import { useLongPress } from '../utils/useLongPress';
@@ -149,19 +148,6 @@ function SlotCell({
         ? 'ring-2 ring-enemy shadow-[0_0_10px_rgba(239,68,68,0.55)]'
         : 'border-enemy/45';
 
-  /** 该英雄对「对方 3 个槽位」的逐一对位明细，按 opponentId 建索引 */
-  const detailByOpp = new Map(
-    id !== undefined
-      ? counterDetail(
-          idx,
-          state.mapName,
-          state.mode,
-          id,
-          oppArr.filter((x): x is number => typeof x === 'number'),
-        ).details.map((d) => [d.opponentId, d])
-      : [],
-  );
-
   const portrait = (
     <span className="relative h-full w-[var(--slot-avatar-w)] shrink-0 overflow-hidden">
       {info && id !== undefined ? (
@@ -202,8 +188,10 @@ function SlotCell({
 
   /**
    * 中轴竖排色条：**固定 3 格**，自上而下对应对方第 1/2/3 行槽位。
-   * 绿=我方占优且本图预期胜率过半 / 红=被压制 / 中性灰=残差不够或预期不过半 /
-   * 深灰=对方该位空着或无对位记录。
+   * 绿=优势 / 红=劣势 / 黄=均势（有五五开数据）/ 深灰=无数据。
+   *
+   * 每一格都由同一条对称查表记录得出：蓝方第 i 行对红方第 j 行、红方第 j 行
+   * 对蓝方第 i 行取到的是同一个数值的正负两面，所以换边后颜色必然互为镜像。
    */
   const strip =
     id !== undefined ? (
@@ -219,14 +207,13 @@ function SlotCell({
               />
             );
           }
-          const detail = detailByOpp.get(oppId);
-          const light = counterLight(detail);
+          const cell = matchupCell(idx, state.mapName, state.mode, id, oppId);
           const name = getBrawler(oppId)?.cn ?? '';
           return (
             <span
               key={i}
-              className={`flex-1 rounded-[1px] ${COUNTER_LIGHT_CLASS[light]}`}
-              title={counterTip(detail, name)}
+              className={`flex-1 rounded-[1px] ${COUNTER_LIGHT_CLASS[cell.light]}`}
+              title={matchupCellTip(cell, name)}
             />
           );
         })}

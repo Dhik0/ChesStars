@@ -2,7 +2,7 @@ import { X } from 'lucide-react';
 import type { Candidate } from '../utils/draftEngine';
 import { brawlerCN } from '../data/localization';
 import { CLASS_COLOR, CLASS_LABEL } from '../data/brawlerProfile';
-import { orderTag } from '../utils/display';
+import { orderTag, baseScoreColor } from '../utils/display';
 import Avatar from './Avatar';
 
 interface BrawlerDetailProps {
@@ -98,7 +98,10 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
             </p>
           </div>
           <div className="shrink-0 text-right">
-            <div className="text-[22px] font-bold leading-none tabular-nums" style={{ color: barColor(candidate.score) }}>
+            {/* 总分与卡片/槽位共用同一套分档配色，避免同一档分数在两处颜色不一致 */}
+            <div
+              className={`text-[22px] font-bold leading-none tabular-nums ${baseScoreColor(candidate.score)}`}
+            >
               {candidate.score.toFixed(1)}
             </div>
             <div className="text-[9px] text-slate-500">{isBan ? 'Ban 分' : '动态分'}</div>
