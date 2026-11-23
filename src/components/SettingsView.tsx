@@ -13,7 +13,9 @@ import {
 import { APP_NAME, APP_VERSION, GITHUB_REPO, GITHUB_REPO_URL } from '../config/app';
 import type { MetaSnapshot, PullResult } from '../services/metaStore';
 import { DEFAULT_REMOTE_URL } from '../services/metaStore';
+import { META_CHANNEL_LABEL, META_DOWNLOAD_TIMEOUT_MS } from '../services/metaRemote';
 import type { UpdateCheckResult, UpdateInfo } from '../services/updateChecker';
+import { mirrorDownloadUrl } from '../services/updateChecker';
 import { openExternal } from '../utils/openExternal';
 
 interface SettingsViewProps {
@@ -107,9 +109,26 @@ export default function SettingsView({
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [checkMsg, setCheckMsg] = useState<CheckMessage | null>(null);
 
+  /**
+   * 下载入口：主按钮走国内加速（镜像前缀 + APK 直链），
+   * 拿不到 APK 直链时退到 Release 页面，至少不会出现点了没反应的按钮。
+   */
+  const apkUrl = updateInfo?.apkUrl ?? null;
+  const mirrorUrl = updateInfo ? mirrorDownloadUrl(updateInfo.mirrorPrefixes, apkUrl) : null;
+  const primaryDownloadUrl = mirrorUrl ?? apkUrl ?? updateInfo?.htmlUrl ?? null;
+  const primaryDownloadLabel = apkUrl ? '国内加速下载' : '前往 Release 页';
+  const qqGroupUrl = updateInfo?.qqGroupUrl ?? null;
+
   const handleSave = () => {
     onSaveUrl(url);
-    setMessage({ ok: true, text: '地址已保存，下次检查将使用新地址' });
+    const trimmed = url.trim();
+    setMessage({
+      ok: true,
+      text:
+        !trimmed || trimmed === DEFAULT_REMOTE_URL
+          ? '已恢复默认三段式拉取链路（提交 SHA → jsDelivr → Raw）'
+          : '地址已保存，下次拉取将只使用该地址',
+    });
   };
 
   const handlePull = async () => {
@@ -136,14 +155,22 @@ export default function SettingsView({
   const handleCheckUpdate = async () => {
     setChecking(true);
     setCheckMsg(null);
+    const viaLabel = (via: UpdateCheckResult['via']): string =>
+      via === 'manifest' ? '版本清单' : via === 'releases' ? 'Releases API' : '未知通道';
     try {
       const res = await onCheckUpdate();
       if (res.status === 'update' && res.info) {
-        setCheckMsg({ tone: 'warn', text: `发现新版本 v${res.info.version}，点上方横幅查看详情` });
+        setCheckMsg({
+          tone: 'warn',
+          text: `发现新版本 v${res.info.version}（经${viaLabel(res.via)}），可直接在上方下载`,
+        });
       } else if (res.status === 'latest') {
-        setCheckMsg({ tone: 'ok', text: `已是最新版本（v${res.current}）` });
+        setCheckMsg({
+          tone: 'ok',
+          text: `已是最新版本（v${res.current}）· 经${viaLabel(res.via)}检测`,
+        });
       } else {
-        setCheckMsg({ tone: 'error', text: `检查失败：${res.reason ?? '网络异常'}，请稍后再试` });
+        setCheckMsg({ tone: 'error', text: `检查失败：${res.reason ?? '网络异常'}` });
       }
     } catch (err) {
       setCheckMsg({
@@ -169,22 +196,64 @@ export default function SettingsView({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-5 pt-3">
-        {/* 新版本横幅：低调一条，点开看完整更新说明 */}
+        {/*
+          新版本提示：留在设置页内，不做全局弹窗。
+          一条低调的卡片 + 三个下载出口（国内加速 / GitHub 原链 / QQ 群）。
+        */}
         {updateInfo && (
-          <button
-            type="button"
-            onClick={onShowUpdate}
-            className="mb-3 flex w-full items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/[0.09] px-2.5 py-2 text-left transition-colors active:bg-sky-500/15"
-          >
-            <Sparkles size={14} className="shrink-0 text-sky-400" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[11.5px] font-semibold text-sky-300">
-                发现新版本 v{updateInfo.version}
-              </span>
-              <span className="block text-[10px] text-sky-400/70">前往下载 / 查看更新说明</span>
-            </span>
-            <ChevronRight size={14} className="shrink-0 text-sky-400/70" />
-          </button>
+          <div className="mb-3 rounded-lg border border-sky-500/30 bg-sky-500/[0.09] px-2.5 py-2">
+            <div className="flex items-start gap-2">
+              <Sparkles size={14} className="mt-0.5 shrink-0 text-sky-400" />
+              <div className="min-w-0 flex-1 leading-tight">
+                <p className="truncate text-[11.5px] font-semibold text-sky-300">
+                  发现新版本 v{updateInfo.version}
+                </p>
+                <p className="text-[10px] text-sky-400/70">当前 v{APP_VERSION}</p>
+              </div>
+              <button
+                type="button"
+                onClick={onShowUpdate}
+                className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-sky-400/80 active:bg-sky-500/15"
+              >
+                更新说明
+                <ChevronRight size={12} />
+              </button>
+            </div>
+
+            {primaryDownloadUrl && (
+              <button
+                type="button"
+                onClick={() => openExternal(primaryDownloadUrl)}
+                className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-sky-600 text-[12.5px] font-semibold text-white transition-colors active:bg-sky-700"
+              >
+                <Download size={13} />
+                {primaryDownloadLabel}
+              </button>
+            )}
+
+            {(apkUrl || qqGroupUrl) && (
+              <div className="mt-1.5 flex items-center justify-center gap-4 text-[10px]">
+                {apkUrl && (
+                  <button
+                    type="button"
+                    onClick={() => openExternal(apkUrl)}
+                    className="text-slate-400 underline decoration-slate-600 underline-offset-2 active:text-slate-200"
+                  >
+                    GitHub 原链
+                  </button>
+                )}
+                {qqGroupUrl && (
+                  <button
+                    type="button"
+                    onClick={() => openExternal(qqGroupUrl)}
+                    className="text-slate-400 underline decoration-slate-600 underline-offset-2 active:text-slate-200"
+                  >
+                    QQ 群获取
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         <SectionLabel>数据</SectionLabel>
@@ -222,6 +291,14 @@ export default function SettingsView({
               英雄{' '}
               <span className="tabular-nums text-slate-300">{snapshot.meta.brawlers.length}</span>
             </span>
+            <span className="text-slate-500">
+              拉取渠道{' '}
+              <span className="text-slate-300">
+                {snapshot.remoteChannel
+                  ? META_CHANNEL_LABEL[snapshot.remoteChannel]
+                  : '尚未连上远程'}
+              </span>
+            </span>
             {snapshot.dataDateSource === 'header' && (
               <span className="text-[10px] leading-tight text-slate-600">日期取自响应头</span>
             )}
@@ -235,7 +312,7 @@ export default function SettingsView({
 
         {/* 远程地址 */}
         <label className="mb-1 block text-[11px] font-medium text-slate-400">
-          远程数据地址（brawl_meta.json）
+          自定义数据地址（留空使用默认三段式链路）
         </label>
         <input
           value={url}
@@ -293,7 +370,10 @@ export default function SettingsView({
         )}
 
         <p className="mt-3 text-[10px] leading-relaxed text-slate-600">
-          启动时会静默检查远程更新（单次 6 秒超时，失败自动退避重试，不阻塞界面）。断网时自动使用本地缓存或内置数据，可零延迟打开。
+          拉取链路（任一成功即停）：GitHub 提交 SHA → jsDelivr 精确版本 → jsDelivr @main →
+          GitHub Raw。单段 {Math.round(META_DOWNLOAD_TIMEOUT_MS / 1000)} 秒超时、带防缓存参数，
+          手动拉取不受任何冷却限制。启动时静默检查一次，失败不阻塞界面；断网时自动使用本地缓存
+          或内置数据，可零延迟打开。
         </p>
 
         {/* 关于：版本 / 检查更新 / 开源入口 */}

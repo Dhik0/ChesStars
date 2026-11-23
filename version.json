@@ -1,0 +1,8 @@
+{
+  "version": "1.1.2",
+  "releaseUrl": "https://github.com/Dhik0/ChesStars/releases/tag/v1.1.2",
+  "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v1.1.2/ChesStars-v1.1.2.apk",
+  "mirrorPrefixes": ["https://ghfast.top/", "https://gh-proxy.com/"],
+  "qqGroupUrl": "https://qm.qq.com/q/yJm7ocJ5fO",
+  "notes": "- 数据拉取改为三段式链路（提交 SHA → jsDelivr → GitHub Raw），后端推送后即刻可拉取，不再受 CDN 分支缓存影响\n- 移动端弱网下载超时放宽至 15 秒，失败自动降级并给出具体原因\n- 设置页新增拉取渠道显示，手动拉取区分「已更新 / 已是最新 / 失败原因」\n- 设置页提供国内加速下载与 GitHub 原链两个下载入口\n- 内置兜底数据同步至 2026-11-23（101,440 场对局）"
+}

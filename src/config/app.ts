@@ -10,10 +10,15 @@ export const APP_VERSION: string = __APP_VERSION__;
 export const APP_NAME = 'ChesStars';
 
 /** GitHub 仓库（owner/repo） */
-export const GITHUB_REPO = 'Dhik0/ChesStars';
+export const GITHUB_OWNER = 'Dhik0';
+export const GITHUB_REPO_NAME = 'ChesStars';
+export const GITHUB_REPO = `${GITHUB_OWNER}/${GITHUB_REPO_NAME}`;
 
 /** 仓库主页：设置页的「开源仓库」入口 */
 export const GITHUB_REPO_URL = `https://github.com/${GITHUB_REPO}`;
+
+/** 仓库根目录的版本清单（不走 GitHub API，避免 60 次/小时限流） */
+export const VERSION_MANIFEST_PATH = 'version.json';
 
 /** 最新 Release 接口（未认证调用，60 次/小时/IP） */
 export const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;

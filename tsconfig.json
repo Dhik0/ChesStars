@@ -38,6 +38,8 @@
  * 【场景 B：发布新版本（需要更新版本号并上传新 APK）】
  * 1. 核对版本号（已改则跳过）：
  *    - package.json -> "version": "1.x.x"
+ *    - version.json -> version / releaseUrl / apkUrl 三处同步到 1.x.x
+ *      （App 靠它检测更新，单元测试会比对它与 package.json 是否一致）
  *    - android/app/build.gradle -> versionCode +1, versionName "1.x.x"
  *
  * 2. 构建前端并同步到 Android 工程：
