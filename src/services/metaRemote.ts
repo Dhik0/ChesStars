@@ -100,21 +100,12 @@ export const META_DOWNLOAD_RETRIES = 0;
 
 /* ------------------------------- 渠道标识 ------------------------------- */
 
-/** 数据实际从哪一段拿到的 */
-export type MetaChannel = 'cdn-sha' | 'cdn-branch' | 'raw' | 'custom';
-
-export const META_CHANNEL_LABEL: Record<MetaChannel, string> = {
-  'cdn-sha': 'jsDelivr@提交',
-  'cdn-branch': 'jsDelivr@main',
-  raw: 'GitHub Raw',
-  custom: '自定义地址',
-};
+/** 数据实际从哪一段拿到的（仅用于内部排查，不在界面展示） */
+export type MetaChannel = 'cdn-sha' | 'cdn-branch' | 'raw';
 
 /* ------------------------------- 类型定义 ------------------------------- */
 
 export interface MetaRemoteOptions {
-  /** 设置页保存的自定义地址；给了就只走它（仍然带防缓存参数） */
-  customUrl?: string | null;
   /** 单次下载超时，默认 15s */
   timeoutMs?: number;
   /** 每段额外重试次数，默认 0 */
@@ -288,29 +279,4 @@ export async function fetchRepoJson<T = unknown>(
   }
 
   throw new MetaRemoteError(failures);
-}
-
-/**
- * 拉取数据仓库的 brawl_meta.json。
- * 若用户在设置页配了自定义地址，则只走该地址、不做链路降级。
- */
-export async function fetchMetaRemote<T = unknown>(
-  options: MetaRemoteOptions = {},
-): Promise<MetaRemoteResult<T>> {
-  const timeoutMs = options.timeoutMs ?? META_DOWNLOAD_TIMEOUT_MS;
-  const retries = Math.max(0, options.retries ?? META_DOWNLOAD_RETRIES);
-  const failures: string[] = [];
-
-  const custom = options.customUrl?.trim();
-  if (custom && custom !== BRANCH_CDN_URL) {
-    try {
-      const res = await download<T>(custom, timeoutMs, retries, options.cacheBust);
-      return { ...res, channel: 'custom', url: custom, failures };
-    } catch (err) {
-      failures.push(`自定义地址：${reason(err)}`);
-      throw new MetaRemoteError(failures);
-    }
-  }
-
-  return fetchRepoJson<T>(META_REPO_REF, options);
 }

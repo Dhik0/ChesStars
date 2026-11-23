@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   ChevronRight,
   Database,
@@ -8,26 +8,25 @@ import {
   RefreshCw,
   Settings,
   Sparkles,
-  Trash2,
+  Users,
 } from 'lucide-react';
 import { APP_NAME, APP_VERSION, GITHUB_REPO, GITHUB_REPO_URL } from '../config/app';
+import { bundledQqGroupUrl } from '../config/bundledManifest';
 import type { MetaSnapshot, PullResult } from '../services/metaStore';
-import { DEFAULT_REMOTE_URL } from '../services/metaStore';
-import { META_CHANNEL_LABEL, META_DOWNLOAD_TIMEOUT_MS } from '../services/metaRemote';
 import type { UpdateCheckResult, UpdateInfo } from '../services/updateChecker';
 import { mirrorDownloadUrl } from '../services/updateChecker';
 import { openExternal } from '../utils/openExternal';
 
 interface SettingsViewProps {
   snapshot: MetaSnapshot;
-  onSaveUrl: (url: string) => void;
   onPull: () => Promise<PullResult>;
-  onClearCache: () => Promise<void>;
   /** 已发现的新版本（启动检测或手动检测得出）；null = 没有更新 */
   updateInfo: UpdateInfo | null;
+  /** 远程清单里的 QQ 群链接；null = 用打包内置的 version.json */
+  qqGroupUrl: string | null;
   /** 手动检查更新，返回结构化结果供按钮旁反馈 */
   onCheckUpdate: () => Promise<UpdateCheckResult>;
-  /** 打开更新弹窗（点顶部横幅） */
+  /** 打开更新说明弹窗 */
   onShowUpdate: () => void;
 }
 
@@ -87,24 +86,49 @@ function SectionLabel({ children }: { children: string }) {
   );
 }
 
+/** 「关于」区的行式入口：图标 + 标题 + 小字 + 外链箭头（开源仓库 / QQ 群共用） */
+function LinkRow({
+  icon,
+  title,
+  subtitle,
+  onClick,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-2 text-left transition-colors active:bg-slate-800"
+    >
+      <span className="shrink-0 text-slate-300">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[12px] font-medium text-slate-200">{title}</span>
+        <span className="block truncate text-[10px] text-slate-500">{subtitle}</span>
+      </span>
+      <ExternalLink size={13} className="shrink-0 text-slate-500" />
+    </button>
+  );
+}
+
 /**
  * 设置页（一级页面，由底部导航右侧 Tab 进入）。
  *
- * 原先是藏在顶栏齿轮里的二级抽屉，现在整页展示：数据源状态 / 手动刷新 / 缓存管理 /
- * 版本与开源入口都在一屏里滚动可见，不再有遮罩层，也不再挤占 BP 页。
+ * 面向普通用户：只讲「数据是哪天的、能不能更新、去哪下载」，
+ * 算法细节与网络链路一律不在这里展示（见 .workbuddy-ai/memory/MEMORY.md 的长期规范）。
  */
 export default function SettingsView({
   snapshot,
-  onSaveUrl,
   onPull,
-  onClearCache,
   updateInfo,
+  qqGroupUrl,
   onCheckUpdate,
   onShowUpdate,
 }: SettingsViewProps) {
-  const [url, setUrl] = useState(snapshot.remoteUrl);
   const [pulling, setPulling] = useState(false);
-  const [clearing, setClearing] = useState(false);
   const [checking, setChecking] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [checkMsg, setCheckMsg] = useState<CheckMessage | null>(null);
@@ -116,20 +140,10 @@ export default function SettingsView({
   const apkUrl = updateInfo?.apkUrl ?? null;
   const mirrorUrl = updateInfo ? mirrorDownloadUrl(updateInfo.mirrorPrefixes, apkUrl) : null;
   const primaryDownloadUrl = mirrorUrl ?? apkUrl ?? updateInfo?.htmlUrl ?? null;
-  const primaryDownloadLabel = apkUrl ? '国内加速下载' : '前往 Release 页';
-  const qqGroupUrl = updateInfo?.qqGroupUrl ?? null;
+  const primaryDownloadLabel = apkUrl ? '下载' : '前往 Release 页';
 
-  const handleSave = () => {
-    onSaveUrl(url);
-    const trimmed = url.trim();
-    setMessage({
-      ok: true,
-      text:
-        !trimmed || trimmed === DEFAULT_REMOTE_URL
-          ? '已恢复默认三段式拉取链路（提交 SHA → jsDelivr → Raw）'
-          : '地址已保存，下次拉取将只使用该地址',
-    });
-  };
+  /** QQ 群：远程清单优先，没有就用打包内置的 version.json（非空即常驻） */
+  const qqLink = qqGroupUrl ?? bundledQqGroupUrl;
 
   const handlePull = async () => {
     setPulling(true);
@@ -139,44 +153,20 @@ export default function SettingsView({
     setPulling(false);
   };
 
-  const handleClear = async () => {
-    setClearing(true);
-    setMessage(null);
-    try {
-      await onClearCache();
-      setMessage({ ok: true, text: '已清除缓存，回退到内置数据' });
-    } catch (err) {
-      setMessage({ ok: false, text: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setClearing(false);
-    }
-  };
-
   const handleCheckUpdate = async () => {
     setChecking(true);
     setCheckMsg(null);
-    const viaLabel = (via: UpdateCheckResult['via']): string =>
-      via === 'manifest' ? '版本清单' : via === 'releases' ? 'Releases API' : '未知通道';
     try {
       const res = await onCheckUpdate();
       if (res.status === 'update' && res.info) {
-        setCheckMsg({
-          tone: 'warn',
-          text: `发现新版本 v${res.info.version}（经${viaLabel(res.via)}），可直接在上方下载`,
-        });
+        setCheckMsg({ tone: 'warn', text: `发现新版本 v${res.info.version}，可在上方下载` });
       } else if (res.status === 'latest') {
-        setCheckMsg({
-          tone: 'ok',
-          text: `已是最新版本（v${res.current}）· 经${viaLabel(res.via)}检测`,
-        });
+        setCheckMsg({ tone: 'ok', text: `已是最新版本（v${res.current}）` });
       } else {
-        setCheckMsg({ tone: 'error', text: `检查失败：${res.reason ?? '网络异常'}` });
+        setCheckMsg({ tone: 'error', text: '检查失败，请检查网络后重试' });
       }
-    } catch (err) {
-      setCheckMsg({
-        tone: 'error',
-        text: `检查失败：${err instanceof Error ? err.message : String(err)}`,
-      });
+    } catch {
+      setCheckMsg({ tone: 'error', text: '检查失败，请检查网络后重试' });
     } finally {
       setChecking(false);
     }
@@ -191,14 +181,14 @@ export default function SettingsView({
           设置
         </h1>
         <p className="mt-0.5 text-[10px] leading-tight text-slate-500">
-          数据源与版本 · {APP_NAME} v{APP_VERSION}
+          {APP_NAME} v{APP_VERSION}
         </p>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-5 pt-3">
         {/*
           新版本提示：留在设置页内，不做全局弹窗。
-          一条低调的卡片 + 三个下载出口（国内加速 / GitHub 原链 / QQ 群）。
+          主按钮走国内加速，「GitHub 直连」作为次级入口并标注适用前提。
         */}
         {updateInfo && (
           <div className="mb-3 rounded-lg border border-sky-500/30 bg-sky-500/[0.09] px-2.5 py-2">
@@ -231,26 +221,18 @@ export default function SettingsView({
               </button>
             )}
 
-            {(apkUrl || qqGroupUrl) && (
-              <div className="mt-1.5 flex items-center justify-center gap-4 text-[10px]">
-                {apkUrl && (
-                  <button
-                    type="button"
-                    onClick={() => openExternal(apkUrl)}
-                    className="text-slate-400 underline decoration-slate-600 underline-offset-2 active:text-slate-200"
-                  >
-                    GitHub 原链
-                  </button>
-                )}
-                {qqGroupUrl && (
-                  <button
-                    type="button"
-                    onClick={() => openExternal(qqGroupUrl)}
-                    className="text-slate-400 underline decoration-slate-600 underline-offset-2 active:text-slate-200"
-                  >
-                    QQ 群获取
-                  </button>
-                )}
+            {apkUrl && (
+              <div className="mt-1.5 text-center">
+                <button
+                  type="button"
+                  onClick={() => openExternal(apkUrl)}
+                  className="text-[10px] text-slate-400 underline decoration-slate-600 underline-offset-2 active:text-slate-200"
+                >
+                  GitHub 直连
+                </button>
+                <p className="mt-0.5 text-[9.5px] leading-snug text-amber-400/70">
+                  如果没有加速器，请不要选择此选项
+                </p>
               </div>
             )}
           </div>
@@ -291,72 +273,18 @@ export default function SettingsView({
               英雄{' '}
               <span className="tabular-nums text-slate-300">{snapshot.meta.brawlers.length}</span>
             </span>
-            <span className="text-slate-500">
-              拉取渠道{' '}
-              <span className="text-slate-300">
-                {snapshot.remoteChannel
-                  ? META_CHANNEL_LABEL[snapshot.remoteChannel]
-                  : '尚未连上远程'}
-              </span>
-            </span>
-            {snapshot.dataDateSource === 'header' && (
-              <span className="text-[10px] leading-tight text-slate-600">日期取自响应头</span>
-            )}
           </div>
-          {snapshot.lastError && (
-            <p className="mt-1.5 rounded bg-amber-500/10 px-1.5 py-1 text-[10px] leading-snug text-amber-400">
-              {snapshot.lastError}
-            </p>
-          )}
         </div>
 
-        {/* 远程地址 */}
-        <label className="mb-1 block text-[11px] font-medium text-slate-400">
-          自定义数据地址（留空使用默认三段式链路）
-        </label>
-        <input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          spellCheck={false}
-          placeholder={DEFAULT_REMOTE_URL}
-          className="mb-1.5 h-9 w-full rounded-lg border border-slate-800 bg-slate-950 px-2 text-[11px] text-slate-200 placeholder:text-slate-600 focus:border-sky-600 focus:outline-none"
-        />
-        <div className="mb-3 flex gap-1.5">
-          <button
-            type="button"
-            onClick={handleSave}
-            className="h-8 flex-1 rounded-lg border border-slate-700 bg-slate-800 text-[12px] font-medium text-slate-200 active:bg-slate-700"
-          >
-            保存地址
-          </button>
-          <button
-            type="button"
-            onClick={() => setUrl(DEFAULT_REMOTE_URL)}
-            className="h-8 rounded-lg border border-slate-800 px-2 text-[11px] text-slate-400 active:bg-slate-800"
-          >
-            恢复默认
-          </button>
-        </div>
-
-        {/* 操作按钮 */}
+        {/* 唯一的数据操作：强制拉一次最新数据 */}
         <button
           type="button"
           onClick={handlePull}
           disabled={pulling}
-          className="mb-1.5 flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-sky-600 text-[13px] font-semibold text-white transition-colors active:bg-sky-700 disabled:opacity-60"
+          className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-sky-600 text-[13px] font-semibold text-white transition-colors active:bg-sky-700 disabled:opacity-60"
         >
           {pulling ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
           {pulling ? '正在拉取…' : '立即拉取最新数据'}
-        </button>
-
-        <button
-          type="button"
-          onClick={handleClear}
-          disabled={clearing}
-          className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-800 text-[12px] text-slate-400 active:bg-slate-800 disabled:opacity-60"
-        >
-          <Trash2 size={13} />
-          {clearing ? '正在清除…' : '清除本地缓存（回退内置数据）'}
         </button>
 
         {message && (
@@ -369,14 +297,7 @@ export default function SettingsView({
           </p>
         )}
 
-        <p className="mt-3 text-[10px] leading-relaxed text-slate-600">
-          拉取链路（任一成功即停）：GitHub 提交 SHA → jsDelivr 精确版本 → jsDelivr @main →
-          GitHub Raw。单段 {Math.round(META_DOWNLOAD_TIMEOUT_MS / 1000)} 秒超时、带防缓存参数，
-          手动拉取不受任何冷却限制。启动时静默检查一次，失败不阻塞界面；断网时自动使用本地缓存
-          或内置数据，可零延迟打开。
-        </p>
-
-        {/* 关于：版本 / 检查更新 / 开源入口 */}
+        {/* 关于：版本 / 检查更新 / 开源仓库 / QQ 群 */}
         <div className="mt-4">
           <SectionLabel>关于</SectionLabel>
 
@@ -408,25 +329,26 @@ export default function SettingsView({
             </p>
           )}
 
-          <button
-            type="button"
+          <LinkRow
+            icon={<Github size={16} />}
+            title="GitHub 开源仓库"
+            subtitle={`github.com/${GITHUB_REPO}`}
             onClick={() => openExternal(GITHUB_REPO_URL)}
-            className="flex w-full items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-2 text-left transition-colors active:bg-slate-800"
-          >
-            <Github size={16} className="shrink-0 text-slate-300" />
-            <span className="min-w-0 flex-1">
-              <span className="block text-[12px] font-medium text-slate-200">
-                GitHub 开源仓库
-              </span>
-              <span className="block truncate text-[10px] text-slate-500">
-                github.com/{GITHUB_REPO}
-              </span>
-            </span>
-            <ExternalLink size={13} className="shrink-0 text-slate-500" />
-          </button>
+          />
+
+          {qqLink && (
+            <div className="mt-1.5">
+              <LinkRow
+                icon={<Users size={16} />}
+                title="QQ 交流群"
+                subtitle="如果无法更新，请进入 QQ 群获取更新"
+                onClick={() => openExternal(qqLink)}
+              />
+            </div>
+          )}
 
           <p className="mt-3 text-center text-[10px] leading-relaxed text-slate-700">
-            {APP_NAME} v{APP_VERSION} · 开源主页
+            {APP_NAME} v{APP_VERSION}
           </p>
         </div>
       </div>

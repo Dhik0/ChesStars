@@ -63,6 +63,8 @@ export default function App() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   /** 更新弹窗开关（启动自动检查命中且未被忽略时打开） */
   const [updateOpen, setUpdateOpen] = useState(false);
+  /** 远程清单里的 QQ 群链接（与是否有新版本无关）；null = 用打包内置的那份 */
+  const [qqGroupUrl, setQqGroupUrl] = useState<string | null>(null);
 
   /** 横屏（左右双栏）/ 矮视口（竖屏悬浮小窗） */
   const vp = useViewport();
@@ -98,14 +100,19 @@ export default function App() {
   }, []);
 
   /* ---------------- 新版本检测（静默、非阻塞） ----------------
-   * 启动时后台问一次 GitHub Releases：超时 / 限流 / 断网全部静默忽略，
+   * 启动时后台问一次版本清单：超时 / 限流 / 断网全部静默忽略，
    * 只有真的拿到更高版本才记下来。用户点过「忽略此版本」的不再自动弹窗，
    * 但底部「设置」Tab 上的小圆点照旧保留（用户想装时还能找到入口）。
+   *
+   * 顺带把清单里的 QQ 群链接记下来：它和「有没有新版本」无关，
+   * 远程改了之后，老版本 App 也能立刻换到新群链接。
    */
   useEffect(() => {
     let alive = true;
     void checkForUpdate().then((res) => {
-      if (!alive || res.status !== 'update' || !res.info) return;
+      if (!alive) return;
+      if (res.info?.qqGroupUrl) setQqGroupUrl(res.info.qqGroupUrl);
+      if (res.status !== 'update' || !res.info) return;
       setUpdateInfo(res.info);
       if (!isVersionIgnored(res.info.version)) setUpdateOpen(true);
     });
@@ -256,6 +263,7 @@ export default function App() {
   /** 手动检查：结果交给设置页反馈，同时刷新红点与横幅 */
   const handleCheckUpdate = async (): Promise<UpdateCheckResult> => {
     const res = await checkForUpdate();
+    if (res.info?.qqGroupUrl) setQqGroupUrl(res.info.qqGroupUrl);
     if (res.status === 'update' && res.info) setUpdateInfo(res.info);
     else if (res.status === 'latest') setUpdateInfo(null);
     return res;
@@ -370,10 +378,9 @@ export default function App() {
     return shell(
       <SettingsView
         snapshot={snap}
-        onSaveUrl={(u) => metaStore.setRemoteUrl(u)}
         onPull={() => metaStore.pullNow()}
-        onClearCache={() => metaStore.clearCache()}
         updateInfo={updateInfo}
+        qqGroupUrl={qqGroupUrl}
         onCheckUpdate={handleCheckUpdate}
         onShowUpdate={() => setUpdateOpen(true)}
       />,

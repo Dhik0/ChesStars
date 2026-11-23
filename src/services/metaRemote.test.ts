@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BRANCH_CDN_URL,
   COMMIT_API_URL,
-  fetchMetaRemote,
+  fetchRepoJson,
   META_DOWNLOAD_TIMEOUT_MS,
+  META_REPO_REF,
   MetaRemoteError,
   parseUpdatedAt,
   pinnedCdnUrl,
@@ -37,7 +38,6 @@ function routeFetch(handlers: {
   sha?: () => Response;
   branch?: () => Response;
   raw?: () => Response;
-  custom?: () => Response;
 }) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -53,7 +53,7 @@ function routeFetch(handlers: {
     if (url.startsWith('https://raw.githubusercontent.com/')) {
       return handlers.raw ? handlers.raw() : res(null, { ok: false, status: 500 });
     }
-    return handlers.custom ? handlers.custom() : res(null, { ok: false, status: 404 });
+    return res(null, { ok: false, status: 404 });
   });
 }
 
@@ -101,7 +101,7 @@ describe('三段式降级链路', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const out = await fetchMetaRemote<{ updated_at: string }>({ cacheBust: 1 });
+    const out = await fetchRepoJson<{ updated_at: string }>(META_REPO_REF, { cacheBust: 1 });
 
     expect(out.channel).toBe('cdn-sha');
     expect(out.url).toBe(pinnedCdnUrl(SHA));
@@ -120,7 +120,7 @@ describe('三段式降级链路', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const out = await fetchMetaRemote({ cacheBust: 2 });
+    const out = await fetchRepoJson(META_REPO_REF, { cacheBust: 2 });
 
     expect(out.channel).toBe('cdn-branch');
     expect(out.url).toBe(BRANCH_CDN_URL);
@@ -136,7 +136,7 @@ describe('三段式降级链路', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const out = await fetchMetaRemote();
+    const out = await fetchRepoJson(META_REPO_REF);
 
     expect(out.channel).toBe('cdn-branch');
     expect(out.failures[0]).toContain(`jsDelivr@${SHA.slice(0, 7)}`);
@@ -152,7 +152,7 @@ describe('三段式降级链路', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const out = await fetchMetaRemote();
+    const out = await fetchRepoJson(META_REPO_REF);
 
     expect(out.channel).toBe('raw');
     expect(out.url).toBe(RAW_URL);
@@ -166,7 +166,7 @@ describe('三段式降级链路', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const out = await fetchMetaRemote();
+    const out = await fetchRepoJson(META_REPO_REF);
     expect(out.channel).toBe('cdn-branch');
     expect(out.failures[0]).toContain('缺少有效 sha');
   });
@@ -179,7 +179,7 @@ describe('三段式降级链路', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const err = await fetchMetaRemote().catch((e: unknown) => e);
+    const err = await fetchRepoJson(META_REPO_REF).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(MetaRemoteError);
     const failures = (err as MetaRemoteError).failures;
     expect(failures).toHaveLength(3);
@@ -187,30 +187,6 @@ describe('三段式降级链路', () => {
     expect(failures[1]).toContain('jsDelivr@main');
     expect(failures[2]).toContain('GitHub Raw');
     expect((err as MetaRemoteError).message).toContain('｜');
-  });
-
-  it('自定义地址只走自己，不做链路降级', async () => {
-    const custom = 'https://example.com/meta.json';
-    const fetchMock = routeFetch({ custom: () => res({ ok: 1 }) });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const out = await fetchMetaRemote({ customUrl: custom });
-
-    expect(out.channel).toBe('custom');
-    expect(out.url).toBe(custom);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(calledUrls(fetchMock)[0]).toContain('t=');
-  });
-
-  it('自定义地址填成默认地址时仍走三段式链路', async () => {
-    const fetchMock = routeFetch({
-      commit: () => res({ sha: SHA }),
-      sha: () => res({ ok: 1 }),
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const out = await fetchMetaRemote({ customUrl: BRANCH_CDN_URL });
-    expect(out.channel).toBe('cdn-sha');
   });
 
   it('resolveLatestSha 单独调用失败时返回 null 并记录原因', async () => {
