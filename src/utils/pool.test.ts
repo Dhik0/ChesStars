@@ -20,6 +20,8 @@ function freshCandidates(): Candidate[] {
 }
 
 const ids = (list: Candidate[]) => list.map((c) => c.id);
+const sectionIds = (sections: { items: Candidate[] }[]) =>
+  sections.flatMap((s) => ids(s.items));
 
 /* ------------------------------------------------------------------ *
  * 1. 稀有度映射完整性
@@ -57,10 +59,17 @@ describe('英雄池分区', () => {
     expect(ids(top)).toEqual(ids(cands.slice(0, TOP_PICK_COUNT)));
   });
 
-  it('Top 区 + 各稀有度分区 = 全部候选，无重复、无遗漏', () => {
+  it('下方全英雄池包含顶部推荐区里的英雄（不再剔除 Top N）', () => {
     const cands = freshCandidates();
     const { top, sections } = buildBrawlerPool(cands);
-    const all = [...ids(top), ...sections.flatMap((s) => ids(s.items))];
+    const poolIds = new Set(sectionIds(sections));
+    for (const c of top) expect(poolIds.has(c.id)).toBe(true);
+  });
+
+  it('下方全英雄池 = 全部候选，不重不漏', () => {
+    const cands = freshCandidates();
+    const { sections } = buildBrawlerPool(cands);
+    const all = sectionIds(sections);
 
     expect(all).toHaveLength(cands.length);
     expect(new Set(all).size).toBe(cands.length);
@@ -71,13 +80,12 @@ describe('英雄池分区', () => {
     );
   });
 
-  it('上榜英雄不会在稀有度分区里二次出现', () => {
+  it('上下两处渲染同一英雄时 id 一致（key 前缀不同，不产生重复 key）', () => {
     const cands = freshCandidates();
     const { top, sections } = buildBrawlerPool(cands);
-    const topIds = new Set(ids(top));
-    for (const sec of sections) {
-      for (const c of sec.items) expect(topIds.has(c.id)).toBe(false);
-    }
+    const overlap = ids(top).filter((id) => sectionIds(sections).includes(id));
+    // 重叠是预期行为：Top 12 必然都在全池里
+    expect(overlap).toHaveLength(TOP_PICK_COUNT);
   });
 
   it('分区按稀有度从低到高排列，且跳过空分区', () => {
@@ -96,11 +104,7 @@ describe('英雄池分区', () => {
     const rare = sections.find((s) => s.key === 'rare');
     expect(rare?.label).toBe('初始 / 稀有');
     const commonIds = META.brawlers.filter((b) => rarityOf(b.id) === 'common').map((b) => b.id);
-    for (const id of commonIds) {
-      // 初始英雄若没进 Top 12，就必须出现在「初始 / 稀有」栏里
-      const inTop = ids(buildBrawlerPool(cands).top).includes(id);
-      if (!inTop) expect(ids(rare!.items)).toContain(id);
-    }
+    for (const id of commonIds) expect(ids(rare!.items)).toContain(id);
   });
 
   it('分区内部保持推荐分顺序（入参已排序）', () => {
@@ -113,14 +117,18 @@ describe('英雄池分区', () => {
     }
   });
 
-  it('候选不足 12 名时全部进 Top 区，分区为空', () => {
+  it('候选不足 12 名时全部进 Top 区，全池仍是全部候选', () => {
     const cands = freshCandidates().slice(0, 5);
     const { top, sections } = buildBrawlerPool(cands);
     expect(top).toHaveLength(5);
-    expect(sections).toHaveLength(0);
+    expect(sectionIds(sections).slice().sort((a, b) => a - b)).toEqual(
+      ids(cands)
+        .slice()
+        .sort((a, b) => a - b),
+    );
   });
 
-  it('Ban 满 6 人后总数减少，分区依然不重不漏', () => {
+  it('Ban 满 6 人后池内不含被 Ban 英雄，全池仍等于全部候选', () => {
     // Ban 满即进入 Pick 阶段：这里要验的是 Pick 池，所以 active 直接指向己方第 1 手
     const state = {
       ...createDraft(MAP.map_name, MAP.mode, 'ally'),
@@ -129,11 +137,11 @@ describe('英雄池分区', () => {
     };
     const cands = recommend(IDX, state, 200);
     const { top, sections } = buildBrawlerPool(cands);
-    const all = [...ids(top), ...sections.flatMap((s) => ids(s.items))];
-    expect(all).toHaveLength(cands.length);
-    expect(new Set(all).size).toBe(cands.length);
+    const all = [...ids(top), ...sectionIds(sections)];
     // 被 Ban 的英雄不应出现在任何区块
     for (const b of state.bans) expect(all).not.toContain(b);
+    expect(sectionIds(sections)).toHaveLength(cands.length);
+    expect(new Set(sectionIds(sections)).size).toBe(cands.length);
   });
 
   it('rankMap 给出全局名次（1 起，连续）', () => {

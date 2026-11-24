@@ -1,4 +1,4 @@
-import type { CounterDetail, CounterLight, MatchupCellView } from '../utils/draftEngine';
+import type { CounterDetail, CounterLight, DraftState, MatchupCellView } from '../utils/draftEngine';
 import { counterLight } from '../utils/draftEngine';
 import type { PickOrder } from '../types/meta';
 
@@ -90,4 +90,25 @@ export function baseScoreColor(score: number): string {
   if (score >= 55) return 'text-sky-400';
   if (score >= 40) return 'text-slate-200';
   return 'text-slate-500';
+}
+
+/**
+ * 候选列表顶部区块的标题与主题。
+ *
+ * 视角只由「当前激活槽位」决定：激活槽位是 `nextSlot()` 按 `firstPick` 换算出的
+ * 蛇形序列推进的，所以它本身就是「现在该谁选」；用户手点某个空槽时，
+ * 标题也必须跟着他眼前要填的那个槽走。
+ *
+ *   - 敌方选角 → 「敌方可能会选」+ 红色系（与底部红方激活槽位呼应）
+ *   - 我方选角 / Ban 阶段 → 「高优先推荐」+ 蓝色系
+ */
+export interface RecommendHead {
+  title: string;
+  /** true = 预判敌方选角（红色主题） */
+  enemy: boolean;
+}
+
+export function recommendHeadOf(state: DraftState): RecommendHead {
+  const enemy = state.active.kind === 'enemy';
+  return { title: enemy ? '敌方可能会选' : '高优先推荐', enemy };
 }

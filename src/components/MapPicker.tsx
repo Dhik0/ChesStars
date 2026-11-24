@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Check, Search, X } from 'lucide-react';
 import type { MapEntry } from '../types/meta';
 import { mapCN, MODE_LOCALE, MODE_ORDER, modeColor } from '../data/localization';
+import { useBackGuard } from '../utils/backGuards';
 import MapThumb from './MapThumb';
 import ModeIcon from './ModeIcon';
 
@@ -29,6 +30,9 @@ interface MapPickerProps {
  */
 export default function MapPicker({ maps, current, onSelect, onClose }: MapPickerProps) {
   const [query, setQuery] = useState('');
+
+  /** 搜索框有内容时，系统返回键先清空搜索，而不是直接离开选图页 */
+  useBackGuard(query !== '', () => setQuery(''));
 
   const grouped = useMemo(() => {
     const q = query.trim().toLowerCase();

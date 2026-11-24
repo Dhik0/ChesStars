@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Ban as EmptyBanIcon, Flame, Loader2, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { App as NativeApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
+import { Ban as EmptyBanIcon, Flame, Loader2, RefreshCw, Swords } from 'lucide-react';
 import BottomNav, { type MainTab } from './components/BottomNav';
 import BrawlerDetail from './components/BrawlerDetail';
 import BrawlerTile from './components/BrawlerTile';
@@ -36,6 +38,9 @@ import {
   type DraftState,
   type Side,
 } from './utils/draftEngine';
+import { recommendHeadOf } from './utils/display';
+import { backGuardCount, runTopBackGuard } from './utils/backGuards';
+import { decideBack, type BackLayer, type BackState } from './utils/backNavigation';
 import { openExternal } from './utils/openExternal';
 import { buildBrawlerPool, rankMap } from './utils/pool';
 import { useViewport } from './utils/useViewport';
@@ -65,6 +70,101 @@ export default function App() {
   const [updateOpen, setUpdateOpen] = useState(false);
   /** 远程清单里的 QQ 群链接（与是否有新版本无关）；null = 用打包内置的那份 */
   const [qqGroupUrl, setQqGroupUrl] = useState<string | null>(null);
+
+  /** 底部轻提示（目前只有「再滑一次退出应用」用它），非阻塞、自动消失 */
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  /* ---------------- 侧滑返回 / 系统返回键 ---------------- */
+
+  /** 上一次「退出提示」的时间戳：双击退出的计时窗口，放 ref 里避免闭包读到旧值 */
+  const lastBackAtRef = useRef<number | null>(null);
+  /** 返回处理器读取的界面快照，每次渲染同步一次 */
+  const backStateRef = useRef<Omit<BackState, 'hasGuard'>>({
+    layers: [],
+    tab: 'draft',
+    screen: 'select',
+    hasDraft: false,
+  });
+
+  /**
+   * 已打开的模态层，按叠放顺序排列（末尾 = 最顶层）。
+   * 更新弹窗 z-60 盖在详情 / 对位抽屉 z-50 之上，所以排在最后。
+   */
+  const layers: BackLayer[] = [];
+  if (matchupId !== null) layers.push('matchup');
+  if (detailId !== null) layers.push('detail');
+  if (updateOpen && updateInfo !== null) layers.push('update');
+  backStateRef.current = { layers, tab, screen, hasDraft: draft !== null };
+
+  /** 弹一条 2 秒后自动消失的底部提示（不拦截点击） */
+  const showToast = useCallback((text: string) => {
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    setToast(text);
+    toastTimerRef.current = window.setTimeout(() => {
+      toastTimerRef.current = null;
+      setToast(null);
+    }, 2000);
+  }, []);
+
+  /**
+   * 返回键总入口：只做决策结果对应的一步，绝不在一次返回里连关两层。
+   * 依赖只有稳定的 setter 与 ref，因此注册一次即可，不会因状态变化重新绑定。
+   */
+  const handleBack = useCallback(() => {
+    const decision = decideBack(
+      { ...backStateRef.current, hasGuard: backGuardCount() > 0 },
+      lastBackAtRef.current,
+      Date.now(),
+    );
+    lastBackAtRef.current = decision.lastBackAt;
+
+    switch (decision.action.type) {
+      case 'closeLayer':
+        if (decision.action.layer === 'update') setUpdateOpen(false);
+        else if (decision.action.layer === 'detail') setDetailId(null);
+        else setMatchupId(null);
+        break;
+      case 'runGuard':
+        runTopBackGuard();
+        break;
+      case 'goMainTab':
+        setTab('draft');
+        break;
+      case 'leaveMapPicker':
+        setScreen('draft');
+        break;
+      case 'showExitHint':
+        showToast('再滑一次退出应用');
+        break;
+      case 'exitApp':
+        void NativeApp.exitApp();
+        break;
+    }
+  }, [showToast]);
+
+  /** 仅在原生壳里接管返回键；桌面浏览器 npm run dev 不注册任何监听 */
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let disposed = false;
+    let listener: { remove: () => Promise<void> } | null = null;
+    void NativeApp.addListener('backButton', () => handleBack()).then((h) => {
+      if (disposed) void h.remove();
+      else listener = h;
+    });
+    return () => {
+      disposed = true;
+      if (listener) void listener.remove();
+    };
+  }, [handleBack]);
+
+  /** 卸载时清掉未到期的提示定时器 */
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    },
+    [],
+  );
 
   /** 横屏（左右双栏）/ 矮视口（竖屏悬浮小窗） */
   const vp = useViewport();
@@ -369,6 +469,17 @@ export default function App() {
         <BottomNav tab={tab} onChange={setTab} hasUpdate={updateInfo !== null} />
       )}
       {overlays}
+      {toast && (
+        <div
+          className="pointer-events-none fixed inset-x-0 bottom-0 z-[70] flex justify-center pb-[calc(env(safe-area-inset-bottom,0px)+84px)]"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="rounded-full bg-slate-800/95 px-3.5 py-1.5 text-[12px] font-medium text-slate-100 shadow-lg shadow-black/50 ring-1 ring-white/10 animate-fade-in">
+            {toast}
+          </span>
+        </div>
+      )}
     </div>
   );
 
@@ -428,6 +539,11 @@ export default function App() {
   /** Ban 阶段：当前激活的是哪个 Ban 位（决定推荐按哪一队算） */
   const banPhase = draft.active.kind === 'ban';
   /**
+   * 顶部区块标题 / 主题：敌方选角回合切成「敌方可能会选」+ 红色系，
+   * 我方选角与 Ban 阶段保持「高优先推荐」+ 蓝色系。
+   */
+  const head = recommendHeadOf(draft);
+  /**
    * 本队已 Ban 的英雄会从推荐里剔除，所以列表里出现的 Ban 英雄都是「对方已 Ban」。
    * 这里刻意不用 useMemo：它位于若干 early return 之后，用 hook 会打乱 hooks 顺序。
    */
@@ -473,16 +589,36 @@ export default function App() {
         </div>
       ) : (
         <>
-          {/* 第一区：高优先推荐（推荐分前 12 名，实战秒选） */}
+          {/* 第一区：高优先推荐 / 敌方可能会选（推荐分前 12 名） */}
           <section
             ref={topSectionRef}
-            className="mx-1 mb-1.5 rounded-lg border border-sky-500/30 bg-sky-500/[0.07] px-1.5 pb-1.5 pt-1"
+            className={`mx-1 mb-1.5 rounded-lg border px-1.5 pb-1.5 pt-1 ${
+              head.enemy
+                ? 'border-enemy/40 bg-enemy/[0.08]'
+                : 'border-sky-500/30 bg-sky-500/[0.07]'
+            }`}
           >
             <header className="mb-1 flex items-baseline justify-between gap-2">
               <span className="flex items-center gap-1">
-                <Flame size={11} className="shrink-0 text-sky-400" />
-                <h3 className="text-[11px] font-bold tracking-wide text-sky-300">高优先推荐</h3>
-                <span className="text-[9px] tabular-nums text-sky-400/60">{pool.top.length}</span>
+                {head.enemy ? (
+                  <Swords size={11} className="shrink-0 text-enemy" />
+                ) : (
+                  <Flame size={11} className="shrink-0 text-sky-400" />
+                )}
+                <h3
+                  className={`text-[11px] font-bold tracking-wide ${
+                    head.enemy ? 'text-red-400' : 'text-sky-300'
+                  }`}
+                >
+                  {head.title}
+                </h3>
+                <span
+                  className={`text-[9px] tabular-nums ${
+                    head.enemy ? 'text-red-400/60' : 'text-sky-400/60'
+                  }`}
+                >
+                  {pool.top.length}
+                </span>
               </span>
               <span className="shrink-0 text-[9px] text-slate-500">
                 {draft.firstPick ? '点按填入 · 长按看对位' : '长按看对位'}
@@ -492,7 +628,7 @@ export default function App() {
             <div className={topGridCls} style={gridStyle}>
               {pool.top.map((c) => (
                 <BrawlerTile
-                  key={c.id}
+                  key={`top-${c.id}`}
                   candidate={c}
                   rank={ranks.get(c.id) ?? 0}
                   bannedElsewhere={otherTeamBanned.has(c.id)}
@@ -503,7 +639,7 @@ export default function App() {
             </div>
           </section>
 
-          {/* 其余：按官方稀有度从低到高分栏，去重后不重复出现 */}
+          {/* 下方全英雄池：按官方稀有度从低到高分栏，**不剔除**顶部已上榜的英雄 */}
           {pool.sections.map((sec) => (
             <section
               key={sec.key}
@@ -527,7 +663,7 @@ export default function App() {
               <div className={secGridCls} style={gridStyle}>
                 {sec.items.map((c) => (
                   <BrawlerTile
-                    key={c.id}
+                    key={`${sec.key}-${c.id}`}
                     candidate={c}
                     rank={ranks.get(c.id) ?? 0}
                     bannedElsewhere={otherTeamBanned.has(c.id)}

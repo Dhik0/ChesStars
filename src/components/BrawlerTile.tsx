@@ -42,6 +42,9 @@ function PickBadge({ order }: { order: Candidate['pickOrder'] }) {
  * 左侧竖条 = 该候选对「当前对方已选英雄」的逐一克制关系，
  * 自上而下对应对方第 1/2/3 个槽位；对方还没亮牌时不占位。
  * 卡片分数展示的是**本图基础分**，与底部槽位同口径；动态推荐分只用于排序。
+ *
+ * 版式取舍：灯条加宽到 8px、段间留 4px，头像横向收到 86%——
+ * 三格灯在缩小后的卡片里也能一眼数清，头像仍然占视觉主体。
  */
 export default function BrawlerTile({
   candidate,
@@ -63,9 +66,9 @@ export default function BrawlerTile({
       {...press}
       className="flex cursor-pointer select-none flex-col items-center"
     >
-      <div className="flex w-full items-stretch gap-[2px]">
+      <div className="flex w-full items-stretch gap-1">
         {/* 固定 3 格：自上而下对应对方第 1/2/3 槽；未选人 / 无对位一律中性灰 */}
-        <span className="flex w-[4px] shrink-0 flex-col gap-[2px] py-[1px]">
+        <span className="flex w-2 shrink-0 flex-col gap-1 py-[1px]">
           {Array.from({ length: TEAM_SLOTS }, (_, i) => {
             const d = bars[i];
             const light = counterLight(d);
@@ -73,31 +76,35 @@ export default function BrawlerTile({
             return (
               <span
                 key={i}
-                className={`flex-1 rounded-[1px] ${COUNTER_LIGHT_CLASS[light]}`}
+                className={`flex-1 rounded-full ${COUNTER_LIGHT_CLASS[light]}`}
                 title={tip}
               />
             );
           })}
         </span>
 
-        <div className="relative aspect-square min-w-0 flex-1">
-          <Avatar
-            id={c.id}
-            name={c.name}
-            fill
-            rounded="rounded-md"
-            className={c.hasData ? '' : 'opacity-50'}
-          />
-          {/* 推荐排名角标 */}
-          <span className="absolute left-0 top-0 rounded-br-[3px] bg-black/70 px-1 text-[8px] font-bold leading-[11px] tabular-nums text-slate-200">
-            {rank}
-          </span>
-          {/* 对方已 Ban：允许重复 Ban，但要让用户知道这手已经 Ban 过 */}
-          {bannedElsewhere && (
-            <span className="absolute right-0 top-0 rounded-bl-[3px] bg-enemy/85 px-1 text-[8px] font-bold leading-[11px] text-white">
-              已Ban
+        {/* 头像：横向占比 86%，剩下的横向空间留给左侧灯条与两侧留白 */}
+        <div className="flex min-w-0 flex-1 justify-center">
+          <div className="relative aspect-square w-[86%]">
+            <Avatar
+              id={c.id}
+              name={c.name}
+              fill
+              rounded="rounded-md"
+              className={c.hasData ? '' : 'opacity-50'}
+            />
+            {/* 推荐排名角标 */}
+            <span className="absolute left-0 top-0 rounded-br-[3px] bg-black/70 px-1 text-[8px] font-bold leading-[11px] tabular-nums text-slate-200">
+              {rank}
             </span>
-          )}
+            {/* 对方已 Ban：允许重复 Ban，但要让用户知道这手已经 Ban 过。
+                贴右下角是为了不跟左上角的排名角标抢位置（头像变窄后更容易撞上） */}
+            {bannedElsewhere && (
+              <span className="absolute bottom-0 right-0 rounded-tl-[3px] bg-enemy/85 px-1 text-[8px] font-bold leading-[11px] text-white">
+                已Ban
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

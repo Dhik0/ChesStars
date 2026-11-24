@@ -1,8 +1,8 @@
 {
-  "version": "1.2.1",
-  "releaseUrl": "https://github.com/Dhik0/ChesStars/releases/tag/v1.2.1",
-  "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v1.2.1/ChesStars-v1.2.1.apk",
+  "version": "1.2.2",
+  "releaseUrl": "https://github.com/Dhik0/ChesStars/releases/tag/v1.2.2",
+  "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v1.2.2/ChesStars-v1.2.2.apk",
   "mirrorPrefixes": ["https://ghfast.top/", "https://gh-proxy.com/"],
   "qqGroupUrl": "https://qm.qq.com/q/yJm7ocJ5fO",
-  "notes": "- 修复数据保存问题\n- 扩充10倍数据量"
+  "notes": "- 侧滑返回逐层关闭弹窗\n- 设置页返回回到 BP 助手\n- 主页面连滑两次才退出\n- 敌方回合推荐标题更明确"
 }
