@@ -19,7 +19,7 @@
 ## Community & Feedback / 交流与反馈
 
 - **Discord (International / 国际社区)**: [Join our Discord Server](https://discord.gg/你的邀请码) — Ranked draft feedback, bug reports, and translation contributions.
-- **QQ 交流群 **: `1056621315`（[点击一键加群](https://qm.qq.com/q/mb3PU3yAo2)）— 版本更新通知、排位数据反馈与问题排查。
+- QQ 交流群 : `1056621315`（[点击一键加群](https://qm.qq.com/q/mb3PU3yAo2)）— 版本更新通知、排位数据反馈与问题排查。
 
 # Disclaimer
 This material is unofficial and is not endorsed by Supercell. For more information see Supercell's Fan Content Policy: www.supercell.com/fan-content-policy.
