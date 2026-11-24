@@ -54,12 +54,19 @@ describe('decideBack：逐层返回', () => {
     expect(res.lastBackAt).toBeNull();
   });
 
-  it('选图页（已建局）返回 BP 面板', () => {
-    const res = decideBack(mainPage({ screen: 'select' }), null, T0);
-    expect(res.action).toEqual({ type: 'leaveMapPicker' });
+  it('BP 选人界面返回地图选择页，且不进入双击退出计时', () => {
+    const res = decideBack(mainPage(), null, T0);
+    expect(res.action).toEqual({ type: 'leaveDraft' });
+    expect(res.lastBackAt).toBeNull();
   });
 
-  it('首屏选图（未建局）不当作可返回页面，走双击退出', () => {
+  it('地图选择页（已建局）已是最顶层，走双击退出', () => {
+    const res = decideBack(mainPage({ screen: 'select' }), null, T0);
+    expect(res.action).toEqual({ type: 'showExitHint' });
+    expect(res.lastBackAt).toBe(T0);
+  });
+
+  it('首屏选图（未建局）同样是最顶层，走双击退出', () => {
     const res = decideBack(
       mainPage({ screen: 'select', hasDraft: false }),
       null,
@@ -83,42 +90,55 @@ describe('decideBack：逐层返回', () => {
   });
 });
 
-describe('decideBack：主页面双击退出', () => {
+/** 最顶层：地图选择页，已建局、无弹层 */
+function topPage(over: Partial<BackState> = {}): BackState {
+  return mainPage({ screen: 'select', ...over });
+}
+
+describe('decideBack：最顶层双击退出', () => {
   it('首次返回只提示，不退出，并记录时间', () => {
-    const res = decideBack(mainPage(), null, T0);
+    const res = decideBack(topPage(), null, T0);
     expect(res.action).toEqual({ type: 'showExitHint' });
     expect(res.lastBackAt).toBe(T0);
   });
 
   it('2 秒内再次返回触发退出，并清空计时', () => {
-    const first = decideBack(mainPage(), null, T0);
-    const second = decideBack(mainPage(), first.lastBackAt, T0 + 1200);
+    const first = decideBack(topPage(), null, T0);
+    const second = decideBack(topPage(), first.lastBackAt, T0 + 1200);
     expect(second.action).toEqual({ type: 'exitApp' });
     expect(second.lastBackAt).toBeNull();
   });
 
   it('刚好卡在 2000ms 边界仍算二次返回', () => {
-    const second = decideBack(mainPage(), T0, T0 + EXIT_CONFIRM_WINDOW_MS);
+    const second = decideBack(topPage(), T0, T0 + EXIT_CONFIRM_WINDOW_MS);
     expect(second.action).toEqual({ type: 'exitApp' });
   });
 
   it('超过 2 秒后重新计次：再提示一次，不退出', () => {
-    const second = decideBack(mainPage(), T0, T0 + EXIT_CONFIRM_WINDOW_MS + 1);
+    const second = decideBack(topPage(), T0, T0 + EXIT_CONFIRM_WINDOW_MS + 1);
     expect(second.action).toEqual({ type: 'showExitHint' });
     expect(second.lastBackAt).toBe(T0 + EXIT_CONFIRM_WINDOW_MS + 1);
   });
 
   it('超时后重新计次，紧接着的一次返回才退出', () => {
-    const stale = decideBack(mainPage(), T0, T0 + 5000);
+    const stale = decideBack(topPage(), T0, T0 + 5000);
     expect(stale.action).toEqual({ type: 'showExitHint' });
-    const retry = decideBack(mainPage(), stale.lastBackAt, T0 + 5000 + 800);
+    const retry = decideBack(topPage(), stale.lastBackAt, T0 + 5000 + 800);
     expect(retry.action).toEqual({ type: 'exitApp' });
   });
 
   it('关完弹窗后的一次返回重新开始计次，不会被判成二次退出', () => {
-    const closed = decideBack(mainPage({ layers: ['detail'] }), T0, T0 + 300);
+    const closed = decideBack(topPage({ layers: ['detail'] }), T0, T0 + 300);
     expect(closed.lastBackAt).toBeNull();
-    const next = decideBack(mainPage(), closed.lastBackAt, T0 + 600);
+    const next = decideBack(topPage(), closed.lastBackAt, T0 + 600);
+    expect(next.action).toEqual({ type: 'showExitHint' });
+  });
+
+  it('BP 界面退回到选图页时清空计时，紧接着的一次侧滑才提示退出', () => {
+    const leave = decideBack(mainPage(), T0, T0 + 200);
+    expect(leave.action).toEqual({ type: 'leaveDraft' });
+    expect(leave.lastBackAt).toBeNull();
+    const next = decideBack(topPage(), leave.lastBackAt, T0 + 400);
     expect(next.action).toEqual({ type: 'showExitHint' });
   });
 });

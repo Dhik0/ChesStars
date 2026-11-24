@@ -131,8 +131,8 @@ export default function App() {
       case 'goMainTab':
         setTab('draft');
         break;
-      case 'leaveMapPicker':
-        setScreen('draft');
+      case 'leaveDraft':
+        setScreen('select');
         break;
       case 'showExitHint':
         showToast('再滑一次退出应用');

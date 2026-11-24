@@ -17,6 +17,7 @@ import {
   banSideOfIndex,
   bannedIds,
   brawlerMatchups,
+  buildCounterTags,
   clearSlot,
   counterDetail,
   counterLight,
@@ -44,6 +45,7 @@ import {
   totalPicked,
   MATCHUP_LIGHT_PP,
   EMPTY_BAN,
+  TAG_LABEL_PP,
   TAG_THRESHOLD,
   type CounterDetail,
   type DraftState,
@@ -473,6 +475,34 @@ describe('Pick 阶段动态分', () => {
     expect(['good', 'bad']).toContain(tag.tone);
   });
 
+  it('标签阈值只放行够显著的对位（文案口径 3pp，算分口径仍是 4pp）', () => {
+    const at = (delta: number): CounterDetail => ({
+      opponentId: 1,
+      opponentName: 'BROCK',
+      delta,
+      samples: 100,
+      source: 'map',
+      hasSample: true,
+      predictedWr: 0.5,
+    });
+
+    expect(buildCounterTags([at(TAG_LABEL_PP - 0.1)])).toHaveLength(0);
+    expect(buildCounterTags([at(-(TAG_LABEL_PP - 0.1))])).toHaveLength(0);
+    expect(buildCounterTags([at(TAG_LABEL_PP)])).toHaveLength(1);
+    expect(buildCounterTags([at(-TAG_LABEL_PP)])[0]!.tone).toBe('bad');
+    // 算分口径没跟着降，双绿/三绿协同仍按 4pp 判
+    expect(TAG_THRESHOLD).toBeGreaterThan(TAG_LABEL_PP);
+  });
+
+  it('标签阈值落在图池 |delta| 的合理分位（不稀缺也不泛滥）', () => {
+    const abs: number[] = [];
+    for (const m of META.maps) for (const row of m.matchup_table) abs.push(Math.abs(row[2]));
+    const share = abs.filter((v) => v >= TAG_LABEL_PP).length / abs.length;
+    // 当前数据：3pp 约放行 11%（4pp 只有 5%，标签几乎不出现）
+    expect(share).toBeGreaterThan(0.05);
+    expect(share).toBeLessThan(0.2);
+  });
+
   it('无敌方亮牌时克制权重为 0，克制分保持中性 50', () => {
     const state = draft({ active: { kind: 'ally', index: 0 } });
     const list = pickRecommendations(IDX, state, 5);
@@ -551,14 +581,21 @@ describe('敌方槽位录入视角', () => {
   });
 
   it('标签表达为「克制我方 / 怕我方」', () => {
+    // 我方先亮 芽芽（SPROUT）：本图 MORTIS 对它 +12.4pp，是数据里稳定的强克制，
+    // 不依赖「刚好压线」的英雄——换数据后仍能触发标签
     const state = draft({
-      ally: [idOf('PIPER')],
+      ally: [idOf('SPROUT')],
       active: { kind: 'enemy', index: 0 },
     });
     const list = pickRecommendations(IDX, state, 200);
     const tags = list.flatMap((c) => c.tags);
     expect(tags.length).toBeGreaterThan(0);
     expect(tags.every((t) => /^(克制我方|怕我方) /.test(t.text))).toBe(true);
+    // 每条标签的差值都必须过文案阈值
+    for (const t of tags) {
+      const pp = Number(t.text.match(/([+-]\d+\.\d)$/)![1]);
+      expect(Math.abs(pp)).toBeGreaterThanOrEqual(TAG_LABEL_PP);
+    }
   });
 
   it('切回我方槽位立即以我方视角计算', () => {
@@ -615,8 +652,11 @@ describe('Log5 残差与克制色条', () => {
       }
     }
     expect(total).toBeGreaterThan(1000);
-    // 后端按 eff_n 过滤后，约 57% 的条目本图真实场次不足 10
-    expect(small / total).toBeGreaterThan(0.4);
+    // 当前数据（约 132 万局）：原始 samples<10 占 28%，eff_samples<10 占 47%。
+    // 卡一个区间而不是精确值：既防止数据回退成「全都够样本」，也防止薄样本条目爆炸。
+    const ratio = small / total;
+    expect(ratio).toBeGreaterThan(0.2);
+    expect(ratio).toBeLessThan(0.45);
   });
 
   it('原始 samples < 10 的后端条目在前端不被丢弃（端到端）', () => {

@@ -214,8 +214,22 @@ const COUNTER_POSITION_MULT: Record<'FIRST' | 'MIDDLE' | 'LAST', number> = {
  */
 const COUNTER_SYNERGY: Record<number, number> = { 2: 1.15, 3: 1.35 };
 
-/** 克制/被克制的标签阈值（百分点） */
+/**
+ * 「算分口径」的克制阈值（百分点）：判双绿/三绿协同、以及对位均值理由的涨落。
+ * 它影响的是**分数**，所以保持 4pp 不动。
+ */
 export const TAG_THRESHOLD = 4;
+
+/**
+ * 「文案口径」的克制标签阈值（百分点）：卡片上「克制 X +3.2」这类文字标签。
+ *
+ * v5 起标签改从对称查表 `lookupMatchup` 取数，一张图里几乎每对英雄都有一条边
+ * （约 10 万条），不再是只留极值的 Top-K 列表，|delta| 整体收敛：
+ * 当前数据全图 P50≈1.0、P90≈3.1、P95≈4.0，卡在 4pp 只有约 5% 的对位能出标签，
+ * 实战里几乎看不到。取 P90 附近的 3pp，约 11% 的对位带标签——
+ * 3 名敌人亮牌时多数局面能看到 1~2 条，又不至于每张卡都挂满。
+ */
+export const TAG_LABEL_PP = 3;
 
 /** 本图基准胜率的钳制区间，与后端 analyzer.rs 的 BASE_RATE_FLOOR/CEIL 一致 */
 export const BASE_RATE_MIN = 0.05;
@@ -807,9 +821,9 @@ export function buildCounterTags(details: CounterDetail[]): Tag[] {
   const tags: Tag[] = [];
   for (const d of scored) {
     if (tags.length >= 2) break;
-    if (d.delta >= TAG_THRESHOLD) {
+    if (d.delta >= TAG_LABEL_PP) {
       tags.push({ text: `克制 ${brawlerCN(d.opponentName)} ${signedPp(d.delta)}`, tone: 'good' });
-    } else if (d.delta <= -TAG_THRESHOLD) {
+    } else if (d.delta <= -TAG_LABEL_PP) {
       tags.push({ text: `怕 ${brawlerCN(d.opponentName)} ${signedPp(d.delta)}`, tone: 'bad' });
     }
   }
@@ -1117,12 +1131,12 @@ function enemyThreatTags(details: CounterDetail[]): Tag[] {
   const tags: Tag[] = [];
   for (const d of scored) {
     if (tags.length >= 2) break;
-    if (d.delta >= TAG_THRESHOLD) {
+    if (d.delta >= TAG_LABEL_PP) {
       tags.push({
         text: `克制我方 ${brawlerCN(d.opponentName)} ${signedPp(d.delta)}`,
         tone: 'bad',
       });
-    } else if (d.delta <= -TAG_THRESHOLD) {
+    } else if (d.delta <= -TAG_LABEL_PP) {
       tags.push({
         text: `怕我方 ${brawlerCN(d.opponentName)} ${signedPp(d.delta)}`,
         tone: 'good',

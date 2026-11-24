@@ -9,8 +9,13 @@
  *   1. 关闭最顶层模态层（更新说明 / 对位详情 / 长按对位）；
  *   2. 消费页面内临时状态（选图页搜索框有内容时先清空搜索）；
  *   3. 非「BP 助手」一级页面 → 切回「BP 助手」；
- *   4. 选图页（已建局）→ 回到 BP 面板；
- *   5. 已在 BP 主页面 → 双击退出：首次只提示，2 秒内再按一次才退出。
+ *   4. BP 选人界面 → 回到地图选择页（保留当前 BP 进度）；
+ *   5. 已在地图选择页（最顶层）→ 双击退出：首次只提示，2 秒内再按一次才退出。
+ *
+ * 视图层级只认 App 里的 state，不写 window.history：
+ * Android 上返回事件被 @capacitor/app 的 OnBackPressedCallback 全量消费，
+ * 有监听器时它不会调 webView.goBack()，push 进去的历史项永远没人消费，
+ * 反而容易和 JS 逻辑打架（表现为「要滑两次才返回」）。
  */
 
 /** 双击退出的时间窗：首次返回后这段时间内再按一次才真正退出 */
@@ -42,7 +47,7 @@ export type BackAction =
   | { type: 'closeLayer'; layer: BackLayer }
   | { type: 'runGuard' }
   | { type: 'goMainTab' }
-  | { type: 'leaveMapPicker' }
+  | { type: 'leaveDraft' }
   | { type: 'showExitHint' }
   | { type: 'exitApp' };
 
@@ -84,12 +89,12 @@ export function decideBack(
     return { action: { type: 'goMainTab' }, lastBackAt: null };
   }
 
-  // 4. 选图页（已建局）→ 回 BP 面板；首屏没建局时不算可返回的页面
-  if (state.hasDraft && state.screen === 'select') {
-    return { action: { type: 'leaveMapPicker' }, lastBackAt: null };
+  // 4. BP 选人界面 → 回地图选择页（BP 进度留在 state 里，重新选同一张图可继续）
+  if (state.hasDraft && state.screen === 'draft') {
+    return { action: { type: 'leaveDraft' }, lastBackAt: null };
   }
 
-  // 5. BP 主页面：双击退出
+  // 5. 地图选择页（最顶层）：双击退出
   const delta = lastBackAt === null ? Number.POSITIVE_INFINITY : now - lastBackAt;
   if (delta >= 0 && delta <= EXIT_CONFIRM_WINDOW_MS) {
     return { action: { type: 'exitApp' }, lastBackAt: null };

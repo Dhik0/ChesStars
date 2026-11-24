@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Lightbulb, Map as MapIcon } from 'lucide-react';
 import { mapCN, modeCN, modeColor } from '../data/localization';
 import type { CompWarning } from '../utils/draftEngine';
 import MapThumb from './MapThumb';
@@ -99,12 +99,12 @@ export default function TopBar({
   /* ---------------- 竖屏：完整详情卡（随列表滚动） ---------------- */
   return (
     <div className="shrink-0 px-2 pb-1.5 pt-1.5 safe-top">
-      <div className="flex h-[160px] items-stretch rounded-xl border border-slate-800 bg-slate-900/80 p-1.5">
+      <div className="relative h-[160px] rounded-xl border border-slate-800 bg-slate-900/80 p-1.5">
         <button
           type="button"
           onClick={onOpenMap}
-          className="flex min-w-0 flex-1 items-stretch gap-2 text-left transition-opacity active:opacity-80"
-          aria-label="切换地图"
+          className="flex h-full w-full min-w-0 items-stretch gap-2 text-left transition-opacity active:opacity-80"
+          aria-label="查看当前地图"
         >
           {/* 左侧：整张竖向地图按原比例完整显示 */}
           <MapThumb
@@ -115,8 +115,8 @@ export default function TopBar({
             className="h-full w-[97px] shrink-0 rounded-lg"
           />
 
-          {/* 右侧：名称 / 模式 / 样本量 / 门槛 */}
-          <span className="flex min-w-0 flex-1 flex-col py-0.5 pr-1">
+          {/* 右侧：名称 / 模式 / 样本量 / 门槛（底部留出换图按钮的位置） */}
+          <span className="flex min-w-0 flex-1 flex-col pb-11 pr-1 pt-0.5">
             <span className="truncate text-[17px] font-bold leading-tight text-slate-50">
               {mapCN(mapName)}
             </span>
@@ -151,12 +151,18 @@ export default function TopBar({
                 </span>
               )}
             </span>
-
-            <span className="mt-auto flex items-center justify-end gap-0.5 text-[9.5px] text-slate-500">
-              点击切换地图
-              <ChevronRight size={11} />
-            </span>
           </span>
+        </button>
+
+        {/* 换图入口：独立按钮，底色 + 描边 + 36px 热区，读秒时也能一眼看到 */}
+        <button
+          type="button"
+          onClick={onOpenMap}
+          className="absolute bottom-2 right-2 flex h-9 items-center gap-1.5 rounded-lg border border-sky-500/45 bg-sky-500/15 px-3 text-[12px] font-semibold text-sky-200 transition-colors active:border-sky-400 active:bg-sky-500/30 active:text-white"
+          aria-label="切换地图"
+        >
+          <MapIcon size={14} />
+          切换地图
         </button>
       </div>
 

@@ -1,8 +1,8 @@
 {
-  "version": "1.2.2",
-  "releaseUrl": "https://github.com/Dhik0/ChesStars/releases/tag/v1.2.2",
-  "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v1.2.2/ChesStars-v1.2.2.apk",
+  "version": "1.2.3",
+  "releaseUrl": "https://github.com/Dhik0/ChesStars/releases/tag/v1.2.3",
+  "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v1.2.3/ChesStars-v1.2.3.apk",
   "mirrorPrefixes": ["https://ghfast.top/", "https://gh-proxy.com/"],
   "qqGroupUrl": "https://qm.qq.com/q/yJm7ocJ5fO",
-  "notes": "- 侧滑返回逐层关闭弹窗\n- 设置页返回回到 BP 助手\n- 主页面连滑两次才退出\n- 敌方回合推荐标题更明确"
+  "notes": "- 修复 BP 界面侧滑直接退出\n- 切图入口改为醒目按钮"
 }
