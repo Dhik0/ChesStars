@@ -4,5 +4,5 @@
   "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v1.2.3/ChesStars-v1.2.3.apk",
   "mirrorPrefixes": ["https://ghfast.top/", "https://gh-proxy.com/"],
   "qqGroupUrl": "https://qm.qq.com/q/yJm7ocJ5fO",
-  "notes": "- 修复 BP 界面侧滑直接退出\n- 切图入口改为醒目按钮"
+  "notes": "优化了使用体验（我再也不随便更新了）"
 }
