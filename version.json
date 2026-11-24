@@ -1,8 +1,8 @@
 {
-  "version": "1.2.0",
-  "releaseUrl": "https://github.com/Dhik0/ChesStars/releases/tag/v1.2.0",
-  "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v1.2.0/ChesStars-v1.2.0.apk",
+  "version": "1.2.1",
+  "releaseUrl": "https://github.com/Dhik0/ChesStars/releases/tag/v1.2.1",
+  "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v1.2.1/ChesStars-v1.2.1.apk",
   "mirrorPrefixes": ["https://ghfast.top/", "https://gh-proxy.com/"],
   "qqGroupUrl": "https://qm.qq.com/q/yJm7ocJ5fO",
-  "notes": "- 对位格子重做：蓝方看红方、红方看蓝方，同一组对位颜色完全一致\n- 五五开的对位单独标黄，和「没有数据」区分开，不再一片灰\n- 分数配色调整：主力英雄一眼可辨，冷门英雄不再抢眼\n- 内置数据同步至 2026-11-23（125,420 场对局）"
+  "notes": "- 修复数据保存问题\n- 扩充10倍数据量"
 }

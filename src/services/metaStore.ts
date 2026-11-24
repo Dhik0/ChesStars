@@ -1,21 +1,24 @@
 import { buildIndex, type MetaIndex } from '../data/metaIndex';
 import { validateMeta, type BrawlMeta, type MetaSource } from '../types/meta';
 import { fetchJsonWithRetry } from './http';
+import { metaCache, type MetaCacheAdapter } from './metaCache';
 import { fetchRepoJson, META_REPO_REF, shouldReplaceMeta } from './metaRemote';
 
 /**
  * 数据仓库：离线优先 + 远程热更新（Stale-While-Revalidate）
  *
  * 读取优先级：
- *   1. localStorage 缓存（上次成功加载/更新的完整 JSON）→ source = 'cache'
+ *   1. IndexedDB 缓存（上次成功加载/更新的完整 JSON，旧 localStorage 数据会自动迁移）
+ *      → source = 'cache'
  *   2. 打包内置 ./data/brawl_meta.json（断网零延迟兜底）→ source = 'builtin'
  *   3. 后台静默拉取远程数据，updated_at 更新则替换 → source = 'remote'
+ *
+ * 持久化细节见 `metaCache.ts`：容量上限由磁盘决定，只有 IndexedDB 本身写失败
+ * （极端磁盘满 / 隐私模式）才退化成「本次启动内有效」。
  *
  * 远程请求走 `metaRemote.fetchRepoJson` 的三段式链路，细节见该模块注释。
  * 界面只需要知道「有没有更新、数据是哪天的」，链路与超时细节不外露。
  */
-
-const LS_META = 'brawl.meta.v2.payload';
 
 /** 内置文件是本地产物，超时给宽一点，不重试 */
 export const BUILTIN_TIMEOUT_MS = 15000;
@@ -80,27 +83,6 @@ function resolveDataDate(meta: BrawlMeta, lastModified: string | null): string |
   return toLocalDateString(lastModified);
 }
 
-function readCache(): BrawlMeta | null {
-  try {
-    const raw = localStorage.getItem(LS_META);
-    if (!raw) return null;
-    return validateMeta(JSON.parse(raw) as unknown);
-  } catch {
-    return null;
-  }
-}
-
-function writeCache(meta: BrawlMeta): boolean {
-  try {
-    localStorage.setItem(LS_META, JSON.stringify(meta));
-    return true;
-  } catch {
-    // 配额不足（无痕模式 / 老设备 localStorage 上限偏小）时写不进去：
-    // 本次会话仍然可用，但重启会退回上一次缓存，调用方需要把这件事告诉用户。
-    return false;
-  }
-}
-
 function reason(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -111,7 +93,14 @@ function describeMeta(meta: BrawlMeta): string {
   return `${date}，${meta.total_battles.toLocaleString()} 场对局`;
 }
 
-class MetaStore {
+/**
+ * 数据仓库。
+ *
+ * 缓存读写全部走 `MetaCacheAdapter`（默认实现是 IndexedDB）：
+ * 读是异步的，所以 `init()` 会等一次缓存读取；写失败也不抛错，
+ * 只把 `false` 交给调用方，由它决定要不要提示「仅本次启动内有效」。
+ */
+export class MetaStore {
   private snapshot: MetaSnapshot | null = null;
   private listeners = new Set<Listener>();
   private initPromise: Promise<MetaSnapshot> | null = null;
@@ -119,6 +108,8 @@ class MetaStore {
   private silentPromise: Promise<void> | null = null;
   /** 本地是否已有可用缓存（决定 updated_at 相同时要不要落盘） */
   private hasCache = false;
+
+  constructor(private readonly cache: MetaCacheAdapter = metaCache) {}
 
   getSnapshot(): MetaSnapshot | null {
     return this.snapshot;
@@ -158,10 +149,10 @@ class MetaStore {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async () => {
-      const cached = readCache();
+      const cached = await this.cache.read();
       this.hasCache = cached !== null;
       if (cached) {
-        this.setMeta(cached, 'cache');
+        this.setMeta(cached.meta, 'cache');
         // 有缓存也不阻塞：后台静默检查更新
         void this.silentCheck();
         return this.snapshot!;
@@ -193,7 +184,8 @@ class MetaStore {
         const remote = await this.loadRemote();
         if (!this.snapshot) return;
         if (shouldReplaceMeta(remote.meta, this.snapshot.meta, { hasCache: this.hasCache })) {
-          if (writeCache(remote.meta)) this.hasCache = true;
+          // 写盘失败也不影响本次会话可用，只是重启后会退回上一份缓存
+          if (await this.cache.write(remote.meta)) this.hasCache = true;
           this.setMeta(remote.meta, 'remote', remote.lastModified);
         }
       } catch {
@@ -225,7 +217,8 @@ class MetaStore {
         };
       }
 
-      const persisted = writeCache(remote.meta);
+      // 只有 IndexedDB 真的写不进去（磁盘满等极端情况）才降级为内存生效
+      const persisted = await this.cache.write(remote.meta);
       if (persisted) this.hasCache = true;
       this.setMeta(remote.meta, 'remote', remote.lastModified);
 

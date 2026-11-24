@@ -100,7 +100,16 @@ const report = (label, m) => {
 };
 
 await page.goto(BASE, { waitUntil: 'networkidle' });
-await page.evaluate(() => localStorage.clear());
+// meta 缓存已从 localStorage 迁到 IndexedDB，重置状态时两边都要清
+await page.evaluate(async () => {
+  localStorage.clear();
+  await new Promise((resolve) => {
+    const req = indexedDB.deleteDatabase('chesstars');
+    req.onsuccess = () => resolve();
+    req.onerror = () => resolve();
+    req.onblocked = () => resolve();
+  });
+});
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForSelector('.grid.grid-cols-5 > div[role="button"]', { timeout: 15000 });
 await page.waitForTimeout(1600);
