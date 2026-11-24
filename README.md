@@ -6,11 +6,20 @@
 </p>
 荒野乱斗排位赛 BP 工具 基于高分段真实对局大数据提供选人与克制分析
 
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/RXM7E5e4U)
+[![QQ Group](https://img.shields.io/badge/QQ%E4%BA%A4%E6%B5%81%E7%BE%A4-1056621315-12B7F5?style=for-the-badge&logo=tencentqq&logoColor=white)](https://qm.qq.com/q/j6VfND5jlS)
+[![Downloads](https://img.shields.io/github/downloads/Dhik0/ChesStars/total?style=for-the-badge&color=2ea44f)](https://github.com/Dhik0/ChesStars/releases)
+
 ## 核心特性
 **高分段数据驱动**：依托独立分析引擎 [brawl-draft-core](https://github.com/Dhik0/-brawl-draft-core-)，聚合传奇 I 及以上分段数万场真实对局胜率与对位关系
 
 ## 下载安装
-前往右侧 [**Releases**](https://github.com/Dhik0/ChesStars/releases) 页面下载最新版本的 `ChesStars-vX.X.X.apk` 安装即可。
+前往右侧 [**Releases**](https://github.com/Dhik0/ChesStars/releases) 页面下载最新版本的 `ChesStars-vX.X.X.apk` 安装即可
+
+## Community & Feedback / 交流与反馈
+
+- **Discord (International / 国际社区)**: [Join our Discord Server](https://discord.gg/你的邀请码) — Ranked draft feedback, bug reports, and translation contributions.
+- **QQ 交流群 (国内用户)**: `1056621315`（[点击一键加群](https://qm.qq.com/q/mb3PU3yAo2)）— 版本更新通知、排位数据反馈与问题排查。
 
 # Disclaimer
 This material is unofficial and is not endorsed by Supercell. For more information see Supercell's Fan Content Policy: www.supercell.com/fan-content-policy.
