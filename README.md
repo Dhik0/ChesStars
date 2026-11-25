@@ -1,25 +1,93 @@
+[English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md)
+
+<div align="center">
+
 # ChesStars
-<p align="center">
-<img src="https://github.com/user-attachments/assets/51f7636a-db72-4bf7-ac26-1e292528aea1" width="260" alt="选角界面预览" />
-&nbsp;&nbsp;
-<img src="https://github.com/user-attachments/assets/898efc72-a43f-4253-b16e-5d6b49fd11e1" width="260" alt="选图界面预览" />
-</p>
-荒野乱斗排位赛 BP 工具 基于高分段真实对局大数据提供选人与克制分析
 
-[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/RXM7E5e4U)
-[![QQ Group](https://img.shields.io/badge/QQ%E4%BA%A4%E6%B5%81%E7%BE%A4-1056621315-12B7F5?style=for-the-badge&logo=tencentqq&logoColor=white)](https://qm.qq.com/q/j6VfND5jlS)
-[![Downloads](https://img.shields.io/github/downloads/Dhik0/ChesStars/total?style=for-the-badge&color=2ea44f)](https://github.com/Dhik0/ChesStars/releases)
+**A lightweight, 100% offline Brawl Stars Ranked Draft assistant powered by 3v3 regression and symmetric counter-matchup modeling.**
 
-## 核心特性
-**高分段数据驱动**：依托独立分析引擎 [brawl-draft-core](https://github.com/Dhik0/-brawl-draft-core-)，聚合传奇 I 及以上分段数万场真实对局胜率与对位关系
+[![GitHub Release](https://img.shields.io/github/v/release/Dhik0/ChesStars?style=flat-square&color=2ea44f)](https://github.com/Dhik0/ChesStars/releases/latest)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Android%205.1%2B-3DDC84?style=flat-square&logo=android&logoColor=white)](https://github.com/Dhik0/ChesStars/releases/latest)
 
-## 下载安装
-前往右侧 [**Releases**](https://github.com/Dhik0/ChesStars/releases) 页面下载最新版本的 `ChesStars-vX.X.X.apk` 安装即可
+</div>
 
-## Community & Feedback / 交流与反馈
+> ### 📱 iOS & Web are coming
+> A Web / PWA build — running on iPhone, iPad and desktop — is in development.
+> **On iOS today?** Join the [Discord server](https://discord.gg/RXM7E5e4U) and you'll get a ping the day it goes live.
 
-- Discord: [Join our Discord Server](https://discord.gg/你的邀请码) — Ranked draft feedback, bug reports, and translation contributions.
-- QQ 交流群 : `1056621315`（[点击一键加群](https://qm.qq.com/q/mb3PU3yAo2)）— 版本更新通知、排位数据反馈与问题排查。
+## Why ChesStars?
 
-# Disclaimer
-This material is unofficial and is not endorsed by Supercell. For more information see Supercell's Fan Content Policy: www.supercell.com/fan-content-policy.
+Ranked gives you roughly twenty seconds per ban and per pick. ChesStars is built for that clock, not for reading stats after the match is over.
+
+### Symmetric Counter-Matchup Engine
+
+Most draft tools rank brawlers by popularity alone. ChesStars looks at **both** sides of the board: every ban and every pick you enter re-weights the recommendation, so it accounts for who you are countering and who is already countering you. Suggestions are ordered by an **Overall Draft Score** — one composite number for "how good is this pick right now", never presented as a win rate.
+
+### 100% Offline · Zero Tracking
+
+The whole draft engine runs on your device from a bundled dataset.
+
+- No account, no sign-in, no player tag, no Supercell login.
+- No analytics, no ads, no telemetry — your picks never leave the phone.
+- Works in airplane mode, on the subway, or in a lobby with one bar of signal.
+- It is a standalone companion app and never touches your game client or account.
+
+The single optional network request is the in-app check for a newer release. Skip it and the app is completely offline.
+
+### Fast & Intuitive
+
+One screen, one thumb. Tap a slot to fill it, long-press for details, undo when you change your mind. No onboarding, no setup wizard — you are drafting within a minute.
+
+### Multilingual
+
+Ships in **English**, **简体中文** and **繁體中文**, and follows your system language on first launch.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/screenshots/draft-board-en.png" width="230" alt="Draft board with ban and pick slots" /><br />
+      <sub>Draft board</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/screenshots/worlds-grand-final.png" width="330" alt="World Finals Grand Final on stage, Safe Zone, score 3-3" /><br />
+      <sub>The Grand Final, Safe Zone</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/screenshots/worlds-penny-pick.png" width="330" alt="Penny announced on the stage screens as the final pick" /><br />
+      <sub>Penny called as the sixth pick</sub>
+    </td>
+  </tr>
+</table>
+
+> **Validated on a real World Finals draft.** The board on the left recreates the Grand Final draft — Safe Zone, blue side, sixth pick. Penny was on the engine's shortlist for that slot, and Penny was the sixth pick called on stage.
+
+## Download & Installation
+
+### Android
+
+**[⬇ Download the latest APK](https://github.com/Dhik0/ChesStars/releases/latest)**
+
+1. Grab `ChesStars-vX.X.X.apk` from the Releases page.
+2. Open the file. Android will ask you to allow installs from this source — that prompt is normal for any app installed outside the Play Store.
+3. Install, open, and start drafting. No account needed.
+
+Requires Android 5.1 or newer. The app can check GitHub for newer versions, so you can update without hunting for the download page again.
+
+### iOS / Web — Coming Soon (PWA)
+
+The Web / PWA version is in progress and will run on iPhone, iPad and desktop browsers. Until then, [join the Discord](https://discord.gg/RXM7E5e4U) to be notified at launch.
+
+## Community & Contributing
+
+- **Discord** — [Join the server](https://discord.gg/RXM7E5e4U) for draft feedback, bug reports and translation help.
+- **Issues** — [Open an issue](https://github.com/Dhik0/ChesStars/issues) for bugs and feature requests.
+- **Translations** — the UI ships as plain JSON locale files. Want your language in the app? Open an issue and claim it; adding one is a small, self-contained change.
+
+## License
+
+ChesStars is released under the **GNU General Public License v3.0** — see [LICENSE](LICENSE). You are free to use, study, share and modify it. If you distribute a modified version, it must stay under the same license with its source available.
+
+Brawl Stars and all related assets and trademarks belong to Supercell. ChesStars is **unofficial fan content**, not affiliated with, endorsed by, or sponsored by Supercell, and is used under the [Supercell Fan Content Policy](https://www.supercell.com/fan-content-policy). The GPL covers this project's own source code only, not Supercell's assets.
