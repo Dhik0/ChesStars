@@ -14,6 +14,7 @@ import {
 import LanguageAccordion from './LanguageAccordion';
 import { APP_NAME, APP_VERSION, DISCORD_INVITE_URL, GITHUB_REPO, GITHUB_REPO_URL, QQ_GROUP_ID } from '../config/app';
 import { bundledQqGroupUrl } from '../config/bundledManifest';
+import { IS_NATIVE_APP } from '../config/platform';
 import { useTranslation } from '../i18n';
 import { pullMessage } from '../i18n/format';
 import type { MetaSnapshot, PullResult } from '../services/metaStore';
@@ -198,8 +199,9 @@ export default function SettingsView({
         {/*
           新版本提示：留在设置页内，不做全局弹窗。
           主入口固定为 GitHub Release 页；国内镜像只对简中用户显示，且只做小字备用入口。
+          仅原生壳渲染——Web / PWA 用户不该看到安卓安装包下载引导。
         */}
-        {updateInfo && (
+        {IS_NATIVE_APP && updateInfo && (
           <div className="mb-3 rounded-lg border border-sky-500/30 bg-sky-500/[0.09] px-2.5 py-2">
             <div className="flex items-start gap-2">
               <Sparkles size={14} className="mt-0.5 shrink-0 text-sky-400" />
@@ -318,22 +320,27 @@ export default function SettingsView({
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={handleCheckUpdate}
-            disabled={checking}
-            className="mb-1.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-800 text-[12px] text-slate-300 active:bg-slate-800 disabled:opacity-60"
-          >
-            <RefreshCw size={13} className={checking ? 'animate-spin' : ''} />
-            {checking ? t('settings.checking') : t('settings.checkUpdate')}
-          </button>
+          {/* 检查安装包更新：仅原生壳有意义，Web / PWA 直接不渲染 */}
+          {IS_NATIVE_APP && (
+            <>
+              <button
+                type="button"
+                onClick={handleCheckUpdate}
+                disabled={checking}
+                className="mb-1.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-800 text-[12px] text-slate-300 active:bg-slate-800 disabled:opacity-60"
+              >
+                <RefreshCw size={13} className={checking ? 'animate-spin' : ''} />
+                {checking ? t('settings.checking') : t('settings.checkUpdate')}
+              </button>
 
-          {checkMsg && (
-            <p
-              className={`mb-1.5 rounded-lg px-2 py-1.5 text-[11px] leading-snug ${CHECK_TONE[checkMsg.tone]}`}
-            >
-              {checkMsg.text}
-            </p>
+              {checkMsg && (
+                <p
+                  className={`mb-1.5 rounded-lg px-2 py-1.5 text-[11px] leading-snug ${CHECK_TONE[checkMsg.tone]}`}
+                >
+                  {checkMsg.text}
+                </p>
+              )}
+            </>
           )}
 
           <LinkRow

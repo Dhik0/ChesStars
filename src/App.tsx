@@ -12,6 +12,7 @@ import SettingsView from './components/SettingsView';
 import TopBar from './components/TopBar';
 import UpdateDialog from './components/UpdateDialog';
 import { APP_VERSION } from './config/app';
+import { IS_NATIVE_APP } from './config/platform';
 import { useTranslation } from './i18n';
 import { metaStore, type MetaSnapshot } from './services/metaStore';
 import {
@@ -200,7 +201,7 @@ export default function App() {
     };
   }, []);
 
-  /* ---------------- 新版本检测（静默、非阻塞） ----------------
+  /* ---------------- 新版本检测（静默、非阻塞、仅原生壳） ----------------
    * 启动时后台问一次版本清单：超时 / 限流 / 断网全部静默忽略，
    * 只有真的拿到更高版本才记下来。用户点过「忽略此版本」的不再自动弹窗，
    * 但底部「设置」Tab 上的小圆点照旧保留（用户想装时还能找到入口）。
@@ -209,6 +210,8 @@ export default function App() {
    * 远程改了之后，老版本 App 也能立刻换到新群链接。
    */
   useEffect(() => {
+    // 纯 Web / PWA 没有安装包可升级：完全跳过 GitHub Release 检查
+    if (!IS_NATIVE_APP) return;
     let alive = true;
     void checkForUpdate().then((res) => {
       if (!alive) return;
@@ -383,9 +386,10 @@ export default function App() {
   /**
    * 更新弹窗是**全局浮层**：它挂在最外层壳上，选图页 / BP 页 / 设置页
    * 三个层级都能看到，启动检测到新版本时不管停在哪一屏都不会漏。
+   * 仅原生壳渲染：Web / PWA 不引导下载安卓安装包。
    */
   const updateOverlay =
-    updateOpen && updateInfo ? (
+    IS_NATIVE_APP && updateOpen && updateInfo ? (
       <UpdateDialog
         info={updateInfo}
         current={APP_VERSION}
@@ -399,29 +403,33 @@ export default function App() {
 
   if (error) {
     return (
-      <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-slate-950 px-6 text-center">
-        <p className="text-[13px] font-semibold text-red-400">{t('app.loadError')}</p>
-        <p className="text-[11px] leading-relaxed text-slate-500">{t('app.loadErrorHint')}</p>
-        <button
-          type="button"
-          onClick={() => {
-            setError(null);
-            void metaStore.init().then(setSnap);
-          }}
-          className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-800 px-3 text-[12px] text-slate-200 active:bg-slate-700"
-        >
-          <RefreshCw size={13} />
-          {t('app.retry')}
-        </button>
+      <div className="flex h-dvh w-full justify-center bg-slate-900">
+        <div className="flex h-dvh w-full max-w-[440px] flex-col items-center justify-center gap-3 bg-slate-950 px-6 text-center">
+          <p className="text-[13px] font-semibold text-red-400">{t('app.loadError')}</p>
+          <p className="text-[11px] leading-relaxed text-slate-500">{t('app.loadErrorHint')}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              void metaStore.init().then(setSnap);
+            }}
+            className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-800 px-3 text-[12px] text-slate-200 active:bg-slate-700"
+          >
+            <RefreshCw size={13} />
+            {t('app.retry')}
+          </button>
+        </div>
       </div>
     );
   }
 
   if (!snap) {
     return (
-      <div className="flex h-dvh flex-col items-center justify-center gap-2 bg-slate-950">
-        <Loader2 size={20} className="animate-spin text-sky-500" />
-        <p className="text-[11px] text-slate-500">{t('app.loading')}</p>
+      <div className="flex h-dvh w-full justify-center bg-slate-900">
+        <div className="flex h-dvh w-full max-w-[440px] flex-col items-center justify-center gap-2 bg-slate-950">
+          <Loader2 size={20} className="animate-spin text-sky-500" />
+          <p className="text-[11px] text-slate-500">{t('app.loading')}</p>
+        </div>
       </div>
     );
   }
@@ -455,33 +463,44 @@ export default function App() {
   /* ---------------- 外壳：内容区 + 底部一级导航 ---------------- */
 
   /**
+   * 最外层壳：外层是主题暗色背景，内层是限宽的「手机面板」。
+   *
+   * 手机 / 安卓 WebView 上宽度本来就小于 440px，内外两层重合，视觉与以前一致；
+   * PC 浏览器打开时自动居中成紧凑的移动端面板，不会被横向拉伸变形。
+   *
    * `navVisible` 由各页面决定：
    *   - 选图页 / 设置页：常驻（设置是这里的唯一入口，必须可达）；
    *   - BP 页：竖向空间充足时（非矮视口竖屏）常驻，否则让位给英雄网格与 BP 台
    *     ——此时回设置要走顶部地图卡回到选图页，BP 进度不会因此丢失。
    */
   const shell = (content: ReactNode, navVisible: boolean) => (
-    <div
-      className={`flex h-dvh flex-col overflow-hidden bg-slate-950 text-slate-200 ${
-        navVisible ? 'has-bottom-nav' : ''
-      }`}
-    >
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{content}</div>
-      {navVisible && (
-        <BottomNav tab={tab} onChange={setTab} hasUpdate={updateInfo !== null} />
-      )}
-      {overlays}
-      {toast && (
-        <div
-          className="pointer-events-none fixed inset-x-0 bottom-0 z-[70] flex justify-center pb-[calc(env(safe-area-inset-bottom,0px)+84px)]"
-          role="status"
-          aria-live="polite"
-        >
-          <span className="rounded-full bg-slate-800/95 px-3.5 py-1.5 text-[12px] font-medium text-slate-100 shadow-lg shadow-black/50 ring-1 ring-white/10 animate-fade-in">
-            {toast}
-          </span>
-        </div>
-      )}
+    <div className="flex h-dvh w-full justify-center bg-slate-900">
+      <div
+        className={`relative flex h-dvh w-full flex-col overflow-hidden bg-slate-950 text-slate-200 ${
+          landscape
+            ? // 手机 / 安卓 WebView 横屏：左右双栏要占满整屏，不做限宽
+              ''
+            : // 竖屏与桌面：大于 440px 时居中成紧凑面板，PC 上不会被横向拉伸
+              'sm:max-w-[440px] sm:shadow-2xl sm:shadow-black/60 sm:ring-1 sm:ring-slate-800/70'
+        } ${navVisible ? 'has-bottom-nav' : ''}`}
+      >
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{content}</div>
+        {navVisible && (
+          <BottomNav tab={tab} onChange={setTab} hasUpdate={updateInfo !== null} />
+        )}
+        {overlays}
+        {toast && (
+          <div
+            className="pointer-events-none fixed inset-x-0 bottom-0 z-[70] flex justify-center pb-[calc(env(safe-area-inset-bottom,0px)+84px)]"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="rounded-full bg-slate-800/95 px-3.5 py-1.5 text-[12px] font-medium text-slate-100 shadow-lg shadow-black/50 ring-1 ring-white/10 animate-fade-in">
+              {toast}
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 

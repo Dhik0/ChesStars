@@ -68,7 +68,7 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-black/60 animate-fade-in" onClick={onClose}>
       <div
-        className="max-h-dvh-86 w-full overflow-y-auto overscroll-contain rounded-t-2xl border-t border-slate-700 bg-slate-900 pb-3 animate-slide-up safe-bottom"
+        className="max-h-dvh-86 w-full max-w-[440px] mx-auto overflow-y-auto overscroll-contain rounded-t-2xl border-t border-slate-700 bg-slate-900 pb-3 animate-slide-up safe-bottom"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}

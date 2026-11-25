@@ -102,7 +102,7 @@ export default function MatchupSheet({
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-black/60 animate-fade-in" onClick={onClose}>
       <div
-        className="flex max-h-dvh-86 w-full flex-col overflow-hidden rounded-t-2xl border-t border-slate-700 bg-slate-900 animate-slide-up safe-bottom"
+        className="flex max-h-dvh-86 w-full max-w-[440px] mx-auto flex-col overflow-hidden rounded-t-2xl border-t border-slate-700 bg-slate-900 animate-slide-up safe-bottom"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 顶部：英雄 + 本图评分 + 顺位 */}

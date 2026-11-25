@@ -3,8 +3,19 @@ import { useEffect, useState } from 'react';
 /** 矮视口阈值：低于此高度的竖屏（悬浮小窗）启用紧凑底部 BP 区 */
 export const SHORT_MAX_HEIGHT = 660;
 
-/** 横屏判定：真·横屏比例且宽度够放下双栏 */
-const LANDSCAPE_MQ = '(orientation: landscape) and (min-width: 520px)';
+/**
+ * 桌面宽屏阈值：达到这个宽度就按「PC 浏览器」处理，走单栏紧凑面板。
+ * 手机横屏（含折叠屏展开）基本都在 900 以下，仍保留左右双栏。
+ */
+export const DESKTOP_MIN_WIDTH = 900;
+
+/**
+ * 横屏判定：真·横屏比例、宽度够放下双栏，且没有宽到桌面级别。
+ * 桌面宽屏会被外层限宽到 440px，双栏放不下，必须回落到单栏布局。
+ */
+const LANDSCAPE_MQ = `(orientation: landscape) and (min-width: 520px) and (max-width: ${
+  DESKTOP_MIN_WIDTH - 0.02
+}px)`;
 
 export interface ViewportState {
   width: number;
