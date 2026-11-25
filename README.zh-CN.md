@@ -12,9 +12,15 @@
 
 </div>
 
-> ### 📱 iOS 与 Web 版正在开发
-> Web / PWA 版本（支持 iPhone、iPad 与桌面浏览器）正在开发中。
-> **现在就想在 iOS 上用？** 加入 [Discord](https://discord.gg/RXM7E5e4U)，上线当天会第一时间通知你。
+> ### 🌐 网页版已上线
+> ChesStars 现在可以直接在浏览器里用：**iPhone、iPad、Android 和 PC** 都能打开，免安装、免注册。
+>
+> | 🌐 **网页版 / iOS / PC** | ⬇ **Android** |
+> | :---: | :---: |
+> | **[chesstars.pages.dev](https://chesstars.pages.dev)** | **[下载最新版 APK](https://github.com/Dhik0/ChesStars/releases/latest)** |
+> | <sub>浏览器直接打开 · 可添加到主屏幕</sub> | <sub>GitHub Releases · Android 5.1+</sub> |
+>
+> **iPhone / iPad**：用 Safari 打开链接 → 分享 → **添加到主屏幕**。**电脑**：在 Chrome / Edge 地址栏点安装图标。添加后从桌面图标启动即为全屏，断网也能继续 BP。
 
 ## 为什么选 ChesStars
 
@@ -77,9 +83,15 @@
 
 支持 Android 5.1 及以上。App 内可以检查新版本，不必每次都回来找下载页。
 
-### iOS / Web —— 即将上线（PWA）
+### 网页版 / iOS / PC（PWA）
 
-Web / PWA 版本正在开发，完成后可在 iPhone、iPad 和桌面浏览器上使用。在此之前，欢迎[加入 Discord](https://discord.gg/RXM7E5e4U)，上线时会收到通知。
+**在线使用：[chesstars.pages.dev](https://chesstars.pages.dev)** —— 不用下载，不用注册。
+
+- **iPhone / iPad** —— 用 Safari 打开链接，点「分享」→「添加到主屏幕」，之后从桌面图标启动就是全屏应用。
+- **Android** —— 用 Chrome 打开，菜单里选「安装应用」/「添加到主屏幕」；想要原生安装包就用上面的 APK。
+- **电脑** —— Chrome、Edge 地址栏右侧会出现安装图标；Safari、Firefox 直接当普通网页用即可。
+
+第一次打开会把用得到的资源存到本地，之后断网也能正常 BP、照常看推荐；联网后在设置页点一下就能拉取最新数据。
 
 ## 社区与反馈
 

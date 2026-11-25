@@ -12,9 +12,15 @@
 
 </div>
 
-> ### 📱 iOS & Web are coming
-> A Web / PWA build — running on iPhone, iPad and desktop — is in development.
-> **On iOS today?** Join the [Discord server](https://discord.gg/RXM7E5e4U) and you'll get a ping the day it goes live.
+> ### 🌐 Web / PWA is live
+> ChesStars now runs in the browser on **iPhone, iPad, Android and PC** — no install, no account.
+>
+> | 🌐 **Web / iOS / PC** | ⬇ **Android** |
+> | :---: | :---: |
+> | **[chesstars.pages.dev](https://chesstars.pages.dev)** | **[Download the latest APK](https://github.com/Dhik0/ChesStars/releases/latest)** |
+> | <sub>Open in any browser · add to home screen</sub> | <sub>GitHub Releases · Android 5.1+</sub> |
+>
+> **iPhone / iPad:** open the link in Safari → **Share** → *Add to Home Screen*. **Desktop:** click the install icon in the Chrome / Edge address bar. Once added it launches full-screen and keeps working offline.
 
 ## Why ChesStars?
 
@@ -77,9 +83,15 @@ Ships in **English**, **简体中文** and **繁體中文**, and follows your sy
 
 Requires Android 5.1 or newer. The app can check GitHub for newer versions, so you can update without hunting for the download page again.
 
-### iOS / Web — Coming Soon (PWA)
+### Web / iOS / PC (PWA)
 
-The Web / PWA version is in progress and will run on iPhone, iPad and desktop browsers. Until then, [join the Discord](https://discord.gg/RXM7E5e4U) to be notified at launch.
+**Use it online: [chesstars.pages.dev](https://chesstars.pages.dev)** — nothing to download, no account needed.
+
+- **iPhone / iPad** — open the link in Safari, then **Share → Add to Home Screen**. It launches full-screen from the home screen like a native app.
+- **Android** — open it in Chrome and choose **Install app** / **Add to Home screen** from the menu. Prefer a native build? Use the APK above.
+- **Desktop** — Chrome and Edge show an install icon in the address bar; Safari and Firefox work as a normal tab.
+
+The first visit stores what it needs, so bans, picks and recommendations keep working with no connection. When you are back online, Settings has a button to pull the latest data.
 
 ## Community & Contributing
 
