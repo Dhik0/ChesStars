@@ -9,6 +9,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/Dhik0/ChesStars?style=flat-square&color=2ea44f)](https://github.com/Dhik0/ChesStars/releases/latest)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Android%205.1%2B-3DDC84?style=flat-square&logo=android&logoColor=white)](https://github.com/Dhik0/ChesStars/releases/latest)
+[![GitHub Downloads](https://img.shields.io/github/downloads/Dhik0/ChesStars/total?style=flat-square&logo=github&label=downloads&color=2ea44f)](https://github.com/Dhik0/ChesStars/releases)
 
 </div>
 
