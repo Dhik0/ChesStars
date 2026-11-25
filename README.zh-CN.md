@@ -4,7 +4,7 @@
 
 # ChesStars
 
-**一款轻量、100% 离线的荒野乱斗排位 BP 助手，基于 3v3 回归与对称克制建模。**
+**一款轻量、离线优先的荒野乱斗排位 BP 助手，基于 3v3 回归与对称克制建模。**
 
 [![GitHub Release](https://img.shields.io/github/v/release/Dhik0/ChesStars?style=flat-square&color=2ea44f)](https://github.com/Dhik0/ChesStars/releases/latest)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
@@ -24,7 +24,7 @@
 
 多数 BP 工具只按英雄热度排序。ChesStars 看的是**双方**：你每填入一个 Ban 或 Pick，推荐都会重新计算，既算你能克制谁，也算谁已经在克制你。候选英雄按**综合推荐得分**排序——一个「现在这个位置该不该拿」的单一结论，而不是胜率。
 
-### 100% 离线 · 零追踪
+### 离线优先 · 零追踪
 
 整套推荐逻辑都在你的手机本地运行，数据随安装包一起下发。
 
@@ -47,22 +47,24 @@
 
 <table>
   <tr>
-    <td align="center" width="33%">
-      <img src="docs/screenshots/draft-board-en.png" width="230" alt="Ban 与 Pick 面板" /><br />
+    <td align="center" rowspan="2" width="36%" valign="middle">
+      <img src="docs/screenshots/draft-board-zh-CN.png" width="260" alt="Ban 与 Pick 面板" /><br />
       <sub>BP 面板</sub>
     </td>
-    <td align="center" width="33%">
-      <img src="docs/screenshots/worlds-grand-final.png" width="330" alt="世锦赛决赛现场，安全区域，比分 3-3" /><br />
+    <td align="center" valign="middle">
+      <img src="docs/screenshots/worlds-grand-final.jpg" width="480" alt="世锦赛决赛现场，安全区域，比分 3-3" /><br />
       <sub>世锦赛决赛现场，安全区域</sub>
     </td>
-    <td align="center" width="33%">
-      <img src="docs/screenshots/worlds-penny-pick.png" width="330" alt="现场大屏公布最后一手佩妮" /><br />
-      <sub>第 6 手现场公布佩妮</sub>
+  </tr>
+  <tr>
+    <td align="center" valign="middle">
+      <img src="docs/screenshots/worlds-penny-pick.jpg" width="480" alt="现场大屏公布最后一手潘妮" /><br />
+      <sub>第 6 手现场公布潘妮</sub>
     </td>
   </tr>
 </table>
 
-> **用真实世界赛对局验证过。** 左侧面板复刻的是世锦赛决赛这一局的 BP——安全区域，蓝方，第 6 手。引擎给这一手的候选里就有佩妮，而现场第 6 手叫出的也正是佩妮。
+> **用真实世界赛对局验证过。** 左侧面板复刻的是世锦赛决赛这一局的 BP——安全区域，蓝方，第 6 手。引擎给这一手的候选里就有潘妮，而现场第 6 手叫出的也正是潘妮。
 
 ## 下载与安装
 

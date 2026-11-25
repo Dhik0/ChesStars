@@ -4,7 +4,7 @@
 
 # ChesStars
 
-**A lightweight, 100% offline Brawl Stars Ranked Draft assistant powered by 3v3 regression and symmetric counter-matchup modeling.**
+**A lightweight, offline-first Brawl Stars Ranked Draft assistant powered by 3v3 regression and symmetric counter-matchup modeling.**
 
 [![GitHub Release](https://img.shields.io/github/v/release/Dhik0/ChesStars?style=flat-square&color=2ea44f)](https://github.com/Dhik0/ChesStars/releases/latest)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
@@ -24,7 +24,7 @@ Ranked gives you roughly twenty seconds per ban and per pick. ChesStars is built
 
 Most draft tools rank brawlers by popularity alone. ChesStars looks at **both** sides of the board: every ban and every pick you enter re-weights the recommendation, so it accounts for who you are countering and who is already countering you. Suggestions are ordered by an **Overall Draft Score** — one composite number for "how good is this pick right now", never presented as a win rate.
 
-### 100% Offline · Zero Tracking
+### Offline-First · Zero Tracking
 
 The whole draft engine runs on your device from a bundled dataset.
 
@@ -47,16 +47,18 @@ Ships in **English**, **简体中文** and **繁體中文**, and follows your sy
 
 <table>
   <tr>
-    <td align="center" width="33%">
-      <img src="docs/screenshots/draft-board-en.png" width="230" alt="Draft board with ban and pick slots" /><br />
+    <td align="center" rowspan="2" width="36%" valign="middle">
+      <img src="docs/screenshots/draft-board-en.png" width="260" alt="Draft board with ban and pick slots" /><br />
       <sub>Draft board</sub>
     </td>
-    <td align="center" width="33%">
-      <img src="docs/screenshots/worlds-grand-final.png" width="330" alt="World Finals Grand Final on stage, Safe Zone, score 3-3" /><br />
+    <td align="center" valign="middle">
+      <img src="docs/screenshots/worlds-grand-final.jpg" width="480" alt="World Finals Grand Final on stage, Safe Zone, score 3-3" /><br />
       <sub>The Grand Final, Safe Zone</sub>
     </td>
-    <td align="center" width="33%">
-      <img src="docs/screenshots/worlds-penny-pick.png" width="330" alt="Penny announced on the stage screens as the final pick" /><br />
+  </tr>
+  <tr>
+    <td align="center" valign="middle">
+      <img src="docs/screenshots/worlds-penny-pick.jpg" width="480" alt="Penny announced on the stage screens as the final pick" /><br />
       <sub>Penny called as the sixth pick</sub>
     </td>
   </tr>

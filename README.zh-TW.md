@@ -4,7 +4,7 @@
 
 # ChesStars
 
-**輕量、100% 離線的《荒野亂鬥》排位 BP 助手，以 3v3 迴歸與對稱剋制模型為核心。**
+**輕量、離線優先的《荒野亂鬥》排位 BP 助手，以 3v3 迴歸與對稱剋制模型為核心。**
 
 [![GitHub Release](https://img.shields.io/github/v/release/Dhik0/ChesStars?style=flat-square&color=2ea44f)](https://github.com/Dhik0/ChesStars/releases/latest)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
@@ -24,7 +24,7 @@
 
 多數 BP 工具只按英雄熱度排序。ChesStars 看的是**雙方**：你每填入一個禁用或選擇，推薦就會重新計算，既算你能剋制誰，也算誰已經在剋制你。候選英雄依**綜合推薦得分**排序——一個「現在這個位置該不該拿」的單一結論，而不是勝率。
 
-### 100% 離線 · 零追蹤
+### 離線優先 · 零追蹤
 
 整套推薦邏輯都在你的手機本機執行，資料隨安裝檔一併提供。
 
@@ -47,22 +47,24 @@
 
 <table>
   <tr>
-    <td align="center" width="33%">
-      <img src="docs/screenshots/draft-board-en.png" width="230" alt="禁用與選擇面板" /><br />
+    <td align="center" rowspan="2" width="36%" valign="middle">
+      <img src="docs/screenshots/draft-board-zh-TW.png" width="260" alt="禁用與選擇面板" /><br />
       <sub>BP 面板</sub>
     </td>
-    <td align="center" width="33%">
-      <img src="docs/screenshots/worlds-grand-final.png" width="330" alt="世界大賽決賽現場，安全區域，比分 3-3" /><br />
+    <td align="center" valign="middle">
+      <img src="docs/screenshots/worlds-grand-final.jpg" width="480" alt="世界大賽決賽現場，安全區域，比分 3-3" /><br />
       <sub>世界大賽決賽現場，安全區域</sub>
     </td>
-    <td align="center" width="33%">
-      <img src="docs/screenshots/worlds-penny-pick.png" width="330" alt="現場大螢幕公布最後一手潘妮" /><br />
-      <sub>第 6 手現場公布潘妮</sub>
+  </tr>
+  <tr>
+    <td align="center" valign="middle">
+      <img src="docs/screenshots/worlds-penny-pick.jpg" width="480" alt="現場大螢幕公布最後一手佩妮" /><br />
+      <sub>第 6 手現場公布佩妮</sub>
     </td>
   </tr>
 </table>
 
-> **以真實世界賽對局驗證過。** 左側面板重現的是世界大賽決賽這一局的 BP——安全區域，藍方，第 6 手。引擎給這一手的候選裡就有潘妮，而現場第 6 手喊出的也正是潘妮。
+> **以真實世界賽對局驗證過。** 左側面板重現的是世界大賽決賽這一局的 BP——安全區域，藍方，第 6 手。引擎給這一手的候選裡就有佩妮，而現場第 6 手喊出的也正是佩妮。
 
 ## 下載與安裝
 
