@@ -5,13 +5,17 @@ import {
   Download,
   ExternalLink,
   Github,
+  MessageCircle,
   RefreshCw,
   Settings,
   Sparkles,
   Users,
 } from 'lucide-react';
-import { APP_NAME, APP_VERSION, GITHUB_REPO, GITHUB_REPO_URL } from '../config/app';
+import LanguageAccordion from './LanguageAccordion';
+import { APP_NAME, APP_VERSION, DISCORD_INVITE_URL, GITHUB_REPO, GITHUB_REPO_URL, QQ_GROUP_ID } from '../config/app';
 import { bundledQqGroupUrl } from '../config/bundledManifest';
+import { useTranslation } from '../i18n';
+import { pullMessage } from '../i18n/format';
 import type { MetaSnapshot, PullResult } from '../services/metaStore';
 import type { UpdateCheckResult, UpdateInfo } from '../services/updateChecker';
 import { mirrorDownloadUrl } from '../services/updateChecker';
@@ -30,10 +34,10 @@ interface SettingsViewProps {
   onShowUpdate: () => void;
 }
 
-const SOURCE_LABEL: Record<MetaSnapshot['source'], string> = {
-  builtin: '内置数据',
-  cache: '本地缓存',
-  remote: '远程更新',
+const SOURCE_KEY: Record<MetaSnapshot['source'], string> = {
+  builtin: 'settings.sourceBuiltin',
+  cache: 'settings.sourceCache',
+  remote: 'settings.sourceRemote',
 };
 
 const SOURCE_STYLE: Record<MetaSnapshot['source'], string> = {
@@ -41,29 +45,6 @@ const SOURCE_STYLE: Record<MetaSnapshot['source'], string> = {
   cache: 'bg-sky-500/20 text-sky-300',
   remote: 'bg-strong/20 text-strong',
 };
-
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-}
-
-/**
- * 段位门槛的可读文案：后端 tier_audit 里带中文标签时优先用它（如「传奇 I+」），
- * 否则退回数值段位。
- */
-function tierLabel(snapshot: MetaSnapshot): string {
-  const min = snapshot.meta.min_tier;
-  const hit = snapshot.meta.tier_audit?.distribution.find((d) => d.tier === min);
-  return hit?.label ? `${hit.label}+` : String(min);
-}
 
 interface CheckMessage {
   tone: 'ok' | 'warn' | 'error';
@@ -86,7 +67,7 @@ function SectionLabel({ children }: { children: string }) {
   );
 }
 
-/** 「关于」区的行式入口：图标 + 标题 + 小字 + 外链箭头（开源仓库 / QQ 群共用） */
+/** 「关于」区的行式入口：图标 + 标题 + 小字 + 外链箭头 */
 function LinkRow({
   icon,
   title,
@@ -117,7 +98,7 @@ function LinkRow({
 /**
  * 设置页（一级页面，由底部导航右侧 Tab 进入）。
  *
- * 面向普通用户：只讲「数据是哪天的、能不能更新、去哪下载」，
+ * 面向普通用户：只讲「数据是哪天的、能不能更新、去哪下载、怎么换语言」，
  * 算法细节与网络链路一律不在这里展示（见 .workbuddy-ai/memory/MEMORY.md 的长期规范）。
  */
 export default function SettingsView({
@@ -128,28 +109,50 @@ export default function SettingsView({
   onCheckUpdate,
   onShowUpdate,
 }: SettingsViewProps) {
+  const { t, lang, num, tier } = useTranslation();
   const [pulling, setPulling] = useState(false);
   const [checking, setChecking] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [checkMsg, setCheckMsg] = useState<CheckMessage | null>(null);
 
   /**
-   * 下载入口：主按钮走国内加速（镜像前缀 + APK 直链），
-   * 拿不到 APK 直链时退到 Release 页面，至少不会出现点了没反应的按钮。
+   * 国内镜像下载入口：只有简中界面才渲染。
+   * 繁中 / 英文用户看不到任何镜像相关元素，主入口统一是 GitHub Release 页。
    */
-  const apkUrl = updateInfo?.apkUrl ?? null;
-  const mirrorUrl = updateInfo ? mirrorDownloadUrl(updateInfo.mirrorPrefixes, apkUrl) : null;
-  const primaryDownloadUrl = mirrorUrl ?? apkUrl ?? updateInfo?.htmlUrl ?? null;
-  const primaryDownloadLabel = apkUrl ? '下载' : '前往 Release 页';
+  const mirrorUrl =
+    lang === 'zh-CN' && updateInfo
+      ? mirrorDownloadUrl(updateInfo.mirrorPrefixes, updateInfo.apkUrl)
+      : null;
 
   /** QQ 群：远程清单优先，没有就用打包内置的 version.json（非空即常驻） */
   const qqLink = qqGroupUrl ?? bundledQqGroupUrl;
+
+  /** 数据时间：按当前语言格式化，避免英文界面里出现「2026/11/24 22:18」的中文顺序 */
+  const formatTime = (iso: string): string => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString(lang, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  };
+
+  /** 段位门槛：后端 tier_audit 里带段位标签时优先用它（如「传奇 I」），否则退回数值 */
+  const tierText = (() => {
+    const min = snapshot.meta.min_tier;
+    const hit = snapshot.meta.tier_audit?.distribution.find((d) => d.tier === min);
+    return hit?.label ? `${tier(hit.label)}+` : String(min);
+  })();
 
   const handlePull = async () => {
     setPulling(true);
     setMessage(null);
     const res = await onPull();
-    setMessage({ ok: res.ok, text: res.message });
+    setMessage({ ok: res.ok, text: pullMessage(res, t, num) });
     setPulling(false);
   };
 
@@ -159,18 +162,21 @@ export default function SettingsView({
     try {
       const res = await onCheckUpdate();
       if (res.status === 'update' && res.info) {
-        setCheckMsg({ tone: 'warn', text: `发现新版本 v${res.info.version}，可在上方下载` });
+        setCheckMsg({ tone: 'warn', text: t('settings.checkFound', { v: res.info.version }) });
       } else if (res.status === 'latest') {
-        setCheckMsg({ tone: 'ok', text: `已是最新版本（v${res.current}）` });
+        setCheckMsg({ tone: 'ok', text: t('settings.checkLatest', { v: res.current }) });
       } else {
-        setCheckMsg({ tone: 'error', text: '检查失败，请检查网络后重试' });
+        setCheckMsg({ tone: 'error', text: t('settings.checkFailed') });
       }
     } catch {
-      setCheckMsg({ tone: 'error', text: '检查失败，请检查网络后重试' });
+      setCheckMsg({ tone: 'error', text: t('settings.checkFailed') });
     } finally {
       setChecking(false);
     }
   };
+
+  /** 社区入口分流：简中主推 QQ 群 + Discord；英文与繁中只推 Discord */
+  const showQq = lang === 'zh-CN';
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-slate-950">
@@ -178,7 +184,7 @@ export default function SettingsView({
       <header className="shrink-0 border-b border-slate-800 px-3 pb-2 pt-2 safe-top">
         <h1 className="flex items-center gap-1.5 text-[14px] font-semibold text-slate-100">
           <Settings size={15} className="text-sky-400" />
-          设置
+          {t('settings.title')}
         </h1>
         <p className="mt-0.5 text-[10px] leading-tight text-slate-500">
           {APP_NAME} v{APP_VERSION}
@@ -186,9 +192,12 @@ export default function SettingsView({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-5 pt-3">
+        {/* 语言：放在最顶部，切换后立即全局生效并记住选择 */}
+        <LanguageAccordion />
+
         {/*
           新版本提示：留在设置页内，不做全局弹窗。
-          主按钮走国内加速，「GitHub 直连」作为次级入口并标注适用前提。
+          主入口固定为 GitHub Release 页；国内镜像只对简中用户显示，且只做小字备用入口。
         */}
         {updateInfo && (
           <div className="mb-3 rounded-lg border border-sky-500/30 bg-sky-500/[0.09] px-2.5 py-2">
@@ -196,49 +205,46 @@ export default function SettingsView({
               <Sparkles size={14} className="mt-0.5 shrink-0 text-sky-400" />
               <div className="min-w-0 flex-1 leading-tight">
                 <p className="truncate text-[11.5px] font-semibold text-sky-300">
-                  发现新版本 v{updateInfo.version}
+                  {t('settings.newVersion', { v: updateInfo.version })}
                 </p>
-                <p className="text-[10px] text-sky-400/70">当前 v{APP_VERSION}</p>
+                <p className="text-[10px] text-sky-400/70">
+                  {t('update.current', { v: APP_VERSION })}
+                </p>
               </div>
               <button
                 type="button"
                 onClick={onShowUpdate}
                 className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-sky-400/80 active:bg-sky-500/15"
               >
-                更新说明
+                {t('settings.updateNotes')}
                 <ChevronRight size={12} />
               </button>
             </div>
 
-            {primaryDownloadUrl && (
-              <button
-                type="button"
-                onClick={() => openExternal(primaryDownloadUrl)}
-                className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-sky-600 text-[12.5px] font-semibold text-white transition-colors active:bg-sky-700"
-              >
-                <Download size={13} />
-                {primaryDownloadLabel}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => openExternal(updateInfo.htmlUrl)}
+              className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-sky-600 text-[12.5px] font-semibold text-white transition-colors active:bg-sky-700"
+            >
+              <Download size={13} />
+              {t('update.downloadGithub')}
+            </button>
 
-            {apkUrl && (
+            {mirrorUrl && (
               <div className="mt-1.5 text-center">
                 <button
                   type="button"
-                  onClick={() => openExternal(apkUrl)}
+                  onClick={() => openExternal(mirrorUrl)}
                   className="text-[10px] text-slate-400 underline decoration-slate-600 underline-offset-2 active:text-slate-200"
                 >
-                  GitHub 直连
+                  {t('update.mirror')}
                 </button>
-                <p className="mt-0.5 text-[9.5px] leading-snug text-amber-400/70">
-                  如果没有加速器，请不要选择此选项
-                </p>
               </div>
             )}
           </div>
         )}
 
-        <SectionLabel>数据</SectionLabel>
+        <SectionLabel>{t('settings.sectionData')}</SectionLabel>
 
         {/* 当前数据状态 */}
         <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950/60 p-2.5">
@@ -246,31 +252,32 @@ export default function SettingsView({
             <span
               className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${SOURCE_STYLE[snapshot.source]}`}
             >
-              {SOURCE_LABEL[snapshot.source]}
+              {t(SOURCE_KEY[snapshot.source])}
             </span>
             <span className="text-[10px] text-slate-500">
-              更新于 {formatTime(snapshot.updatedAt)}
+              {t('settings.updatedAt', { time: formatTime(snapshot.updatedAt) })}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
             <span className="text-slate-500">
-              数据日期{' '}
-              <span className="tabular-nums text-slate-300">{snapshot.dataDate ?? '未知'}</span>
-            </span>
-            <span className="text-slate-500">
-              总对局{' '}
+              {t('settings.dataDate')}{' '}
               <span className="tabular-nums text-slate-300">
-                {snapshot.totalBattles.toLocaleString()}
+                {snapshot.dataDate ?? t('settings.unknown')}
               </span>
             </span>
             <span className="text-slate-500">
-              最低段位 <span className="text-slate-300">{tierLabel(snapshot)}</span>
+              {t('settings.totalBattles')}{' '}
+              <span className="tabular-nums text-slate-300">{num(snapshot.totalBattles)}</span>
             </span>
             <span className="text-slate-500">
-              地图 <span className="tabular-nums text-slate-300">{snapshot.meta.maps.length}</span>
+              {t('settings.minTier')} <span className="text-slate-300">{tierText}</span>
             </span>
             <span className="text-slate-500">
-              英雄{' '}
+              {t('settings.maps')}{' '}
+              <span className="tabular-nums text-slate-300">{snapshot.meta.maps.length}</span>
+            </span>
+            <span className="text-slate-500">
+              {t('settings.brawlers')}{' '}
               <span className="tabular-nums text-slate-300">{snapshot.meta.brawlers.length}</span>
             </span>
           </div>
@@ -284,7 +291,7 @@ export default function SettingsView({
           className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-sky-600 text-[13px] font-semibold text-white transition-colors active:bg-sky-700 disabled:opacity-60"
         >
           {pulling ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
-          {pulling ? '正在拉取…' : '立即拉取最新数据'}
+          {pulling ? t('settings.pulling') : t('settings.pull')}
         </button>
 
         {message && (
@@ -297,14 +304,14 @@ export default function SettingsView({
           </p>
         )}
 
-        {/* 关于：版本 / 检查更新 / 开源仓库 / QQ 群 */}
+        {/* 关于：版本 / 检查更新 / 开源仓库 / 社区 */}
         <div className="mt-4">
-          <SectionLabel>关于</SectionLabel>
+          <SectionLabel>{t('settings.sectionAbout')}</SectionLabel>
 
           <div className="mb-2 flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-2">
             <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
               <Database size={13} className="text-slate-500" />
-              当前版本
+              {t('settings.currentVersion')}
             </span>
             <span className="text-[12px] font-semibold tabular-nums text-slate-200">
               v{APP_VERSION}
@@ -318,7 +325,7 @@ export default function SettingsView({
             className="mb-1.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-800 text-[12px] text-slate-300 active:bg-slate-800 disabled:opacity-60"
           >
             <RefreshCw size={13} className={checking ? 'animate-spin' : ''} />
-            {checking ? '正在检查…' : '检查更新'}
+            {checking ? t('settings.checking') : t('settings.checkUpdate')}
           </button>
 
           {checkMsg && (
@@ -331,21 +338,32 @@ export default function SettingsView({
 
           <LinkRow
             icon={<Github size={16} />}
-            title="GitHub 开源仓库"
+            title={t('settings.github')}
             subtitle={`github.com/${GITHUB_REPO}`}
             onClick={() => openExternal(GITHUB_REPO_URL)}
           />
+        </div>
 
-          {qqLink && (
-            <div className="mt-1.5">
+        <div className="mt-4">
+          <SectionLabel>{t('settings.sectionCommunity')}</SectionLabel>
+
+          {showQq && qqLink && (
+            <div className="mb-1.5">
               <LinkRow
                 icon={<Users size={16} />}
-                title="QQ 交流群"
-                subtitle="如果无法更新，请进入 QQ 群获取更新"
+                title={t('settings.qq')}
+                subtitle={t('settings.qqHint', { id: QQ_GROUP_ID })}
                 onClick={() => openExternal(qqLink)}
               />
             </div>
           )}
+
+          <LinkRow
+            icon={<MessageCircle size={16} />}
+            title={t('settings.discord')}
+            subtitle={t('settings.discordHint')}
+            onClick={() => openExternal(DISCORD_INVITE_URL)}
+          />
 
           <p className="mt-3 text-center text-[10px] leading-relaxed text-slate-700">
             {APP_NAME} v{APP_VERSION}

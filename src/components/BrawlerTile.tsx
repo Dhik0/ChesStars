@@ -7,6 +7,7 @@ import {
   orderTag,
 } from '../utils/display';
 import { useLongPress } from '../utils/useLongPress';
+import { useTranslation } from '../i18n';
 import Avatar from './Avatar';
 
 interface BrawlerTileProps {
@@ -25,13 +26,14 @@ interface BrawlerTileProps {
 
 /** 顺位词条：只标先手 / 后手，中位不显示（绝大多数英雄都是中位，标出来只是噪音） */
 function PickBadge({ order }: { order: Candidate['pickOrder'] }) {
+  const { t } = useTranslation();
   const tag = orderTag(order);
   if (!tag) return null;
   return (
     <span
       className={`shrink-0 rounded px-0.5 text-[8px] font-bold leading-[12px] ${tag.cls}`}
     >
-      {tag.label}
+      {t(tag.key)}
     </span>
   );
 }
@@ -53,6 +55,7 @@ export default function BrawlerTile({
   onPick,
   onLongPress,
 }: BrawlerTileProps) {
+  const { t, brawler } = useTranslation();
   const c = candidate;
   const press = useLongPress({ onLongPress, onClick: onPick });
 
@@ -72,7 +75,9 @@ export default function BrawlerTile({
           {Array.from({ length: TEAM_SLOTS }, (_, i) => {
             const d = bars[i];
             const light = counterLight(d);
-            const tip = d ? counterTip(d, d.opponentName) : `对方第 ${i + 1} 槽尚未选人`;
+            const tip = d
+              ? counterTip(d, brawler(d.opponentName), t)
+              : t('draft.oppSlotEmpty', { n: i + 1 });
             return (
               <span
                 key={i}
@@ -101,7 +106,7 @@ export default function BrawlerTile({
                 贴右下角是为了不跟左上角的排名角标抢位置（头像变窄后更容易撞上） */}
             {bannedElsewhere && (
               <span className="absolute bottom-0 right-0 rounded-tl-[3px] bg-enemy/85 px-1 text-[8px] font-bold leading-[11px] text-white">
-                已Ban
+                {t('pool.banned')}
               </span>
             )}
           </div>
@@ -109,7 +114,7 @@ export default function BrawlerTile({
       </div>
 
       <div className="mt-0.5 w-full truncate text-center text-[9px] leading-tight text-slate-300">
-        {c.cn}
+        {brawler(c.name)}
       </div>
       <div className="flex w-full items-center justify-center gap-0.5">
         <span

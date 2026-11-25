@@ -4,6 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { validateMeta, type BrawlMeta } from '../types/meta';
 import { applyPick, createDraft, nextSlot, type DraftState, type Side } from './draftEngine';
 import { recommendHeadOf } from './display';
+import { translate } from '../i18n/translate';
+
+/** 标题文案由词库提供，这里按默认语言（简体中文）断言 */
+const titleOf = (state: DraftState): string => translate('zh-CN', recommendHeadOf(state).key);
 
 const META = validateMeta(
   JSON.parse(readFileSync(resolve(process.cwd(), 'public/data/brawl_meta.json'), 'utf-8')),
@@ -30,7 +34,7 @@ function headsThroughPicks(firstPick: Side): { titles: string[]; kinds: string[]
   const kinds: string[] = [];
   for (const id of PICK_IDS) {
     const head = recommendHeadOf(state);
-    titles.push(head.title);
+    titles.push(translate('zh-CN', head.key));
     kinds.push(state.active.kind);
     expect(head.enemy).toBe(state.active.kind === 'enemy');
     state = applyPick(state, id);
@@ -72,7 +76,7 @@ describe('推荐区标题（我方选角 / 敌方选角）', () => {
     for (const firstPick of ['ally', 'enemy'] as const) {
       const state = createDraft(MAP.map_name, MAP.mode, firstPick);
       const head = recommendHeadOf(state);
-      expect(head.title).toBe(ALLY_TITLE);
+      expect(translate('zh-CN', head.key)).toBe(ALLY_TITLE);
       expect(head.enemy).toBe(false);
     }
   });
@@ -81,7 +85,7 @@ describe('推荐区标题（我方选角 / 敌方选角）', () => {
     const state = readyState('ally');
     expect(recommendHeadOf(state).enemy).toBe(false);
     const peek: DraftState = { ...state, active: { kind: 'enemy', index: 1 } };
-    expect(recommendHeadOf(peek).title).toBe(ENEMY_TITLE);
+    expect(titleOf(peek)).toBe(ENEMY_TITLE);
     expect(recommendHeadOf(peek).enemy).toBe(true);
   });
 });

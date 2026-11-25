@@ -1,11 +1,14 @@
 import type { CounterDetail, CounterLight, DraftState, MatchupCellView } from '../utils/draftEngine';
 import { counterLight } from '../utils/draftEngine';
 import type { PickOrder } from '../types/meta';
+import type { Translator } from '../i18n/translate';
 
 /**
  * 展示层共用的小映射：克制色条配色、顺位标签、基础分配色。
  *
  * 底部槽位、候选卡片、对位弹窗都吃这一份，避免同一档颜色在三处各写一遍后跑偏。
+ * 带文案的函数一律接收 `t`——它们只做「把结构化数据翻成一句话」，
+ * 不自己持有语言状态。
  */
 
 /**
@@ -25,38 +28,62 @@ export const COUNTER_LIGHT_CLASS: Record<CounterLight, string> = {
   none: 'bg-slate-700',
 };
 
-export const COUNTER_LIGHT_TEXT: Record<CounterLight, string> = {
-  good: '优势',
-  bad: '劣势',
-  even: '均势',
-  none: '无对位',
+/** 色条档位 → 词条 key（优势 / 劣势 / 均势 / 无对位） */
+export const COUNTER_LIGHT_KEY: Record<CounterLight, string> = {
+  good: 'counter.good',
+  bad: 'counter.bad',
+  even: 'counter.even',
+  none: 'counter.none',
 };
+
+export function counterLightText(light: CounterLight, t: Translator): string {
+  return t(COUNTER_LIGHT_KEY[light]);
+}
 
 /**
  * 色条的悬浮提示：残差（百分点）+ 档位 + 本图预期胜率 + 有效样本量。
  *
  * `samples` 只是如实展示，不参与任何判定——后端已按有效样本过滤。
  */
-export function counterTip(d: CounterDetail | undefined, name: string): string {
-  if (!d) return `对 ${name} 无对位记录`;
-  if (!d.hasSample) return `对 ${name} 无对位记录`;
-  const sign = d.delta > 0 ? '+' : '';
-  const pred =
-    d.predictedWr !== null ? ` · 本图预期 ${Math.round(d.predictedWr * 100)}%` : '';
-  return `对 ${name} ${sign}${d.delta.toFixed(1)}pp（${COUNTER_LIGHT_TEXT[counterLight(d)]}${pred} · ${d.samples}场）`;
+export function counterTip(
+  d: CounterDetail | undefined,
+  name: string,
+  t: Translator,
+): string {
+  if (!d || !d.hasSample) return t('tip.noRecord', { name });
+  const pp = `${d.delta > 0 ? '+' : ''}${d.delta.toFixed(1)}`;
+  const light = counterLightText(counterLight(d), t);
+  if (d.predictedWr !== null) {
+    return t('tip.counterPred', {
+      name,
+      pp,
+      light,
+      pred: Math.round(d.predictedWr * 100),
+      n: d.samples,
+    });
+  }
+  return t('tip.counter', { name, pp, light, n: d.samples });
 }
 
 /** 3×3 对位格的悬浮提示（数据直接来自 v5 查表，没有列表兜底） */
-export function matchupCellTip(cell: MatchupCellView, name: string): string {
-  if (cell.deltaPp === null) return `对 ${name} 无对位记录`;
-  const sign = cell.deltaPp > 0 ? '+' : '';
-  const n = cell.nEff !== null ? ` · ${Math.round(cell.nEff)}场` : '';
-  return `对 ${name} ${sign}${cell.deltaPp.toFixed(2)}pp（${COUNTER_LIGHT_TEXT[cell.light]}${n}）`;
+export function matchupCellTip(
+  cell: MatchupCellView,
+  name: string,
+  t: Translator,
+): string {
+  if (cell.deltaPp === null) return t('tip.noRecord', { name });
+  const pp = `${cell.deltaPp > 0 ? '+' : ''}${cell.deltaPp.toFixed(2)}`;
+  const light = counterLightText(cell.light, t);
+  if (cell.nEff !== null) {
+    return t('tip.cell', { name, pp, light, n: Math.round(cell.nEff) });
+  }
+  return t('tip.cellNoN', { name, pp, light });
 }
 
 /** 顺位标签的展示样式（只有先手 / 后手两档） */
 export interface OrderTagStyle {
-  label: string;
+  /** 词条 key，由界面 `t()` 取值 */
+  key: 'order.first' | 'order.last';
   cls: string;
 }
 
@@ -68,8 +95,8 @@ export interface OrderTagStyle {
  * 后手统一叫「后手」，不再用「C位」这种黑话。
  */
 export function orderTag(order: PickOrder): OrderTagStyle | null {
-  if (order === 'FIRST') return { label: '先手', cls: 'bg-sky-500/20 text-sky-300' };
-  if (order === 'LAST') return { label: '后手', cls: 'bg-violet-500/20 text-violet-300' };
+  if (order === 'FIRST') return { key: 'order.first', cls: 'bg-sky-500/20 text-sky-300' };
+  if (order === 'LAST') return { key: 'order.last', cls: 'bg-violet-500/20 text-violet-300' };
   return null;
 }
 
@@ -103,12 +130,13 @@ export function baseScoreColor(score: number): string {
  *   - 我方选角 / Ban 阶段 → 「高优先推荐」+ 蓝色系
  */
 export interface RecommendHead {
-  title: string;
+  /** 词条 key，由界面 `t()` 取值 */
+  key: 'pool.head.ally' | 'pool.head.enemy';
   /** true = 预判敌方选角（红色主题） */
   enemy: boolean;
 }
 
 export function recommendHeadOf(state: DraftState): RecommendHead {
   const enemy = state.active.kind === 'enemy';
-  return { title: enemy ? '敌方可能会选' : '高优先推荐', enemy };
+  return { key: enemy ? 'pool.head.enemy' : 'pool.head.ally', enemy };
 }

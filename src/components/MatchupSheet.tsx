@@ -2,10 +2,10 @@ import { useMemo, useState } from 'react';
 import { ChevronRight, Swords, ShieldAlert, X } from 'lucide-react';
 import type { MetaIndex } from '../data/metaIndex';
 import { getMapStat } from '../data/metaIndex';
-import { brawlerCN, mapCN, modeCN } from '../data/localization';
 import { brawlerMatchups, type MatchupRow } from '../utils/draftEngine';
 import { orderTag } from '../utils/display';
 import type { PickOrder } from '../types/meta';
+import { useTranslation } from '../i18n';
 import Avatar from './Avatar';
 
 interface MatchupSheetProps {
@@ -20,35 +20,39 @@ interface MatchupSheetProps {
 
 /** 顺位标签：只显示先手 / 后手，中位不渲染 */
 function OrderTag({ order }: { order: PickOrder }) {
+  const { t } = useTranslation();
   const tag = orderTag(order);
   if (!tag) return null;
   return (
     <span
       className={`shrink-0 rounded px-1 py-px text-[9px] font-semibold leading-[13px] ${tag.cls}`}
     >
-      {tag.label}
+      {t(tag.key)}
     </span>
   );
 }
 
 /** 一行对位：对手是谁、他在这张图什么水平、交手过多少场、克制差值多少 */
 function MatchupItem({ row, positive }: { row: MatchupRow; positive: boolean }) {
+  const { t, brawler } = useTranslation();
   return (
     <li className="flex items-center gap-2 px-2.5 py-1.5">
       <Avatar id={row.opponentId} name={row.opponentName} size={26} rounded="rounded" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1">
           <span className="truncate text-[12.5px] font-medium leading-tight text-slate-200">
-            {row.opponentCn}
+            {brawler(row.opponentName)}
           </span>
           {row.opponentPickOrder && <OrderTag order={row.opponentPickOrder} />}
         </div>
         <div className="mt-0.5 flex items-center gap-1 text-[10px] leading-tight text-slate-500">
           <span className="tabular-nums">
-            {row.opponentScore !== null ? `本图 ${row.opponentScore.toFixed(0)} 分` : '本图无数据'}
+            {row.opponentScore !== null
+              ? t('matchup.score', { n: row.opponentScore.toFixed(0) })
+              : t('matchup.noMapData')}
           </span>
           <span className="text-slate-700">·</span>
-          <span className="tabular-nums">{row.samples}场</span>
+          <span className="tabular-nums">{t('common.samples', { n: row.samples })}</span>
         </div>
       </div>
       <span
@@ -77,6 +81,7 @@ export default function MatchupSheet({
   onClose,
   onOpenBreakdown,
 }: MatchupSheetProps) {
+  const { t, brawler, map: mapLabel, mode: modeLabel } = useTranslation();
   const [tab, setTab] = useState<'weak' | 'strong'>('weak');
 
   const ref = idx.brawlerById.get(brawlerId);
@@ -88,7 +93,6 @@ export default function MatchupSheet({
 
   if (!ref) return null;
 
-  const cn = brawlerCN(ref.name);
   const score = stat ? stat.score : null;
   const pickOrder = stat ? stat.pick_order : null;
   const rows = tab === 'weak' ? breakdown.weak : breakdown.strong;
@@ -107,24 +111,26 @@ export default function MatchupSheet({
             <Avatar id={brawlerId} name={ref.name} size={44} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
-                <h2 className="truncate text-[15px] font-bold text-white">{cn}</h2>
+                <h2 className="truncate text-[15px] font-bold text-white">
+                  {brawler(ref.name)}
+                </h2>
                 {pickOrder && <OrderTag order={pickOrder} />}
               </div>
               <p className="mt-0.5 truncate text-[10px] text-slate-500">
-                {mapCN(mapName)} · {modeCN(mode)}
+                {mapLabel(mapName)} · {modeLabel(mode)}
               </p>
             </div>
             <div className="shrink-0 text-right">
               <div className="text-[22px] font-bold leading-none tabular-nums text-sky-400">
                 {score !== null ? score.toFixed(0) : '—'}
               </div>
-              <div className="text-[9px] text-slate-500">本图评分</div>
+              <div className="text-[9px] text-slate-500">{t('matchup.mapScore')}</div>
             </div>
             <button
               type="button"
               onClick={onClose}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 active:bg-slate-800"
-              aria-label="关闭"
+              aria-label={t('common.close')}
             >
               <X size={16} />
             </button>
@@ -140,7 +146,7 @@ export default function MatchupSheet({
               }`}
             >
               <ShieldAlert size={13} />
-              劣势对位（怕谁）
+              {t('matchup.weak')}
               <span className="tabular-nums opacity-70">{weakCount}</span>
             </button>
             <button
@@ -153,7 +159,7 @@ export default function MatchupSheet({
               }`}
             >
               <Swords size={13} />
-              优势对位（克谁）
+              {t('matchup.strong')}
               <span className="tabular-nums opacity-70">{strongCount}</span>
             </button>
           </div>
@@ -164,12 +170,10 @@ export default function MatchupSheet({
           {rows.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-1 px-6 py-10 text-center">
               <p className="text-[12px] text-slate-400">
-                {tab === 'weak' ? '没有明显被克制的对位' : '没有明显占优的对位'}
+                {t(tab === 'weak' ? 'matchup.weakEmpty' : 'matchup.strongEmpty')}
               </p>
               <p className="text-[10px] text-slate-600">
-                {breakdown.source === 'none'
-                  ? '该英雄在这张图还没有对位记录'
-                  : '|delta| 都在 0 附近，基本是五五开'}
+                {t(breakdown.source === 'none' ? 'matchup.noRecords' : 'matchup.allEven')}
               </p>
             </div>
           ) : (
@@ -184,10 +188,12 @@ export default function MatchupSheet({
         {/* 底部说明 */}
         <div className="shrink-0 border-t border-slate-800 px-3 py-2">
           <p className="text-[10px] leading-relaxed text-slate-600">
-            差值 = Log5 预期胜率残差（百分点），
-            <span className="text-strong">正数代表我方占优</span>、
-            <span className="text-red-400">负数代表被压制</span>。样本量越小越不可靠。
-            {breakdown.source === 'mode' && ' 当前展示的是模式级对位（该图样本不足）。'}
+            {t('matchup.footnotePre')}
+            <span className="text-strong">{t('matchup.footnotePos')}</span>
+            {t('matchup.footnoteSep')}
+            <span className="text-red-400">{t('matchup.footnoteNeg')}</span>
+            {t('matchup.footnotePost')}
+            {breakdown.source === 'mode' && t('matchup.modeNote')}
           </p>
           {onOpenBreakdown && (
             <button
@@ -195,7 +201,7 @@ export default function MatchupSheet({
               onClick={onOpenBreakdown}
               className="mt-1.5 flex w-full items-center justify-center gap-1 rounded-lg bg-slate-800/80 py-2 text-[11.5px] font-medium text-slate-300 active:bg-slate-700"
             >
-              查看算分明细
+              {t('matchup.openBreakdown')}
               <ChevronRight size={13} />
             </button>
           )}

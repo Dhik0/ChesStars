@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { avatarCdnUrl, avatarInitial, avatarUrl, fallbackColor } from '../data/localization';
+import { useTranslation } from '../i18n';
 
 interface AvatarProps {
   id: number;
@@ -36,7 +37,10 @@ export default function Avatar({
   className = '',
   rounded = 'rounded-md',
 }: AvatarProps) {
+  const { brawler } = useTranslation();
   const [stage, setStage] = useState<Stage>('local');
+  /** 展示名（当前语言），alt / title / 兜底首字都用它 */
+  const displayName = brawler(name);
 
   // 切换英雄时重置，避免上一张图的失败状态传染给新英雄
   useEffect(() => {
@@ -61,10 +65,10 @@ export default function Avatar({
           backgroundColor: fallbackColor(id),
           fontSize: fallbackFontSize,
         }}
-        aria-label={name}
-        title={name}
+        aria-label={displayName}
+        title={displayName}
       >
-        {avatarInitial(name)}
+        {avatarInitial(displayName)}
       </div>
     );
   }
@@ -72,7 +76,7 @@ export default function Avatar({
   return (
     <img
       src={stage === 'cdn' ? avatarCdnUrl(id) : avatarUrl(id)}
-      alt={name}
+      alt={displayName}
       width={fill ? undefined : size}
       height={fill ? undefined : size}
       decoding="async"

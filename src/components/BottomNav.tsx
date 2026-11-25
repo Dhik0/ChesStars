@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Settings, Swords } from 'lucide-react';
+import { useTranslation } from '../i18n';
 
 /** 一级页面：左侧「BP 助手」（选图 + BP 主流程）/ 右侧「设置」 */
 export type MainTab = 'draft' | 'settings';
@@ -61,17 +62,18 @@ function TabButton({ active, label, dot = false, ariaLabel, onClick, children }:
  * 底部按 `env(safe-area-inset-bottom)` 留出安全区（全面屏手势条 / 刘海屏）。
  */
 export default function BottomNav({ tab, onChange, hasUpdate = false }: BottomNavProps) {
+  const { t } = useTranslation();
   return (
     <nav
       className="relative z-30 shrink-0 border-t border-slate-800 bg-slate-950/95 backdrop-blur"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
-      aria-label="主导航"
+      aria-label={t('nav.main')}
     >
       <div className="grid grid-cols-2">
         <TabButton
           active={tab === 'draft'}
-          label="BP 助手"
-          ariaLabel="BP 助手（选择地图与 BP 禁选）"
+          label={t('nav.draft')}
+          ariaLabel={t('nav.draftAria')}
           onClick={() => onChange('draft')}
         >
           <Swords size={19} strokeWidth={tab === 'draft' ? 2.4 : 2} />
@@ -79,9 +81,9 @@ export default function BottomNav({ tab, onChange, hasUpdate = false }: BottomNa
 
         <TabButton
           active={tab === 'settings'}
-          label="设置"
+          label={t('nav.settings')}
           dot={hasUpdate}
-          ariaLabel={hasUpdate ? '设置（有新版本）' : '设置'}
+          ariaLabel={hasUpdate ? t('nav.settingsAriaNew') : t('nav.settingsAria')}
           onClick={() => onChange('settings')}
         >
           <Settings size={19} strokeWidth={tab === 'settings' ? 2.4 : 2} />

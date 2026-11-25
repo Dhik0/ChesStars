@@ -1,8 +1,8 @@
 import { X } from 'lucide-react';
 import type { Candidate } from '../utils/draftEngine';
-import { brawlerCN } from '../data/localization';
-import { CLASS_COLOR, CLASS_LABEL } from '../data/brawlerProfile';
+import { CLASS_COLOR } from '../data/brawlerProfile';
 import { orderTag, baseScoreColor } from '../utils/display';
+import { useTranslation } from '../i18n';
 import Avatar from './Avatar';
 
 interface BrawlerDetailProps {
@@ -55,9 +55,11 @@ function BreakdownRow({
 
 /** 加减分拆解弹窗：拒绝黑盒，每一分都能追到来源 */
 export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps) {
+  const { t, brawler } = useTranslation();
   const b = candidate.breakdown;
   const isBan = candidate.phase === 'ban';
   const isEnemyView = candidate.phase === 'enemyPick';
+  const tag = orderTag(candidate.pickOrder);
 
   // 权重归一化：敌方亮牌不足时克制权重会缩小，这里把三项折算成合计 100%
   const totalWeight = b.baseWeight + b.counterWeight + b.compWeight;
@@ -74,7 +76,9 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
           <Avatar id={candidate.id} name={candidate.name} size={44} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <h2 className="truncate text-[15px] font-bold text-white">{candidate.cn}</h2>
+              <h2 className="truncate text-[15px] font-bold text-white">
+                {brawler(candidate.name)}
+              </h2>
               {/* 一级：职业 */}
               <span
                 className="shrink-0 rounded px-1 py-px text-[9px] font-semibold"
@@ -83,18 +87,21 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
                   color: CLASS_COLOR[candidate.cls],
                 }}
               >
-                {CLASS_LABEL[candidate.cls]}
+                {t(`class.${candidate.cls}`)}
               </span>
-              {orderTag(candidate.pickOrder) && (
+              {tag && (
                 <span className="shrink-0 rounded bg-slate-800 px-1 py-px text-[9px] font-medium text-slate-400">
-                  {orderTag(candidate.pickOrder)!.label}
+                  {t(tag.key)}
                 </span>
               )}
             </div>
             <p className="truncate text-[10px] text-slate-500">
               {candidate.hasData
-                ? `胜率 ${Math.round(candidate.baseWR * 100)}% · 出场率 ${Math.round(candidate.useRate * 100)}%`
-                : '该图暂无对局样本'}
+                ? t('detail.winRateLine', {
+                    wr: Math.round(candidate.baseWR * 100),
+                    use: Math.round(candidate.useRate * 100),
+                  })
+                : t('detail.noSample')}
             </p>
           </div>
           <div className="shrink-0 text-right">
@@ -104,13 +111,15 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
             >
               {candidate.score.toFixed(1)}
             </div>
-            <div className="text-[9px] text-slate-500">{isBan ? 'Ban 分' : '动态分'}</div>
+            <div className="text-[9px] text-slate-500">
+              {isBan ? t('detail.scoreBan') : t('detail.scoreDynamic')}
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 active:bg-slate-800"
-            aria-label="关闭"
+            aria-label={t('common.close')}
           >
             <X size={16} />
           </button>
@@ -120,63 +129,63 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
           {isBan ? (
             <>
               <BreakdownRow
-                label="地图强度"
+                label={t('detail.breakdownBase')}
                 value={b.base}
                 weight={norm(b.baseWeight)}
                 contribution={b.baseContribution}
-                hint="该图强度排名，第一名记 100 分"
+                hint={t('detail.breakdownBaseHint')}
               />
               <BreakdownRow
-                label="出场率"
+                label={t('detail.breakdownUse')}
                 value={b.counter}
                 weight={norm(b.counterWeight)}
                 contribution={b.counterContribution}
-                hint={`本图出场率 ${Math.round(candidate.useRate * 100)}%，已按该图最高出场率折算`}
+                hint={t('detail.breakdownUseHint', { p: Math.round(candidate.useRate * 100) })}
               />
               <BreakdownRow
-                label="先手优先级"
+                label={t('detail.breakdownFirst')}
                 value={b.comp}
                 weight={norm(b.compWeight)}
                 contribution={b.compContribution}
-                hint="适合先手直接拿，放出来容易被对面抢走"
+                hint={t('detail.breakdownFirstHint')}
               />
             </>
           ) : (
             <>
               <BreakdownRow
-                label="对位克制"
+                label={t('detail.breakdownCounter')}
                 value={b.counter}
                 weight={norm(b.counterWeight)}
                 contribution={b.counterContribution}
                 hint={
                   b.counterWeight === 0
-                    ? '暂无对手亮牌，该项不生效'
-                    : '以 50 分为中性，对位 delta（百分点）越大修正越明显'
+                    ? t('detail.breakdownCounterOff')
+                    : t('detail.breakdownCounterHint')
                 }
               />
               <BreakdownRow
-                label="本图胜率"
+                label={t('detail.breakdownWr')}
                 value={b.wr ?? 50}
                 weight={norm(b.wrWeight ?? 0)}
                 contribution={b.wrContribution ?? 0}
-                hint="该英雄在这张图的实际胜率，50% 为中性"
+                hint={t('detail.breakdownWrHint')}
               />
               <BreakdownRow
-                label="地图强度"
+                label={t('detail.breakdownBase')}
                 value={b.base}
                 weight={norm(b.baseWeight)}
                 contribution={b.baseContribution}
-                hint="该图强度排名，第一名记 100 分"
+                hint={t('detail.breakdownBaseHint')}
               />
               <BreakdownRow
-                label="阵容结构"
+                label={t('detail.breakdownComp')}
                 value={b.comp}
                 weight={norm(b.compWeight)}
                 contribution={b.compContribution}
-                hint="补前排 / 补射程 / 补刺客 / 避免定位重复"
+                hint={t('detail.breakdownCompHint')}
               />
               <div className="mb-2.5 flex items-baseline justify-between text-[11px]">
-                <span className="text-slate-400">顺位修正</span>
+                <span className="text-slate-400">{t('detail.orderAdj')}</span>
                 <span
                   className={
                     b.orderAdj > 0 ? 'text-strong' : b.orderAdj < 0 ? 'text-red-400' : 'text-slate-500'
@@ -190,7 +199,9 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
           )}
 
           {/* 理由明细 */}
-          <h3 className="mb-1.5 mt-3 text-[11px] font-semibold text-slate-300">加减分明细</h3>
+          <h3 className="mb-1.5 mt-3 text-[11px] font-semibold text-slate-300">
+            {t('detail.reasonsTitle')}
+          </h3>
           <ul className="mb-3 space-y-1">
             {b.reasons.map((r, i) => (
               <li key={i} className="flex items-start gap-1.5 text-[11px] leading-snug">
@@ -222,31 +233,29 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
           {candidate.counterDetails.length > 0 && (
             <>
               <h3 className="mb-1.5 text-[11px] font-semibold text-slate-300">
-                {isEnemyView ? '对我方已选英雄' : '对敌方已选英雄'}
+                {t(isEnemyView ? 'detail.vsAlly' : 'detail.vsEnemy')}
               </h3>
               <div className="mb-2 divide-y divide-slate-800 rounded-lg border border-slate-800 bg-slate-950/50">
                 {candidate.counterDetails.map((d) => {
                   const good = d.delta > 0;
-                  const pred =
-                    d.predictedWr !== null ? `预期 ${Math.round(d.predictedWr * 100)}%` : null;
                   return (
                     <div key={d.opponentId} className="flex items-center gap-2 px-2 py-1.5">
                       <Avatar id={d.opponentId} name={d.opponentName} size={22} />
                       <span className="flex-1 truncate text-[12px] text-slate-300">
-                        {brawlerCN(d.opponentName)}
+                        {brawler(d.opponentName)}
                       </span>
                       {!d.hasSample && (
                         <span className="shrink-0 rounded bg-slate-800 px-1 text-[9px] text-slate-500">
-                          无对位
+                          {t('detail.noMatchup')}
                         </span>
                       )}
-                      {d.hasSample && pred && (
+                      {d.hasSample && d.predictedWr !== null && (
                         <span className="shrink-0 text-[9px] tabular-nums text-slate-500">
-                          {pred}
+                          {t('detail.expected', { p: Math.round(d.predictedWr * 100) })}
                         </span>
                       )}
                       <span className="shrink-0 text-[9px] tabular-nums text-slate-600">
-                        {d.hasSample ? `${d.samples}场` : ''}
+                        {d.hasSample ? t('common.samples', { n: d.samples }) : ''}
                       </span>
                       <span
                         className={`shrink-0 text-[12px] font-semibold tabular-nums ${
@@ -263,10 +272,7 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
           )}
 
           {candidate.counterDetails.length > 0 && (
-            <p className="mt-2 text-[10px] leading-relaxed text-slate-600">
-              对位差值取自后端 Log5 残差（百分点），已按有效样本分层平滑；
-              预期胜率 = Log5(双方本图基准胜率) + 残差。场次为原始交手数，仅供参考。
-            </p>
+            <p className="mt-2 text-[10px] leading-relaxed text-slate-600">{t('detail.footnote')}</p>
           )}
         </div>
       </div>

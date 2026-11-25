@@ -22,20 +22,18 @@ export const RARITY_ORDER: RarityKey[] = ['common', 'rare', 'superRare', 'epic',
 
 export interface RarityMeta {
   key: RarityKey;
-  /** 中文名 */
-  cn: string;
-  /** 官方主题色（区块标题 / 描边用） */
+  /** 官方主题色（区块标题 / 描边用）；稀有度名称见 i18n 词库 rarity.section.* */
   color: string;
 }
 
 export const RARITY_META: Record<RarityKey, RarityMeta> = {
-  common: { key: 'common', cn: '初始', color: '#68FD58' },
-  rare: { key: 'rare', cn: '稀有', color: '#68FD58' },
-  superRare: { key: 'superRare', cn: '超稀有', color: '#5AB3FF' },
-  epic: { key: 'epic', cn: '史诗', color: '#D850FF' },
-  mythic: { key: 'mythic', cn: '神话', color: '#FE5E72' },
-  legendary: { key: 'legendary', cn: '传奇', color: '#FFF11E' },
-  ultraLegendary: { key: 'ultraLegendary', cn: '超传奇', color: '#2DD4BF' },
+  common: { key: 'common', color: '#68FD58' },
+  rare: { key: 'rare', color: '#68FD58' },
+  superRare: { key: 'superRare', color: '#5AB3FF' },
+  epic: { key: 'epic', color: '#D850FF' },
+  mythic: { key: 'mythic', color: '#FE5E72' },
+  legendary: { key: 'legendary', color: '#FFF11E' },
+  ultraLegendary: { key: 'ultraLegendary', color: '#2DD4BF' },
 };
 
 export const RARITY_BY_ID: Record<number, RarityKey> = {

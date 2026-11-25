@@ -1,14 +1,32 @@
 import type { MetaIndex } from '../data/metaIndex';
 import { getClass, getMapStat, lookupMatchup, type MatchupSource } from '../data/metaIndex';
-import { brawlerCN, normalizeName } from '../data/localization';
-import { CLASS_LABEL, CLASS_ORDER, type BrawlerClass } from '../data/brawlerProfile';
+import { normalizeName } from '../data/localization';
+import { CLASS_ORDER, type BrawlerClass } from '../data/brawlerProfile';
+import { brawlerName } from '../i18n/gameData';
+import { translate, type Translator } from '../i18n/translate';
 import type { MapBrawlerStat, MatchupEdge, PickOrder } from '../types/meta';
 
 /**
  * BP 算分引擎 —— 全部纯函数，无 IO、无随机、无副作用，本地毫秒级完成。
  *
  * 每个结果都带 ScoreBreakdown（加减分明细 + 可读理由），拒绝黑盒推荐。
+ *
+ * 关于文案：理由 / 标签里带自然语言，而界面要支持多语言。为了不让引擎反向依赖
+ * React Context，这里把「翻译能力」作为**可选入参**注入（`EngineI18n`）：
+ * 不传时按默认语言输出，纯函数性质与单测结果都不受界面语言影响。
  */
+
+export interface EngineI18n {
+  t: Translator;
+  /** 英雄显示名（传英文原名） */
+  brawler: (englishName: string) => string;
+}
+
+/** 默认注入：简体中文。单测与任何「没传 i18n」的调用都走这一份 */
+const DEFAULT_I18N: EngineI18n = {
+  t: (key, params) => translate('zh-CN', key, params),
+  brawler: (englishName) => brawlerName('zh-CN', englishName),
+};
 
 /* ------------------------------------------------------------------ *
  * 基础类型
@@ -101,8 +119,8 @@ export interface ScoreBreakdown {
 
 export interface Candidate {
   id: number;
+  /** 英文原名（多语言展示由界面按当前语言解析） */
   name: string;
-  cn: string;
   /** 排序用总分 0-100（动态推荐分，含克制/顺位/阵容修正） */
   score: number;
   /** 本图静态基础分 0-100（该图归一化强度分，与底部槽位同口径） */
@@ -153,7 +171,6 @@ function statFor(
 
 export interface CompWarning {
   key: 'noFrontline' | 'shortRange' | 'needAssassin' | 'noDamage' | 'tooManyMelee';
-  text: string;
   tone: 'warn' | 'tip';
 }
 
@@ -424,24 +441,35 @@ function banReasons(
   mapName: string,
   stat: MapBrawlerStat,
   banScore: number,
+  i18n: EngineI18n,
 ): Reason[] {
+  const { t } = i18n;
   const reasons: Reason[] = [];
   const maxUse = maxUseRate(idx, mapName);
   const useNorm = (stat.use_rate / maxUse) * 100;
+  const score = stat.score.toFixed(0);
 
-  if (stat.score >= 92) reasons.push({ tone: 'bad', text: `该图强度榜顶端（${stat.score.toFixed(0)} 分）` });
-  else if (stat.score >= 75) reasons.push({ tone: 'neutral', text: `地图强度较高（${stat.score.toFixed(0)} 分）` });
+  if (stat.score >= 92) reasons.push({ tone: 'bad', text: t('reason.ban.topTier', { score }) });
+  else if (stat.score >= 75)
+    reasons.push({ tone: 'neutral', text: t('reason.ban.highTier', { score }) });
 
-  if (useNorm >= 80) reasons.push({ tone: 'bad', text: `出场率极高（该图第 1 档）` });
-  else if (useNorm >= 55) reasons.push({ tone: 'neutral', text: `出场率偏高（${useNorm.toFixed(0)} 分位）` });
+  if (useNorm >= 80) reasons.push({ tone: 'bad', text: t('reason.ban.useMax') });
+  else if (useNorm >= 55)
+    reasons.push({
+      tone: 'neutral',
+      text: t('reason.ban.useHigh', { score: useNorm.toFixed(0) }),
+    });
 
   if (stat.pick_order === 'FIRST') {
-    reasons.push({ tone: 'bad', text: '适合先手拿，放出来容易被对面抢走' });
+    reasons.push({ tone: 'bad', text: t('reason.ban.firstPickable') });
   }
   if (stat.smoothed_wr >= 0.55) {
-    reasons.push({ tone: 'neutral', text: `平滑胜率 ${pct(stat.smoothed_wr)}，样本 ${stat.games} 场` });
+    reasons.push({
+      tone: 'neutral',
+      text: t('reason.ban.wr', { wr: pct(stat.smoothed_wr), n: stat.games }),
+    });
   }
-  if (banScore >= 80) reasons.push({ tone: 'bad', text: '综合威胁度极高，优先 Ban' });
+  if (banScore >= 80) reasons.push({ tone: 'bad', text: t('reason.ban.threat') });
   return reasons;
 }
 
@@ -449,6 +477,7 @@ export function banRecommendations(
   idx: MetaIndex,
   state: DraftState,
   limit = 60,
+  i18n: EngineI18n = DEFAULT_I18N,
 ): BanCandidate[] {
   const map = idx.mapByName.get(state.mapName);
   if (!map) return [];
@@ -471,7 +500,7 @@ export function banRecommendations(
     if (banSide ? isBannedBySide(state, banSide, ref.id) : isBanned(state, ref.id)) continue;
     const { stat, hasData } = statFor(idx, state.mapName, ref.id, ref.name);
     const banScore = banScoreOf(idx, state.mapName, stat);
-    const reasons = banReasons(idx, state.mapName, stat, banScore);
+    const reasons = banReasons(idx, state.mapName, stat, banScore, i18n);
 
     // Ban 的三项权重：强度 60% / 出场率 25% / 先手优先级 15%
     const useNorm = clamp((stat.use_rate / maxUse) * 100, 0, 100);
@@ -480,7 +509,6 @@ export function banRecommendations(
     result.push({
       id: stat.id,
       name: stat.name,
-      cn: brawlerCN(stat.name),
       score: banScore,
       banScore,
       mapScore: stat.score,
@@ -505,7 +533,9 @@ export function banRecommendations(
         compContribution: firstBonus * W_BAN_FIRST,
         orderAdj: 0,
         total: banScore,
-        reasons: hasData ? reasons : [{ tone: 'neutral', text: '该图暂无对局样本，分数按中性 50 计' }],
+        reasons: hasData
+          ? reasons
+          : [{ tone: 'neutral', text: i18n.t('reason.ban.noSample') }],
       },
     });
   }
@@ -559,23 +589,23 @@ function compProfileOf(idx: MetaIndex, ids: number[]): CompProfile {
   return p;
 }
 
-/** 阵容缺陷预警（我方视角） */
+/** 阵容缺陷预警（我方视角）。只回结构化的 key，文案由界面按当前语言取 */
 export function detectCompWarnings(idx: MetaIndex, state: DraftState): CompWarning[] {
   const mine = compProfileOf(idx, state.ally);
   const theirs = compProfileOf(idx, state.enemy);
   const out: CompWarning[] = [];
 
   if (mine.damage >= 2 && mine.tanks === 0) {
-    out.push({ key: 'noFrontline', text: '缺少前排承伤', tone: 'warn' });
+    out.push({ key: 'noFrontline', tone: 'warn' });
   }
   if (mine.melee >= 2) {
-    out.push({ key: 'shortRange', text: '手短易被风筝', tone: 'warn' });
+    out.push({ key: 'shortRange', tone: 'warn' });
   }
   if (theirs.throwers > 0 && mine.assassins === 0) {
-    out.push({ key: 'needAssassin', text: '建议补刺客切后排', tone: 'tip' });
+    out.push({ key: 'needAssassin', tone: 'tip' });
   }
   if (state.ally.length >= 2 && mine.damage === 0 && mine.tanks >= 2) {
-    out.push({ key: 'noDamage', text: '缺乏远程输出', tone: 'tip' });
+    out.push({ key: 'noDamage', tone: 'tip' });
   }
   return out;
 }
@@ -587,7 +617,9 @@ function compScoreFor(
   idx: MetaIndex,
   state: DraftState,
   candId: number,
+  i18n: EngineI18n,
 ): { score: number; reasons: Reason[] } {
+  const { t } = i18n;
   const mine = compProfileOf(idx, state.ally);
   const theirs = compProfileOf(idx, state.enemy);
   const cls = getClass(idx, candId);
@@ -603,19 +635,19 @@ function compScoreFor(
   // 1) 双脆皮无前排 → 补坦克/半肉
   if (mine.damage >= 2 && mine.tanks === 0 && isTank) {
     score += 30;
-    reasons.push({ tone: 'good', text: '补前排：我方已有 2 名脆皮且无坦克', delta: 30 });
+    reasons.push({ tone: 'good', text: t('reason.comp.needFrontline'), delta: 30 });
   }
 
   // 2) 双近战短手 → 补中远程控场/输出
   if (mine.melee >= 2 && (isControl || isDamage)) {
     score += 22;
-    reasons.push({ tone: 'good', text: '补射程：我方近战过多，需要远程压制', delta: 22 });
+    reasons.push({ tone: 'good', text: t('reason.comp.needRange'), delta: 22 });
   }
 
   // 3) 敌方有投手且我方无刺客 → 补刺客切后排
   if (theirs.throwers > 0 && mine.assassins === 0 && isAssassin) {
     score += 25;
-    reasons.push({ tone: 'good', text: '针对投掷：补刺客切后排', delta: 25 });
+    reasons.push({ tone: 'good', text: t('reason.comp.needAssassin'), delta: 25 });
   }
 
   // 4) 阵容同质化冗余
@@ -627,13 +659,13 @@ function compScoreFor(
     (isSupport ? mine.supports : 0);
   if (state.ally.length >= 2 && sameRoleCount >= 3) {
     score -= 14;
-    reasons.push({ tone: 'bad', text: '定位过于重复，阵容结构失衡', delta: -14 });
+    reasons.push({ tone: 'bad', text: t('reason.comp.redundant'), delta: -14 });
   }
 
   // 5) 缺输出时的补位
   if (state.ally.length >= 2 && mine.damage === 0 && isDamage) {
     score += 16;
-    reasons.push({ tone: 'good', text: '补输出：我方还没有远程输出位', delta: 16 });
+    reasons.push({ tone: 'good', text: t('reason.comp.needDamage'), delta: 16 });
   }
 
   return { score: clamp(score, 0, 100), reasons };
@@ -813,7 +845,11 @@ export function matchupCell(
 const signedPp = (v: number): string => `${v > 0 ? '+' : ''}${v.toFixed(1)}`;
 
 /** 从对位明细里挑出最显著的克制/被克制关系生成短标签 */
-export function buildCounterTags(details: CounterDetail[]): Tag[] {
+export function buildCounterTags(
+  details: CounterDetail[],
+  i18n: EngineI18n = DEFAULT_I18N,
+): Tag[] {
+  const { t, brawler } = i18n;
   const scored = details
     .filter((d) => d.hasSample)
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
@@ -821,10 +857,12 @@ export function buildCounterTags(details: CounterDetail[]): Tag[] {
   const tags: Tag[] = [];
   for (const d of scored) {
     if (tags.length >= 2) break;
+    const name = brawler(d.opponentName);
+    const pp = signedPp(d.delta);
     if (d.delta >= TAG_LABEL_PP) {
-      tags.push({ text: `克制 ${brawlerCN(d.opponentName)} ${signedPp(d.delta)}`, tone: 'good' });
+      tags.push({ text: t('tag.counter', { name, pp }), tone: 'good' });
     } else if (d.delta <= -TAG_LABEL_PP) {
-      tags.push({ text: `怕 ${brawlerCN(d.opponentName)} ${signedPp(d.delta)}`, tone: 'bad' });
+      tags.push({ text: t('tag.fear', { name, pp }), tone: 'bad' });
     }
   }
   return tags;
@@ -837,8 +875,8 @@ export function buildCounterTags(details: CounterDetail[]): Tag[] {
 /** 弹窗里的一行对位 */
 export interface MatchupRow {
   opponentId: number;
+  /** 英文原名（界面按当前语言解析译名） */
   opponentName: string;
-  opponentCn: string;
   /** 对手在该图的地图评分（0-100）；该图无数据为 null */
   opponentScore: number | null;
   /** 对手在该图的顺位；该图无数据为 null */
@@ -938,7 +976,6 @@ export function brawlerMatchups(
     rows.push({
       opponentId: edge.opponent,
       opponentName: name,
-      opponentCn: brawlerCN(name),
       opponentScore: oppStat ? oppStat.score : null,
       opponentPickOrder: oppStat ? oppStat.pick_order : null,
       delta: edge.delta,
@@ -960,25 +997,27 @@ export function brawlerMatchups(
 function orderAdjust(
   position: 'FIRST' | 'MIDDLE' | 'LAST',
   pickOrder: PickOrder,
+  i18n: EngineI18n,
 ): { adj: number; reasons: Reason[] } {
+  const { t } = i18n;
   const reasons: Reason[] = [];
   let adj = 0;
 
   if (position === 'FIRST') {
     if (pickOrder === 'FIRST') {
       adj += 7;
-      reasons.push({ tone: 'good', text: '先手位拿万金油，容错高', delta: 7 });
+      reasons.push({ tone: 'good', text: t('reason.order.firstWithFirst'), delta: 7 });
     } else if (pickOrder === 'LAST') {
       adj -= 5;
-      reasons.push({ tone: 'bad', text: '先手位拿后手英雄，容易被针对', delta: -5 });
+      reasons.push({ tone: 'bad', text: t('reason.order.firstWithLast'), delta: -5 });
     }
   } else if (position === 'LAST') {
     if (pickOrder === 'LAST') {
       adj += 6;
-      reasons.push({ tone: 'good', text: '后手位拿后手英雄，顺位加成吃满', delta: 6 });
+      reasons.push({ tone: 'good', text: t('reason.order.lastWithLast'), delta: 6 });
     } else if (pickOrder === 'FIRST') {
       adj -= 2;
-      reasons.push({ tone: 'neutral', text: '后手位选先手英雄，顺位价值被浪费', delta: -2 });
+      reasons.push({ tone: 'neutral', text: t('reason.order.lastWithFirst'), delta: -2 });
     }
   }
 
@@ -998,7 +1037,9 @@ export function evaluatePick(
   position: 'FIRST' | 'MIDDLE' | 'LAST',
   perspective: 'ally' | 'enemy',
   hasData = true,
+  i18n: EngineI18n = DEFAULT_I18N,
 ): Candidate {
+  const { t } = i18n;
   const oppIds = opponentsFor(state, perspective);
   const { avgDelta, trustedCount, details } = counterDetail(
     idx,
@@ -1026,8 +1067,8 @@ export function evaluatePick(
   const positionMult = COUNTER_POSITION_MULT[position];
   const counterWeight = W_PICK_COUNTER * revealRatio * positionMult * synergy;
 
-  const comp = compScoreFor(idx, state, stat.id);
-  const order = orderAdjust(position, stat.pick_order);
+  const comp = compScoreFor(idx, state, stat.id, i18n);
+  const order = orderAdjust(position, stat.pick_order, i18n);
 
   const totalWeight = W_PICK_SCORE + counterWeight + wrWeight + W_PICK_COMP;
   const weighted =
@@ -1039,55 +1080,65 @@ export function evaluatePick(
   const total = clamp(weighted + order.adj, 0, 100);
 
   const reasons: Reason[] = hasData
-    ? [{ tone: 'neutral', text: `地图强度 ${stat.score.toFixed(0)} 分（该图归一化）` }]
-    : [{ tone: 'neutral', text: '该图暂无对局样本，地图强度按中性 50 计' }];
+    ? [{ tone: 'neutral', text: t('reason.pick.base', { score: stat.score.toFixed(0) }) }]
+    : [{ tone: 'neutral', text: t('reason.pick.baseNeutral') }];
 
   if (oppIds.length === 0) {
-    reasons.push({ tone: 'neutral', text: '敌方尚未亮牌，对位修正暂不生效' });
+    reasons.push({ tone: 'neutral', text: t('reason.pick.noReveal') });
   } else if (trustedCount === 0) {
-    reasons.push({ tone: 'neutral', text: '没有可用对位记录，克制项按中性处理' });
+    reasons.push({ tone: 'neutral', text: t('reason.pick.noMatchup') });
   } else {
     const tone: TagTone =
       avgDelta >= TAG_THRESHOLD ? 'good' : avgDelta <= -TAG_THRESHOLD ? 'bad' : 'neutral';
     reasons.push({
       tone,
-      text: `对位均值 ${signedPp(avgDelta)}pp（对阵 ${trustedCount}/${oppIds.length} 名已亮牌英雄）`,
+      text: t('reason.pick.counterAvg', {
+        pp: signedPp(avgDelta),
+        hit: trustedCount,
+        total: oppIds.length,
+      }),
       delta: (counterScore - 50) * (counterWeight / totalWeight),
     });
   }
 
   if (trustedCount > 0 && trustedCount < oppIds.length) {
-    reasons.push({ tone: 'neutral', text: '部分对手没有对位记录，未计入克制均值' });
+    reasons.push({ tone: 'neutral', text: t('reason.pick.partial') });
   }
 
   if (greens >= 2) {
     reasons.push({
       tone: 'good',
-      text: `同时克制 ${greens} 名对手，${position === 'FIRST' ? '对位' : '后手'}权重上调 ×${(positionMult * synergy).toFixed(2)}`,
+      text: t(position === 'FIRST' ? 'reason.pick.synergyFirst' : 'reason.pick.synergyLate', {
+        n: greens,
+        mult: (positionMult * synergy).toFixed(2),
+      }),
     });
   }
 
   if (confidence === 0) {
     reasons.push({
       tone: 'neutral',
-      text: `本图样本仅 ${stat.games} 场，胜率不参与计算`,
+      text: t('reason.pick.sampleNone', { n: stat.games }),
     });
   } else if (confidence < 1) {
     reasons.push({
       tone: 'neutral',
-      text: `本图样本 ${stat.games} 场偏少，胜率按 ${Math.round(confidence * 100)}% 折算`,
+      text: t('reason.pick.sampleLow', {
+        n: stat.games,
+        p: Math.round(confidence * 100),
+      }),
     });
   }
 
   reasons.push(...comp.reasons);
   reasons.push(...order.reasons);
 
-  const tags = perspective === 'ally' ? buildCounterTags(details) : enemyThreatTags(details);
+  const tags =
+    perspective === 'ally' ? buildCounterTags(details, i18n) : enemyThreatTags(details, i18n);
 
   return {
     id: stat.id,
     name: stat.name,
-    cn: brawlerCN(stat.name),
     score: total,
     mapScore: stat.score,
     baseWR: stat.smoothed_wr,
@@ -1123,7 +1174,11 @@ export function evaluatePick(
  * 敌方槽位录入时，标签表达的是「这个英雄会威胁我方谁」。
  * details 是候选(敌方) vs 我方已选的对位胜率：候选胜率高 = 它克制我方。
  */
-function enemyThreatTags(details: CounterDetail[]): Tag[] {
+function enemyThreatTags(
+  details: CounterDetail[],
+  i18n: EngineI18n = DEFAULT_I18N,
+): Tag[] {
+  const { t, brawler } = i18n;
   const scored = details
     .filter((d) => d.hasSample)
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
@@ -1131,16 +1186,12 @@ function enemyThreatTags(details: CounterDetail[]): Tag[] {
   const tags: Tag[] = [];
   for (const d of scored) {
     if (tags.length >= 2) break;
+    const name = brawler(d.opponentName);
+    const pp = signedPp(d.delta);
     if (d.delta >= TAG_LABEL_PP) {
-      tags.push({
-        text: `克制我方 ${brawlerCN(d.opponentName)} ${signedPp(d.delta)}`,
-        tone: 'bad',
-      });
+      tags.push({ text: t('tag.threat', { name, pp }), tone: 'bad' });
     } else if (d.delta <= -TAG_LABEL_PP) {
-      tags.push({
-        text: `怕我方 ${brawlerCN(d.opponentName)} ${signedPp(d.delta)}`,
-        tone: 'good',
-      });
+      tags.push({ text: t('tag.threatFear', { name, pp }), tone: 'good' });
     }
   }
   return tags;
@@ -1161,6 +1212,7 @@ export function pickRecommendations(
   idx: MetaIndex,
   state: DraftState,
   limit = 60,
+  i18n: EngineI18n = DEFAULT_I18N,
 ): Candidate[] {
   const map = idx.mapByName.get(state.mapName);
   if (!map) return [];
@@ -1187,14 +1239,13 @@ export function pickRecommendations(
       out.push({
         id: stat.id,
         name: stat.name,
-        cn: brawlerCN(stat.name),
         score: baseScore,
         mapScore: stat.score,
         baseWR: stat.smoothed_wr,
         useRate: stat.use_rate,
         pickOrder: stat.pick_order,
         cls: getClass(idx, stat.id),
-        tags: enemyThreatTags(details),
+        tags: enemyThreatTags(details, i18n),
         counterDetails: details,
         phase: 'enemyPick',
         position,
@@ -1212,15 +1263,13 @@ export function pickRecommendations(
           compContribution: 0,
           orderAdj: 0,
           total: baseScore,
-          reasons: [
-            { tone: 'neutral', text: '敌方录入模式：按地图强度 + 出场率排序，便于快速点选' },
-          ],
+          reasons: [{ tone: 'neutral', text: i18n.t('reason.enemy.mode') }],
         },
       });
       continue;
     }
 
-    out.push(evaluatePick(idx, state, stat, position, 'ally', hasData));
+    out.push(evaluatePick(idx, state, stat, position, 'ally', hasData, i18n));
   }
 
   // 有真实数据的排前面，无样本的沉底（它们只是兜底占位，基本不会有人选）
@@ -1232,9 +1281,14 @@ export function pickRecommendations(
 }
 
 /** 统一入口：按激活槽位自动分发 Ban / Pick 推荐 */
-export function recommend(idx: MetaIndex, state: DraftState, limit = 60): Candidate[] {
-  if (state.active.kind === 'ban') return banRecommendations(idx, state, limit);
-  return pickRecommendations(idx, state, limit);
+export function recommend(
+  idx: MetaIndex,
+  state: DraftState,
+  limit = 60,
+  i18n: EngineI18n = DEFAULT_I18N,
+): Candidate[] {
+  if (state.active.kind === 'ban') return banRecommendations(idx, state, limit, i18n);
+  return pickRecommendations(idx, state, limit, i18n);
 }
 
 /** 详情弹窗：对任意英雄（含已选/已禁）给出完整拆解 */
@@ -1242,6 +1296,7 @@ export function evaluateBrawler(
   idx: MetaIndex,
   state: DraftState,
   brawlerId: number,
+  i18n: EngineI18n = DEFAULT_I18N,
 ): Candidate | null {
   const ref = idx.brawlerById.get(brawlerId);
   if (!ref) return null;
@@ -1257,7 +1312,6 @@ export function evaluateBrawler(
     return {
       id: stat.id,
       name: stat.name,
-      cn: brawlerCN(stat.name),
       score: banScore,
       mapScore: stat.score,
       baseWR: stat.smoothed_wr,
@@ -1281,13 +1335,13 @@ export function evaluateBrawler(
         compContribution: firstBonus * W_BAN_FIRST,
         orderAdj: 0,
         total: banScore,
-        reasons: banReasons(idx, state.mapName, stat, banScore),
+        reasons: banReasons(idx, state.mapName, stat, banScore, i18n),
       },
     };
   }
 
   const perspective: 'ally' | 'enemy' = state.active.kind === 'enemy' ? 'enemy' : 'ally';
-  return evaluatePick(idx, state, stat, position, perspective, hasData);
+  return evaluatePick(idx, state, stat, position, perspective, hasData, i18n);
 }
 
 /**
@@ -1476,25 +1530,6 @@ export function resetDraft(state: DraftState): DraftState {
 export type QuickFilter = 'all' | 'first' | 'counter' | BrawlerClass;
 
 const CLASS_SET = new Set<string>(CLASS_ORDER);
-
-export interface FilterChip {
-  key: QuickFilter;
-  label: string;
-}
-
-export const GENERAL_FILTERS: FilterChip[] = [
-  { key: 'all', label: '全部' },
-  { key: 'first', label: '先手' },
-  { key: 'counter', label: '后手' },
-];
-
-/** 职业筛选，顺序按 CLASS_ORDER */
-export const CLASS_FILTERS: FilterChip[] = CLASS_ORDER.map((k) => ({
-  key: k,
-  label: CLASS_LABEL[k],
-}));
-
-export const QUICK_FILTERS: FilterChip[] = [...GENERAL_FILTERS, ...CLASS_FILTERS];
 
 export function passesFilter(c: Candidate, filter: QuickFilter): boolean {
   if (filter === 'all') return true;

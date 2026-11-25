@@ -25,3 +25,9 @@ export const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/
 
 /** Release 列表页：接口拿不到 html_url 时的兜底跳转地址 */
 export const GITHUB_RELEASES_PAGE = `${GITHUB_REPO_URL}/releases/latest`;
+
+/** 社区：Discord 邀请链接（英文 / 繁中界面的主入口） */
+export const DISCORD_INVITE_URL = 'https://discord.gg/RXM7E5e4U';
+
+/** 社区：QQ 群号（简中界面展示，群链接优先取远程 version.json 里的 qqGroupUrl） */
+export const QQ_GROUP_ID = '1056621315';

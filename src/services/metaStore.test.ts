@@ -1,9 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { builtinMetaUrl, MetaStore } from './metaStore';
+import { builtinMetaUrl, MetaStore, type PullResult } from './metaStore';
 import type { MetaCacheAdapter, MetaCacheHit } from './metaCache';
 import { makeTestMeta } from './__testkit__/metaFixture';
+import { pullMessage } from '../i18n/format';
+import { translate } from '../i18n/translate';
 
 const SHA = '54efc4bfccd9e4e0e787ee466aa1e27a6b0215d1';
+
+/** 默认语言（简体中文）下的提示文案：服务层只回结构化结果，文案由这里组装 */
+const msg = (result: PullResult): string =>
+  pullMessage(
+    result,
+    (key, params) => translate('zh-CN', key, params),
+    (n) => n.toLocaleString('zh-CN'),
+  );
 
 function res(body: unknown, init: { ok?: boolean; status?: number } = {}): Response {
   return {
@@ -125,10 +135,11 @@ describe('MetaStore.pullNow', () => {
     expect(result.ok).toBe(true);
     expect(result.updated).toBe(true);
     expect(cache.write).toHaveBeenCalledWith(remote);
-    expect(result.message).toContain('已更新至 2026-11-23');
-    expect(result.message).toContain('1,234 场对局');
+    expect(result.code).toBe('updated');
+    expect(msg(result)).toContain('已更新至 2026-11-23');
+    expect(msg(result)).toContain('1,234 场对局');
     // 写盘成功时不能出现降级提示
-    expect(result.message).not.toContain('仅本次启动内有效');
+    expect(msg(result)).not.toContain('仅本次启动内有效');
   });
 
   it('IndexedDB 写入失败时降级为内存生效并给出提示', async () => {
@@ -143,7 +154,7 @@ describe('MetaStore.pullNow', () => {
     expect(result.updated).toBe(true);
     // 本次会话仍然用新数据
     expect(store.getSnapshot()?.updatedAt).toBe(remote.updated_at);
-    expect(result.message).toContain('（本地存储空间不足，仅本次启动内有效）');
+    expect(msg(result)).toContain('（本地存储空间不足，仅本次启动内有效）');
   });
 
   it('远程没有更新时返回「已是最新」', async () => {
@@ -156,7 +167,7 @@ describe('MetaStore.pullNow', () => {
     const result = await store.pullNow();
 
     expect(result.updated).toBe(false);
-    expect(result.message).toContain('当前已是最新数据');
+    expect(msg(result)).toContain('当前已是最新数据');
   });
 
   it('拉取失败时提示检查网络', async () => {
@@ -169,7 +180,7 @@ describe('MetaStore.pullNow', () => {
     const result = await store.pullNow();
 
     expect(result.ok).toBe(false);
-    expect(result.message).toBe('拉取失败，请检查网络后重试');
+    expect(msg(result)).toBe('拉取失败，请检查网络后重试');
   });
 
   it('时间戳相同且已落盘后，不再重复覆盖', async () => {

@@ -1,8 +1,8 @@
 {
-  "version": "1.2.3",
-  "releaseUrl": "https://github.com/Dhik0/ChesStars/releases/tag/v1.2.3",
-  "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v1.2.3/ChesStars-v1.2.3.apk",
+  "version": "1.3.0",
+  "releaseUrl": "https://github.com/Dhik0/ChesStars/releases/tag/v1.3.0",
+  "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v1.3.0/ChesStars-v1.3.0.apk",
   "mirrorPrefixes": ["https://ghfast.top/", "https://gh-proxy.com/"],
   "qqGroupUrl": "https://qm.qq.com/q/yJm7ocJ5fO",
-  "notes": "优化了使用体验（我再也不随便更新了）"
+  "notes": "- 语言切换改为折叠菜单\n- 更新弹窗主推 GitHub 下载\n- 备用下载仅简中界面显示"
 }

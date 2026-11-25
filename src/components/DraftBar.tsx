@@ -21,12 +21,14 @@ import {
   orderTag,
 } from '../utils/display';
 import { useLongPress } from '../utils/useLongPress';
+import { useTranslation } from '../i18n';
 import Avatar from './Avatar';
 
 interface DraftBarProps {
   state: DraftState;
   idx: MetaIndex;
-  getBrawler: (id: number) => { name: string; cn: string } | undefined;
+  /** 只回英文原名，译名由本组件按当前语言解析 */
+  getBrawler: (id: number) => { name: string } | undefined;
   onActivate: (slot: ActiveSlot) => void;
   onClear: (slot: ActiveSlot) => void;
   /** 长按 / 右键已选槽位：看该英雄本图对位 */
@@ -70,9 +72,10 @@ function FirstPickButton({
   /** 横屏：撑满左栏可用高度 */
   fill?: boolean;
 }) {
+  const { t } = useTranslation();
   const ally = side === 'ally';
-  const label = ally ? '蓝先' : '红先';
-  const hint = ally ? '己方先选 · 1/4/5 手' : '敌方先选 · 2/3/6 手';
+  const label = t(ally ? 'draft.firstAlly' : 'draft.firstEnemy');
+  const hint = t(ally ? 'draft.firstAllyHint' : 'draft.firstEnemyHint');
   return (
     <button
       type="button"
@@ -122,6 +125,7 @@ function SlotCell({
   onMatchup,
   fill = false,
 }: SlotCellProps) {
+  const { t, brawler } = useTranslation();
   const isAlly = kind === 'ally';
   const arr = isAlly ? state.ally : state.enemy;
   const oppArr = isAlly ? state.enemy : state.ally;
@@ -203,17 +207,18 @@ function SlotCell({
               <span
                 key={i}
                 className={`flex-1 rounded-[1px] ${COUNTER_LIGHT_CLASS.none}`}
-                title={`对方第 ${i + 1} 槽尚未选人`}
+                title={t('draft.oppSlotEmpty', { n: i + 1 })}
               />
             );
           }
           const cell = matchupCell(idx, state.mapName, state.mode, id, oppId);
-          const name = getBrawler(oppId)?.cn ?? '';
+          const oppRef = getBrawler(oppId);
+          const name = oppRef ? brawler(oppRef.name) : '';
           return (
             <span
               key={i}
               className={`flex-1 rounded-[1px] ${COUNTER_LIGHT_CLASS[cell.light]}`}
-              title={matchupCellTip(cell, name)}
+              title={matchupCellTip(cell, name, t)}
             />
           );
         })}
@@ -226,7 +231,7 @@ function SlotCell({
     <span
       className={`shrink-0 rounded px-1 text-[8px] font-semibold leading-[12px] ${tag.cls}`}
     >
-      {tag.label}
+      {t(tag.key)}
     </span>
   ) : null;
 
@@ -261,7 +266,11 @@ function SlotCell({
       className={`relative flex w-full select-none items-stretch overflow-hidden rounded-lg border transition-all ${
         fill ? 'h-full min-h-0 flex-1' : 'h-[var(--slot-h)]'
       } ${tint} ${ringOf(kind, active)}`}
-      aria-label={`${isAlly ? '己方' : '敌方'}第 ${index + 1} 槽（全局第 ${pickNo} 手）${info ? `：${info.cn}` : '（空）'}`}
+      aria-label={`${t('draft.slotAria', {
+        side: t(isAlly ? 'draft.sideAllyShort' : 'draft.sideEnemyShort'),
+        index: index + 1,
+        pick: pickNo,
+      })}${info ? t('draft.slotFilled', { name: brawler(info.name) }) : t('draft.slotEmpty')}`}
     >
       {isAlly ? (
         <>
@@ -304,8 +313,9 @@ interface BanCellProps {
  * 不额外占宽度——Ban 行本来就挤。
  */
 function BanCell({ index, value, active, getBrawler, onActivate, onClear }: BanCellProps) {
+  const { t, brawler } = useTranslation();
   const side = banSideOfIndex(index);
-  const sideLabel = side === 'ally' ? '己方' : '敌方';
+  const sideLabel = t(side === 'ally' ? 'draft.sideAllyShort' : 'draft.sideEnemyShort');
   const teamIndex = (index % BAN_SLOTS_PER_TEAM) + 1;
   const blank = isEmptyBan(value);
   const filled = value !== null && value !== undefined;
@@ -322,10 +332,14 @@ function BanCell({ index, value, active, getBrawler, onActivate, onClear }: BanC
             ? 'border-dashed border-slate-500/80 bg-slate-900'
             : 'border-slate-700/80 bg-slate-900'
       }`}
-      aria-label={`${sideLabel} Ban 第 ${teamIndex} 位（全局第 ${index + 1} 格）${
-        info ? `：${info.cn}` : blank ? '：空 Ban' : '（空）'
+      aria-label={`${t('draft.banAria', { side: sideLabel, index: teamIndex, n: index + 1 })}${
+        info
+          ? t('draft.slotFilled', { name: brawler(info.name) })
+          : blank
+            ? t('draft.banEmptyBan')
+            : t('draft.slotEmpty')
       }`}
-      title={blank ? `${sideLabel}空 Ban（未锁定英雄）` : undefined}
+      title={blank ? t('draft.banEmptyTitle', { side: sideLabel }) : undefined}
     >
       {info && typeof value === 'number' ? (
         <>
@@ -368,8 +382,12 @@ function SideSwitch({
   onSwitch: (s: Side) => void;
   compact?: boolean;
 }) {
+  const { t } = useTranslation();
   const ally = side === 'ally';
   const next: Side = ally ? 'enemy' : 'ally';
+  // 紧凑按钮宽度只有 42~52px：英文用短标签（Blue / Red），避免换行
+  const currentLabel = t(ally ? 'draft.firstAllyChip' : 'draft.firstEnemyChip');
+  const nextLabel = t(next === 'ally' ? 'draft.firstAllyChip' : 'draft.firstEnemyChip');
   return (
     <button
       type="button"
@@ -381,10 +399,10 @@ function SideSwitch({
           ? 'border-ally/60 bg-ally/15 text-ally active:bg-ally/25'
           : 'border-enemy/60 bg-enemy/15 text-enemy active:bg-enemy/25'
       }`}
-      aria-label={`当前${ally ? '蓝先' : '红先'}，点击切换为${next === 'ally' ? '蓝先' : '红先'}`}
-      title="切换先手方"
+      aria-label={`${currentLabel} → ${nextLabel}`}
+      title={t('draft.switchSide')}
     >
-      <span className="text-[12px] leading-none tracking-wide">{ally ? '蓝先' : '红先'}</span>
+      <span className="text-[12px] leading-none tracking-wide">{currentLabel}</span>
     </button>
   );
 }
@@ -404,6 +422,7 @@ export default function DraftBar({
   variant = 'portrait',
   className = '',
 }: DraftBarProps) {
+  const { t } = useTranslation();
   const landscape = variant === 'landscape';
 
   const shell = landscape
@@ -417,20 +436,20 @@ export default function DraftBar({
         onClick={onUndo}
         disabled={!canUndo}
         className="flex h-[var(--act-h)] items-center justify-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 text-[12px] font-semibold text-slate-300 transition-colors active:bg-slate-800 active:text-slate-100 disabled:opacity-35 disabled:active:bg-slate-900/80"
-        aria-label="撤回上一步"
+        aria-label={t('draft.undo')}
       >
         <Undo2 size={14} />
-        撤回
+        {t('draft.undo')}
       </button>
       <button
         type="button"
         onClick={onReset}
         disabled={!banCount(state) && !state.ally.length && !state.enemy.length}
         className="flex h-[var(--act-h)] items-center justify-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 text-[12px] font-semibold text-slate-300 transition-colors active:bg-slate-800 active:text-slate-100 disabled:opacity-35 disabled:active:bg-slate-900/80"
-        aria-label="重置本局"
+        aria-label={t('draft.reset')}
       >
         <RotateCcw size={14} />
-        重置
+        {t('draft.reset')}
       </button>
     </div>
   );
@@ -440,8 +459,8 @@ export default function DraftBar({
     return (
       <footer className={shell}>
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-slate-300">选择先手方开始 BP</span>
-          <span className="text-[10px] text-slate-600">长按英雄可先看本图对位</span>
+          <span className="text-[11px] font-semibold text-slate-300">{t('draft.chooseFirst')}</span>
+          <span className="text-[10px] text-slate-600">{t('draft.chooseFirstHint')}</span>
         </div>
         <div className={`grid grid-cols-2 gap-2 ${landscape ? 'min-h-0 flex-1' : ''}`}>
           <FirstPickButton side="ally" fill={landscape} onPick={onChooseFirst} />
@@ -457,12 +476,12 @@ export default function DraftBar({
   /** 蛇形顺位：先手方 1/4/5，后手方 2/3/6 */
   const pickNos = slotPickNumbers(state);
   const filledBans = banCount(state);
-  const phaseTop = banPhase ? 'Ban' : `第${pickNumber(state)}手`;
+  const phaseTop = banPhase ? t('draft.banLabel') : t('draft.pickNo', { n: pickNumber(state) });
   const phaseBottom = banPhase
     ? `${filledBans}/${BAN_SLOTS}`
     : state.active.kind === 'ally'
-      ? '我选'
-      : '敌选';
+      ? t('draft.sideAlly')
+      : t('draft.sideEnemy');
 
   return (
     <footer className={shell}>

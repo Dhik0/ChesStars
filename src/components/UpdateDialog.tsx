@@ -1,5 +1,7 @@
 import { Download, Sparkles, X } from 'lucide-react';
-import type { UpdateInfo } from '../services/updateChecker';
+import { useTranslation } from '../i18n';
+import { mirrorDownloadUrl, type UpdateInfo } from '../services/updateChecker';
+import { openExternal } from '../utils/openExternal';
 
 interface UpdateDialogProps {
   info: UpdateInfo;
@@ -26,7 +28,10 @@ function formatDate(iso: string | null): string {
  * 新版本提示弹窗。
  *
  * 用居中弹窗而不是底部横幅：更新是「需要用户决策一次」的事件，
- * 横幅容易被忽略，而弹窗能一次把版本号、更新日志、两个出口说清楚。
+ * 横幅容易被忽略，而弹窗能一次把版本号、更新日志和下载入口说清楚。
+ *
+ * 按钮层级固定：主按钮永远是 GitHub Release 页（全宽高亮），
+ * 国内镜像只作为简中界面里的小字备用入口，其余语言完全不渲染。
  */
 export default function UpdateDialog({
   info,
@@ -35,7 +40,15 @@ export default function UpdateDialog({
   onIgnore,
   onDownload,
 }: UpdateDialogProps) {
+  const { t, lang } = useTranslation();
   const published = formatDate(info.publishedAt);
+
+  /**
+   * 备用下载入口：只有简中界面才出现。
+   * 繁中 / 英文用户的主入口就是 GitHub Release 页，界面上不留任何镜像痕迹。
+   */
+  const mirrorUrl =
+    lang === 'zh-CN' ? mirrorDownloadUrl(info.mirrorPrefixes, info.apkUrl) : null;
 
   return (
     <div
@@ -57,11 +70,13 @@ export default function UpdateDialog({
             </span>
             <div className="leading-tight">
               <h2 id="update-dialog-title" className="text-[14px] font-semibold text-slate-100">
-                发现新版本
+                {t('update.title')}
               </h2>
               <p className="text-[10px] text-slate-500">
-                当前 v{current}
-                {published && <span className="ml-1.5">· 发布于 {published}</span>}
+                {t('update.current', { v: current })}
+                {published && (
+                  <span className="ml-1.5">{t('update.published', { d: published })}</span>
+                )}
               </p>
             </div>
           </div>
@@ -69,7 +84,7 @@ export default function UpdateDialog({
             type="button"
             onClick={onClose}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-500 active:bg-slate-800"
-            aria-label="关闭"
+            aria-label={t('common.close')}
           >
             <X size={15} />
           </button>
@@ -84,34 +99,48 @@ export default function UpdateDialog({
             </div>
           ) : (
             <p className="rounded-lg border border-slate-800 bg-slate-950/70 p-2 text-[11px] leading-relaxed text-slate-500">
-              该版本没有填写更新说明，可前往 Release 页面查看详情。
+              {t('update.noNotes')}
             </p>
           )}
         </div>
 
         <div className="px-3.5 pb-3.5 pt-2.5">
+          {/* 主按钮：GitHub Release 页（全宽高亮），走系统浏览器打开 */}
           <button
             type="button"
             onClick={onDownload}
-            className="mb-1.5 flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-sky-600 text-[13px] font-semibold text-white transition-colors active:bg-sky-700"
+            className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-sky-600 text-[13px] font-semibold text-white transition-colors active:bg-sky-700"
           >
             <Download size={14} />
-            前往下载 / 查看 Release
+            {t('update.downloadGithub')}
           </button>
-          <div className="flex items-center gap-1.5">
+
+          {mirrorUrl && (
+            <div className="mt-2 text-center">
+              <button
+                type="button"
+                onClick={() => openExternal(mirrorUrl)}
+                className="text-[10.5px] text-slate-400 underline decoration-slate-600 underline-offset-2 active:text-slate-200"
+              >
+                {t('update.mirror')}
+              </button>
+            </div>
+          )}
+
+          <div className="mt-2.5 flex items-center gap-1.5">
             <button
               type="button"
               onClick={onClose}
-              className="h-9 flex-1 rounded-lg border border-slate-700 bg-slate-800/70 text-[12px] font-medium text-slate-300 active:bg-slate-800"
+              className="h-9 flex-1 rounded-lg border border-slate-800 text-[12px] text-slate-400 active:bg-slate-800"
             >
-              暂不更新
+              {t('update.later')}
             </button>
             <button
               type="button"
               onClick={onIgnore}
-              className="h-9 flex-1 rounded-lg border border-slate-800 text-[12px] text-slate-500 active:bg-slate-800"
+              className="h-9 shrink-0 rounded-lg px-2.5 text-[11px] text-slate-600 active:bg-slate-800"
             >
-              忽略此版本
+              {t('update.ignore')}
             </button>
           </div>
         </div>

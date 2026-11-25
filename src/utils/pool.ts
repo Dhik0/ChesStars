@@ -17,25 +17,10 @@ export const TOP_PICK_COUNT = 12;
 
 export interface PoolSection {
   key: RarityKey;
-  label: string;
   /** 官方主题色，用于区块标题与描边 */
   color: string;
   items: Candidate[];
 }
-
-/**
- * 分区标题。
- * common（初始）只有 1 个英雄，单独开一栏太碎，和 Rare 合并成「初始 / 稀有」。
- */
-const SECTION_LABEL: Record<RarityKey, string> = {
-  common: '初始 / 稀有',
-  rare: '初始 / 稀有',
-  superRare: '超稀有',
-  epic: '史诗',
-  mythic: '神话',
-  legendary: '传奇',
-  ultraLegendary: '超传奇',
-};
 
 /** common 并进 rare 一栏 */
 function sectionKeyOf(id: number): RarityKey {
@@ -80,7 +65,7 @@ export function buildBrawlerPool(
     if (key === 'common') continue;
     const items = buckets.get(key);
     if (!items || items.length === 0) continue;
-    sections.push({ key, label: SECTION_LABEL[key], color: RARITY_META[key].color, items });
+    sections.push({ key, color: RARITY_META[key].color, items });
   }
 
   return { top, sections };

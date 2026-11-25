@@ -1,14 +1,15 @@
 /**
- * 翻译表自检：核对 src/data/localization.ts 与 public/data/brawl_meta.json 是否对得上。
+ * 译名表自检：核对 `src/i18n/gameData.ts` 与 `public/data/brawl_meta.json` 是否对得上。
  *
  * 用法：node scripts/check-locale.mjs
  *
  * 检查项：
- *   1. 每个英雄是否有中文名（key 是否匹配得上）
- *   2. 翻译表里是否有「数据中不存在的孤儿 key」（多半是拼错）
- *   3. key 是否含非法字符（必须是小写字母数字，不能有空格/下划线/连字符）
- *   4. 24 张地图是否都有中文名
- *   5. roles 表里的英雄名是否都能落到字典上
+ *   1. 每个英雄都有简中 / 繁中译名（缺失会回退英文原名）
+ *   2. 每张地图都有简中 / 繁中译名
+ *   3. roles 表里的英雄名是否都能落到字典上
+ *
+ * 注：三份 `locales/*.json` 的 key 一致性、占位符一致性由
+ * `npx vitest run src/i18n` 覆盖，这里不重复。
  */
 import { build } from 'esbuild';
 import { readFileSync, mkdirSync } from 'node:fs';
@@ -18,7 +19,7 @@ const TMP = '.tmp/locale.mjs';
 mkdirSync('.tmp', { recursive: true });
 
 await build({
-  entryPoints: ['src/data/localization.ts'],
+  entryPoints: ['src/i18n/gameData.ts'],
   bundle: true,
   format: 'esm',
   platform: 'node',
@@ -35,23 +36,25 @@ let fail = 0;
 /* ---------- 1. 英雄漏翻 ---------- */
 const missing = [];
 for (const b of meta.brawlers) {
-  const key = norm(b.name);
-  if (!loc.BRAWLER_LOCALE[key]) missing.push(`${b.name}  (期望 key: ${key})`);
+  for (const lang of ['zh-CN', 'zh-TW']) {
+    if (loc.brawlerName(lang, b.name) === b.name) {
+      missing.push(`${b.name}  [${lang}]  (期望 key: ${norm(b.name)})`);
+    }
+  }
 }
 
-/* ---------- 2. 孤儿 key ---------- */
+/* ---------- 2. 地图漏翻 ---------- */
+const mapMissing = [];
+for (const m of meta.maps) {
+  for (const lang of ['zh-CN', 'zh-TW']) {
+    if (loc.mapName(lang, m.map_name) === m.map_name) {
+      mapMissing.push(`${m.map_name}  [${lang}]`);
+    }
+  }
+}
+
+/* ---------- 3. roles 名称匹配 ---------- */
 const dataKeys = new Set(meta.brawlers.map((b) => norm(b.name)));
-const orphans = Object.keys(loc.BRAWLER_LOCALE).filter((k) => !dataKeys.has(k));
-
-/* ---------- 3. 非法 key ---------- */
-const illegal = Object.keys(loc.BRAWLER_LOCALE).filter((k) => !/^[a-z0-9]+$/.test(k));
-
-/* ---------- 4. 地图漏翻 ---------- */
-const mapMissing = meta.maps.filter((m) => !loc.MAP_CN[m.map_name]).map((m) => m.map_name);
-const mapKeys = new Set(meta.maps.map((m) => m.map_name));
-const mapOrphans = Object.keys(loc.MAP_CN).filter((k) => !mapKeys.has(k));
-
-/* ---------- 5. roles 名称匹配 ---------- */
 const roleMiss = [];
 for (const role of meta.roles.roles) {
   for (const name of role.brawlers) {
@@ -65,41 +68,22 @@ for (const role of meta.roles.roles) {
 const line = (s) => console.log(s);
 
 line(`\n数据：${meta.brawlers.length} 英雄 / ${meta.maps.length} 地图 / ${meta.roles.roles.length} 角色组`);
-line(`翻译表：${Object.keys(loc.BRAWLER_LOCALE).length} 英雄条目 / ${Object.keys(loc.MAP_CN).length} 地图\n`);
+line(`译名表：${loc.BRAWLER_NAME_COUNT} 个英雄条目\n`);
 
 if (missing.length) {
   fail += missing.length;
-  line(`❌ 英雄漏翻 ${missing.length} 个（这些会显示英文名）：`);
+  line(`❌ 英雄漏翻 ${missing.length} 处（这些会显示英文名）：`);
   missing.forEach((m) => line(`   ${m}`));
 } else {
-  line('✅ 英雄：108 个全部有中文名');
-}
-
-if (illegal.length) {
-  fail += illegal.length;
-  line(`\n❌ key 含非法字符 ${illegal.length} 个（必须是小写字母数字，不能有空格/下划线/连字符）：`);
-  illegal.forEach((k) => line(`   "${k}" -> 应为 "${norm(k)}"`));
-}
-
-if (orphans.length) {
-  // 孤儿 key 不计入失败：可能是给未上线英雄预留的条目
-  line(`\n⚠️  孤儿 key ${orphans.length} 个（翻译表里有，但数据里暂时没这个英雄，不影响运行）：`);
-  orphans.forEach((k) => line(`   ${k} (${loc.BRAWLER_LOCALE[k].cn})`));
+  line(`✅ 英雄：${meta.brawlers.length} 个全部有简中 / 繁中译名`);
 }
 
 if (mapMissing.length) {
   fail += mapMissing.length;
-  line(`\n❌ 地图漏翻 ${mapMissing.length} 张：`);
+  line(`\n❌ 地图漏翻 ${mapMissing.length} 处：`);
   mapMissing.forEach((m) => line(`   ${m}`));
 } else {
-  line('\n✅ 地图：24 张全部有中文名');
-}
-
-if (mapOrphans.length) {
-  // 地图孤儿 key 通常是名字写错了（大小写/空格/撇号），必须修
-  fail += mapOrphans.length;
-  line(`\n❌ 地图孤儿 key ${mapOrphans.length} 个（名字必须和 JSON 的 map_name 完全一致）：`);
-  mapOrphans.forEach((k) => line(`   "${k}"`));
+  line(`\n✅ 地图：${meta.maps.length} 张全部有简中 / 繁中译名`);
 }
 
 if (roleMiss.length) {

@@ -77,15 +77,6 @@ const main = async () => {
   }
 
   const ORDER = ['common', 'rare', 'superRare', 'epic', 'mythic', 'legendary', 'ultraLegendary'];
-  const LABEL = {
-    common: '初始',
-    rare: '稀有',
-    superRare: '超稀有',
-    epic: '史诗',
-    mythic: '神话',
-    legendary: '传奇',
-    ultraLegendary: '超传奇',
-  };
 
   rows.sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key) || a.id - b.id);
 
@@ -108,9 +99,7 @@ const main = async () => {
   lines.push('');
   lines.push('export interface RarityMeta {');
   lines.push('  key: RarityKey;');
-  lines.push('  /** 中文名 */');
-  lines.push('  cn: string;');
-  lines.push('  /** 官方主题色（区块标题 / 描边用） */');
+  lines.push('  /** 官方主题色（区块标题 / 描边用）；稀有度名称见 i18n 词库 rarity.section.* */');
   lines.push('  color: string;');
   lines.push('}');
   lines.push('');
@@ -125,7 +114,7 @@ const main = async () => {
     ultraLegendary: '#2DD4BF',
   };
   for (const k of ORDER) {
-    lines.push(`  ${k}: { key: '${k}', cn: '${LABEL[k]}', color: '${COLORS[k]}' },`);
+    lines.push(`  ${k}: { key: '${k}', color: '${COLORS[k]}' },`);
   }
   lines.push('};');
   lines.push('');

@@ -6,6 +6,7 @@ import { buildIndex } from '../data/metaIndex';
 import { RARITY_BY_ID, RARITY_ORDER, rarityOf } from '../data/rarity';
 import { createDraft, recommend, type Candidate } from './draftEngine';
 import { TOP_PICK_COUNT, buildBrawlerPool, rankMap } from './pool';
+import { translate } from '../i18n/translate';
 
 const META = validateMeta(
   JSON.parse(readFileSync(resolve(process.cwd(), 'public/data/brawl_meta.json'), 'utf-8')),
@@ -102,7 +103,9 @@ describe('英雄池分区', () => {
     const { sections } = buildBrawlerPool(cands);
     expect(sections.some((s) => s.key === 'common')).toBe(false);
     const rare = sections.find((s) => s.key === 'rare');
-    expect(rare?.label).toBe('初始 / 稀有');
+    // 分区标题由词库提供：默认语言下应显示「初始 / 稀有」
+    expect(translate('zh-CN', 'rarity.section.rare')).toBe('初始 / 稀有');
+    expect(rare).toBeTruthy();
     const commonIds = META.brawlers.filter((b) => rarityOf(b.id) === 'common').map((b) => b.id);
     for (const id of commonIds) expect(ids(rare!.items)).toContain(id);
   });

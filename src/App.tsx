@@ -12,7 +12,7 @@ import SettingsView from './components/SettingsView';
 import TopBar from './components/TopBar';
 import UpdateDialog from './components/UpdateDialog';
 import { APP_VERSION } from './config/app';
-import { brawlerCN } from './data/localization';
+import { useTranslation } from './i18n';
 import { metaStore, type MetaSnapshot } from './services/metaStore';
 import {
   checkForUpdate,
@@ -51,6 +51,7 @@ const LS_MAP = 'brawl.draft.map';
 type Screen = 'select' | 'draft';
 
 export default function App() {
+  const { t, brawler, tier } = useTranslation();
   const [snap, setSnap] = useState<MetaSnapshot | null>(metaStore.getSnapshot());
   const [error, setError] = useState<string | null>(null);
 
@@ -135,13 +136,13 @@ export default function App() {
         setScreen('select');
         break;
       case 'showExitHint':
-        showToast('再滑一次退出应用');
+        showToast(t('app.exitHint'));
         break;
       case 'exitApp':
         void NativeApp.exitApp();
         break;
     }
-  }, [showToast]);
+  }, [showToast, t]);
 
   /** 仅在原生壳里接管返回键；桌面浏览器 npm run dev 不注册任何监听 */
   useEffect(() => {
@@ -250,8 +251,8 @@ export default function App() {
 
   const candidates = useMemo<Candidate[]>(() => {
     if (!snap || !draft) return [];
-    return recommend(snap.index, draft, 200);
-  }, [snap, draft]);
+    return recommend(snap.index, draft, 200, { t, brawler });
+  }, [snap, draft, t, brawler]);
 
   /** 英雄池 = Top 推荐 + 稀有度分区（搜索/筛选栏已移除） */
   const pool = useMemo(() => buildBrawlerPool(candidates), [candidates]);
@@ -267,13 +268,14 @@ export default function App() {
     if (!snap || !draft || detailId === null) return null;
     return (
       candidates.find((c) => c.id === detailId) ??
-      evaluateBrawler(snap.index, draft, detailId)
+      evaluateBrawler(snap.index, draft, detailId, { t, brawler })
     );
-  }, [snap, draft, detailId, candidates]);
+  }, [snap, draft, detailId, candidates, t, brawler]);
 
-  const getBrawler = (id: number): { name: string; cn: string } | undefined => {
+  /** 槽位只需要英文原名，译名由各组件按当前语言解析 */
+  const getBrawler = (id: number): { name: string } | undefined => {
     const ref = snap?.index.brawlerById.get(id);
-    return ref ? { name: ref.name, cn: brawlerCN(ref.name) } : undefined;
+    return ref ? { name: ref.name } : undefined;
   };
 
   /* ---------------- 交互 ---------------- */
@@ -398,8 +400,8 @@ export default function App() {
   if (error) {
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-slate-950 px-6 text-center">
-        <p className="text-[13px] font-semibold text-red-400">数据加载失败</p>
-        <p className="text-[11px] leading-relaxed text-slate-500">{error}</p>
+        <p className="text-[13px] font-semibold text-red-400">{t('app.loadError')}</p>
+        <p className="text-[11px] leading-relaxed text-slate-500">{t('app.loadErrorHint')}</p>
         <button
           type="button"
           onClick={() => {
@@ -409,7 +411,7 @@ export default function App() {
           className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-800 px-3 text-[12px] text-slate-200 active:bg-slate-700"
         >
           <RefreshCw size={13} />
-          重试
+          {t('app.retry')}
         </button>
       </div>
     );
@@ -419,7 +421,7 @@ export default function App() {
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-2 bg-slate-950">
         <Loader2 size={20} className="animate-spin text-sky-500" />
-        <p className="text-[11px] text-slate-500">正在载入英雄数据…</p>
+        <p className="text-[11px] text-slate-500">{t('app.loading')}</p>
       </div>
     );
   }
@@ -523,9 +525,9 @@ export default function App() {
   /** 顶栏详情卡：本图样本量 + 数据门槛（如「传奇 I+」） */
   const mapGames = snap.meta.maps.find((m) => m.map_name === draft.mapName)?.total_games ?? 0;
   const tierMin = snap.meta.min_tier;
-  const tierLabel = `${
-    snap.meta.tier_audit?.distribution.find((d) => d.tier === tierMin)?.label ?? `段位 ${tierMin}`
-  }+`;
+  const tierText = `${tier(
+    snap.meta.tier_audit?.distribution.find((d) => d.tier === tierMin)?.label ?? String(tierMin),
+  )}+`;
 
   /* ---------------- 英雄池 ----------------
    * 竖屏：Top 区 4 列 / 稀有度 5 列（沿用原网格）；
@@ -558,34 +560,32 @@ export default function App() {
       type="button"
       onClick={handleEmptyBan}
       className="mx-1 mb-1.5 flex items-center gap-2 rounded-lg border border-dashed border-slate-600/70 bg-slate-900/60 px-2 py-1.5 text-left transition-colors active:bg-slate-800"
-      aria-label="空 Ban：本槽位不 Ban 任何英雄"
+      aria-label={t('pool.emptyBanDesc')}
     >
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-600/80 bg-slate-950/70 text-slate-400">
         <EmptyBanIcon size={14} />
       </span>
       <span className="min-w-0 flex-1 leading-tight">
-        <span className="block text-[12px] font-semibold text-slate-200">空 Ban</span>
-        <span className="block text-[10px] text-slate-500">
-          本槽位不 Ban 英雄 · 可重复使用
+        <span className="block text-[12px] font-semibold text-slate-200">
+          {t('pool.emptyBanTitle')}
         </span>
+        <span className="block text-[10px] text-slate-500">{t('pool.emptyBanDesc')}</span>
       </span>
-      <span className="shrink-0 text-[10px] text-slate-500">跳过</span>
+      <span className="shrink-0 text-[10px] text-slate-500">{t('pool.emptyBanSkip')}</span>
     </button>
   ) : null;
 
   const poolContent = isComplete ? (
     <div className="flex h-full flex-col items-center justify-center gap-1.5 px-6 text-center">
-      <p className="text-[13px] font-semibold text-slate-300">本局 BP 已完成</p>
-      <p className="text-[11px] leading-relaxed text-slate-500">
-        点击任一槽位可清空重选，或点「重置」重开本局
-      </p>
+      <p className="text-[13px] font-semibold text-slate-300">{t('pool.completeTitle')}</p>
+      <p className="text-[11px] leading-relaxed text-slate-500">{t('pool.completeDesc')}</p>
     </div>
   ) : (
     <>
       {emptyBanEntry}
       {candidates.length === 0 ? (
         <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
-          <p className="text-[12px] text-slate-500">没有可用英雄（已全部 Ban 完 / 选完）</p>
+          <p className="text-[12px] text-slate-500">{t('pool.noCandidates')}</p>
         </div>
       ) : (
         <>
@@ -610,7 +610,7 @@ export default function App() {
                     head.enemy ? 'text-red-400' : 'text-sky-300'
                   }`}
                 >
-                  {head.title}
+                  {t(head.key)}
                 </h3>
                 <span
                   className={`text-[9px] tabular-nums ${
@@ -621,7 +621,7 @@ export default function App() {
                 </span>
               </span>
               <span className="shrink-0 text-[9px] text-slate-500">
-                {draft.firstPick ? '点按填入 · 长按看对位' : '长按看对位'}
+                {draft.firstPick ? t('pool.hintPick') : t('pool.hintLongPress')}
               </span>
             </header>
             {/* Top 区比稀有度区更大：实战秒选更好点，也把稀有度分区推到折叠线附近 */}
@@ -653,7 +653,7 @@ export default function App() {
                     style={{ backgroundColor: sec.color }}
                   />
                   <h3 className="text-[11px] font-bold tracking-wide" style={{ color: sec.color }}>
-                    {sec.label}
+                    {t(`rarity.section.${sec.key}`)}
                   </h3>
                   <span className="text-[9px] tabular-nums text-slate-500">
                     {sec.items.length}
@@ -689,7 +689,7 @@ export default function App() {
             mapName={draft.mapName}
             mode={draft.mode}
             mapGames={mapGames}
-            tierLabel={tierLabel}
+            tierLabel={tierText}
             dataDate={snap.dataDate}
             warnings={warnings}
             onOpenMap={() => setScreen('select')}
@@ -732,7 +732,7 @@ export default function App() {
           mapName={draft.mapName}
           mode={draft.mode}
           mapGames={mapGames}
-          tierLabel={tierLabel}
+          tierLabel={tierText}
           dataDate={snap.dataDate}
           warnings={warnings}
           onOpenMap={() => setScreen('select')}

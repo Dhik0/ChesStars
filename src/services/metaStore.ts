@@ -40,11 +40,23 @@ export interface MetaSnapshot {
   totalBattles: number;
 }
 
+/**
+ * 手动拉取的结果类型。
+ * 服务层只回结构化结果，具体文案由界面按当前语言组装（`i18n/format.ts`）。
+ */
+export type PullCode = 'notReady' | 'latest' | 'updated' | 'failed';
+
 export interface PullResult {
   ok: boolean;
   /** 远程数据是否比当前新 */
   updated: boolean;
-  message: string;
+  code: PullCode;
+  /** 数据日期（YYYY-MM-DD），仅 latest / updated 有 */
+  date?: string;
+  /** 总对局数，仅 latest / updated 有 */
+  battles?: number;
+  /** 是否成功落盘；false = 仅本次启动内有效（仅 updated 有意义） */
+  persisted?: boolean;
 }
 
 type Listener = (snap: MetaSnapshot) => void;
@@ -85,12 +97,6 @@ function resolveDataDate(meta: BrawlMeta, lastModified: string | null): string |
 
 function reason(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/** 数据日期 + 场次的可读描述，如「2026-11-23，101,440 场对局」 */
-function describeMeta(meta: BrawlMeta): string {
-  const date = toLocalDateString(meta.updated_at) ?? meta.updated_at;
-  return `${date}，${meta.total_battles.toLocaleString()} 场对局`;
 }
 
 /**
@@ -203,18 +209,17 @@ export class MetaStore {
    * 并把「已更新 / 已是最新 / 失败」明确回报给界面。
    */
   async pullNow(): Promise<PullResult> {
-    if (!this.snapshot) return { ok: false, updated: false, message: '数据尚未初始化' };
+    if (!this.snapshot) return { ok: false, updated: false, code: 'notReady' };
 
     try {
       const remote = await this.loadRemote();
-      if (!this.snapshot) return { ok: false, updated: false, message: '数据尚未初始化' };
+      if (!this.snapshot) return { ok: false, updated: false, code: 'notReady' };
+
+      const date = toLocalDateString(remote.meta.updated_at) ?? remote.meta.updated_at;
+      const battles = remote.meta.total_battles;
 
       if (!shouldReplaceMeta(remote.meta, this.snapshot.meta, { hasCache: this.hasCache })) {
-        return {
-          ok: true,
-          updated: false,
-          message: `当前已是最新数据（${describeMeta(remote.meta)}）`,
-        };
+        return { ok: true, updated: false, code: 'latest', date, battles };
       }
 
       // 只有 IndexedDB 真的写不进去（磁盘满等极端情况）才降级为内存生效
@@ -222,15 +227,9 @@ export class MetaStore {
       if (persisted) this.hasCache = true;
       this.setMeta(remote.meta, 'remote', remote.lastModified);
 
-      const date = toLocalDateString(remote.meta.updated_at) ?? remote.meta.updated_at;
-      const tail = persisted ? '' : '（本地存储空间不足，仅本次启动内有效）';
-      return {
-        ok: true,
-        updated: true,
-        message: `已更新至 ${date}（${remote.meta.total_battles.toLocaleString()} 场对局）${tail}`,
-      };
+      return { ok: true, updated: true, code: 'updated', date, battles, persisted };
     } catch {
-      return { ok: false, updated: false, message: '拉取失败，请检查网络后重试' };
+      return { ok: false, updated: false, code: 'failed' };
     }
   }
 }

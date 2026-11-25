@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { modeCN, modeColor, modeIconUrl } from '../data/localization';
+import { modeColor, modeIconUrl } from '../data/localization';
+import { useTranslation } from '../i18n';
 
 interface ModeIconProps {
   mode: string;
@@ -13,6 +14,7 @@ interface ModeIconProps {
  * 加载失败时退回该模式主题色的圆点——和之前的设计一致，不会出现裂图。
  */
 export default function ModeIcon({ mode, size = 14, className = '' }: ModeIconProps) {
+  const { mode: modeLabel } = useTranslation();
   const [failed, setFailed] = useState(false);
 
   useEffect(() => setFailed(false), [mode]);
@@ -30,7 +32,7 @@ export default function ModeIcon({ mode, size = 14, className = '' }: ModeIconPr
   return (
     <img
       src={modeIconUrl(mode)}
-      alt={modeCN(mode)}
+      alt={modeLabel(mode)}
       width={size}
       height={size}
       className={`shrink-0 object-contain ${className}`}

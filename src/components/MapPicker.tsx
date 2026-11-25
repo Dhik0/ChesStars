@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Check, Search, X } from 'lucide-react';
 import type { MapEntry } from '../types/meta';
-import { mapCN, MODE_LOCALE, MODE_ORDER, modeColor } from '../data/localization';
+import { MODE_ORDER, modeColor } from '../data/localization';
+import { mapSearchNames } from '../i18n/gameData';
+import { useTranslation } from '../i18n';
 import { useBackGuard } from '../utils/backGuards';
 import MapThumb from './MapThumb';
 import ModeIcon from './ModeIcon';
@@ -29,6 +31,7 @@ interface MapPickerProps {
  * 底部由 App 统一挂底部导航栏。
  */
 export default function MapPicker({ maps, current, onSelect, onClose }: MapPickerProps) {
+  const { t, map: mapLabel, mode: modeLabel } = useTranslation();
   const [query, setQuery] = useState('');
 
   /** 搜索框有内容时，系统返回键先清空搜索，而不是直接离开选图页 */
@@ -36,10 +39,10 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
 
   const grouped = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const matched = maps.filter((m) => {
-      if (!q) return true;
-      return m.map_name.toLowerCase().includes(q) || mapCN(m.map_name).includes(q);
-    });
+    // 同时匹配英文原名与三种语言译名：换到英文界面后仍能按中文习惯找图
+    const matched = maps.filter(
+      (m) => !q || mapSearchNames(m.map_name).some((name) => name.toLowerCase().includes(q)),
+    );
     return MODE_ORDER.map((mode) => ({
       mode,
       items: matched.filter((m) => m.mode === mode),
@@ -54,9 +57,11 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
         {/* 竖屏：标题一行 + 搜索一行；横屏：标题 / 搜索 / 关闭 同一行，省出的高度全给地图网格 */}
         <div className="grid grid-flow-row-dense grid-cols-[minmax(0,1fr)_auto] items-center gap-2 landscape:grid-cols-[auto_minmax(0,1fr)_auto] landscape:gap-3">
           <div className="min-w-0 landscape:flex landscape:items-baseline landscape:gap-2">
-            <h2 className="text-[14px] font-semibold text-slate-100">选择地图</h2>
+            <h2 className="text-[14px] font-semibold text-slate-100">{t('picker.title')}</h2>
             <p className="truncate text-[10px] text-slate-500">
-              {query ? `匹配 ${hitCount} 张` : `共 ${maps.length} 张 · 点选后进入 BP`}
+              {query
+                ? t('picker.matched', { n: hitCount })
+                : t('picker.total', { n: maps.length })}
             </p>
           </div>
           <div className="relative col-span-2 landscape:col-span-1 landscape:col-start-2 landscape:row-start-1">
@@ -64,7 +69,7 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜地图（中文 / 英文）"
+              placeholder={t('picker.search')}
               className="h-9 w-full rounded-lg border border-slate-800 bg-slate-900 pl-8 pr-8 text-[13px] text-slate-100 placeholder:text-slate-600 focus:border-slate-600 focus:outline-none"
               spellCheck={false}
               autoComplete="off"
@@ -74,7 +79,7 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
                 type="button"
                 onClick={() => setQuery('')}
                 className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-500 active:bg-slate-800"
-                aria-label="清空"
+                aria-label={t('picker.clear')}
               >
                 <X size={13} />
               </button>
@@ -85,7 +90,7 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
               type="button"
               onClick={onClose}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 active:bg-slate-800 landscape:col-start-3 landscape:row-start-1"
-              aria-label="返回"
+              aria-label={t('picker.back')}
             >
               <X size={16} />
             </button>
@@ -95,7 +100,7 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2">
         {grouped.length === 0 && (
-          <p className="py-10 text-center text-[12px] text-slate-500">没有匹配的地图</p>
+          <p className="py-10 text-center text-[12px] text-slate-500">{t('picker.empty')}</p>
         )}
         {grouped.map(({ mode, items }) => {
           const accent = modeColor(mode);
@@ -111,7 +116,7 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
                   className="text-[19px] font-bold leading-none tracking-wide"
                   style={{ color: accent }}
                 >
-                  {MODE_LOCALE[mode].cn}
+                  {modeLabel(mode)}
                 </h3>
                 <span className="ml-auto rounded bg-slate-950/50 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-slate-400">
                   {items.length}
@@ -143,7 +148,7 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
                       <div className="w-full px-1.5 pb-1.5 pt-1">
                         <span className="flex items-center gap-1">
                           <span className="truncate text-[13px] font-semibold leading-tight text-slate-100">
-                            {mapCN(m.map_name)}
+                            {mapLabel(m.map_name)}
                           </span>
                           {active && <Check size={11} className="shrink-0 text-sky-400" />}
                         </span>
@@ -152,7 +157,7 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
                             {m.map_name}
                           </span>
                           <span className="shrink-0 text-[9.5px] leading-tight text-slate-600">
-                            {m.total_games} 场
+                            {t('common.games', { n: m.total_games })}
                           </span>
                         </span>
                       </div>

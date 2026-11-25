@@ -20,15 +20,10 @@ export type BrawlerClass =
   | 'CONTROL'
   | 'SUPPORT';
 
-export const CLASS_LABEL: Record<BrawlerClass, string> = {
-  TANK: '坦克',
-  DAMAGE: '火力手',
-  MARKSMAN: '狙击手',
-  ARTILLERY: '投手',
-  ASSASSIN: '刺客',
-  CONTROL: '控场',
-  SUPPORT: '辅助',
-};
+/**
+ * 职业显示名不在这里：界面按 `class.{BrawlerClass}` 从词库取，
+ * 这里只保留与语言无关的配色与顺序。
+ */
 
 /** 职业主题色（列表标签用，与蓝队/红队色区分） */
 export const CLASS_COLOR: Record<BrawlerClass, string> = {

@@ -791,7 +791,7 @@ describe('Log5 残差与克制色条', () => {
     expect(new Set(all.map((r) => r.opponentId)).size).toBe(all.length);
     expect(bd.weak.every((r) => r.delta < 0)).toBe(true);
     expect(bd.strong.every((r) => r.delta > 0)).toBe(true);
-    expect(all.every((r) => r.samples > 0 && r.opponentCn.length > 0)).toBe(true);
+    expect(all.every((r) => r.samples > 0 && r.opponentName.length > 0)).toBe(true);
 
     // 劣势：越往后越接近五五开；优势：越往后越接近五五开
     for (let i = 1; i < bd.weak.length; i += 1) {
