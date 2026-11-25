@@ -30,7 +30,6 @@ The whole draft engine runs on your device from a bundled dataset.
 
 - No account, no sign-in, no player tag, no Supercell login.
 - No analytics, no ads, no telemetry — your picks never leave the phone.
-- Works in airplane mode, on the subway, or in a lobby with one bar of signal.
 - It is a standalone companion app and never touches your game client or account.
 
 The single optional network request is the in-app check for a newer release. Skip it and the app is completely offline.
