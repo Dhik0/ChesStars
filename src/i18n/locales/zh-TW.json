@@ -376,5 +376,16 @@
   "review.note.topSafeDamage": "全場最高金庫傷害",
   "review.note.topGems": "全場最高寶石",
   "review.note.tanking": "前排有效抗傷",
-  "review.note.sustain": "高額治療續航"
+  "review.note.sustain": "高額治療續航",
+
+  "review.grade.great": "好棋",
+  "review.grade.book": "譜著",
+  "review.grade.miss": "錯失良機",
+  "review.statKills": "擊殺",
+  "review.statDeaths": "死亡",
+  "review.statDamage": "傷害",
+  "review.comment.great": "關鍵制勝：K/D {kd}、傷害 {dmg}，這一局的轉折點有你。",
+  "review.comment.book": "順風局按劇本拿下：K/D {kd}、傷害 {dmg}，沒給對手機會。",
+  "review.comment.miss": "優勢對位卻輸了：K/D {kd}、傷害 {dmg}，好陣容被浪費。",
+  "review.comment.missObjective": "面板尚可（K/D {kd}），但機制沒跟上，輸在關鍵目標上。"
 }

@@ -7,8 +7,12 @@ import { counterDetail } from '../utils/draftEngine';
 import { objectiveKindOf, type MatchRecord } from './matchHistoryStore';
 import {
   BP_EDGE_CAP_PP,
+  GRADE_ORDER,
+  GRADE_SYMBOL,
+  archetypeOf,
   bpContextOf,
   bpEdgeOf,
+  displayKdOf,
   evaluatePlayer,
   flipResult,
   flipScore,
@@ -16,6 +20,8 @@ import {
   gradeOf,
   kdOf,
   reviewMatch,
+  type BpContext,
+  type GradeContext,
   type PlayerEvalInput,
 } from './reviewEngine';
 
@@ -179,7 +185,8 @@ describe('边界数据', () => {
   it('缺失项不会按 0 拉低分数（权重按已录入项归一化）', () => {
     const base = { kills: 8, deaths: 3, damage: 30000 };
     const partial = evaluatePlayer(baseInput({ stat: base }));
-    const boosted = evaluatePlayer(baseInput({ stat: { ...base, healing: 20000 } }));
+    // 阈值是「场均」治疗：2 局比赛要 48000 总治疗才够 24000/场
+    const boosted = evaluatePlayer(baseInput({ stat: { ...base, healing: 48000 } }));
 
     // 只填核心三项也能拿到合理分数，不会被「治疗 0 / 承伤 0」拖成低分
     expect(partial.score!).toBeGreaterThan(40);
@@ -211,24 +218,24 @@ describe('模式与职业微调', () => {
     expect(knockout.score!).toBeLessThan(gem.score!);
   });
 
-  it('辅助职业压低伤害权重、抬高不死权重：低伤害零阵亡的辅助分数更高', () => {
+  it('奶妈画像压低伤害权重、抬高不死权重：低伤害零阵亡的奶妈分数更高', () => {
     const stat = { kills: 3, deaths: 0, damage: 8000 };
-    const support = evaluatePlayer(baseInput({ stat, brawlerClass: 'SUPPORT' }));
-    const damage = evaluatePlayer(baseInput({ stat, brawlerClass: 'DAMAGE' }));
-    expect(support.score!).toBeGreaterThan(damage.score!);
+    const healer = evaluatePlayer(baseInput({ stat, archetype: 'healer' }));
+    const damage = evaluatePlayer(baseInput({ stat, archetype: 'damage_controller' }));
+    expect(healer.score!).toBeGreaterThan(damage.score!);
   });
 
-  it('辅助的死亡权重更高：同样的阵亡增量，辅助掉分更多', () => {
+  it('奶妈的死亡权重更高：同样的阵亡增量，奶妈掉分更多', () => {
     const lowDeaths = { kills: 6, deaths: 1, damage: 25000 };
     const highDeaths = { kills: 6, deaths: 8, damage: 25000 };
-    const supportDrop =
-      evaluatePlayer(baseInput({ stat: lowDeaths, brawlerClass: 'SUPPORT' })).score! -
-      evaluatePlayer(baseInput({ stat: highDeaths, brawlerClass: 'SUPPORT' })).score!;
+    const healerDrop =
+      evaluatePlayer(baseInput({ stat: lowDeaths, archetype: 'healer' })).score! -
+      evaluatePlayer(baseInput({ stat: highDeaths, archetype: 'healer' })).score!;
     const damageDrop =
-      evaluatePlayer(baseInput({ stat: lowDeaths, brawlerClass: 'DAMAGE' })).score! -
-      evaluatePlayer(baseInput({ stat: highDeaths, brawlerClass: 'DAMAGE' })).score!;
+      evaluatePlayer(baseInput({ stat: lowDeaths, archetype: 'damage_controller' })).score! -
+      evaluatePlayer(baseInput({ stat: highDeaths, archetype: 'damage_controller' })).score!;
 
-    expect(supportDrop).toBeGreaterThan(damageDrop);
+    expect(healerDrop).toBeGreaterThan(damageDrop);
   });
 });
 
@@ -519,23 +526,65 @@ describe('敌方对称评级', () => {
 });
 
 /* ------------------------------------------------------------------ *
- * 8. 评级映射
+ * 8. 评级映射（9 档）
  * ------------------------------------------------------------------ */
 
 describe('评级映射', () => {
-  it('按分数落档，情境规则优先', () => {
-    expect(gradeOf(95, 'neutral', 'win')).toBe('brilliant');
-    expect(gradeOf(80, 'neutral', 'win')).toBe('best');
-    expect(gradeOf(60, 'neutral', 'win')).toBe('good');
-    expect(gradeOf(50, 'neutral', 'loss')).toBe('inaccuracy');
-    expect(gradeOf(35, 'neutral', 'loss')).toBe('mistake');
-    expect(gradeOf(20, 'neutral', 'loss')).toBe('blunder');
-    // 逆风赢：70 分就能拿 !!
-    expect(gradeOf(70, 'disadvantaged', 'win')).toBe('brilliant');
-    expect(gradeOf(69, 'disadvantaged', 'win')).toBe('good');
-    // 优势输：≤40 直接 ??
-    expect(gradeOf(40, 'advantaged', 'loss')).toBe('blunder');
-    expect(gradeOf(41, 'advantaged', 'loss')).toBe('mistake');
+  const g = (
+    score: number,
+    context: BpContext,
+    result: 'win' | 'loss',
+    extra: Partial<GradeContext> = {},
+  ) => gradeOf({ score, context, result, ...extra });
+
+  it('常规档位按分数落档', () => {
+    expect(g(70, 'neutral', 'win')).toBe('good');
+    expect(g(50, 'neutral', 'loss')).toBe('inaccuracy');
+    expect(g(35, 'neutral', 'loss')).toBe('mistake');
+    expect(g(20, 'neutral', 'loss')).toBe('blunder');
+  });
+
+  it('妙手：逆风赢 70 分即可，或断层统治（≥92 且 👑 / ≥95）', () => {
+    expect(g(70, 'disadvantaged', 'win')).toBe('brilliant');
+    expect(g(69, 'disadvantaged', 'win')).toBe('good');
+    expect(g(92, 'neutral', 'win')).toBe('great');
+    expect(g(92, 'neutral', 'win', { isStarPlayer: true })).toBe('brilliant');
+    expect(g(95, 'neutral', 'win')).toBe('brilliant');
+  });
+
+  it('好棋：👑 良好 / 非顺风局 ≥80 / 机制最高带队取胜', () => {
+    expect(g(78, 'neutral', 'win', { isStarPlayer: true })).toBe('great');
+    expect(g(85, 'neutral', 'win')).toBe('great');
+    expect(g(75, 'neutral', 'win', { objectiveLeader: true })).toBe('great');
+    // 顺风局不吃「非顺风 ≥80」这条
+    expect(g(85, 'advantaged', 'win')).not.toBe('great');
+  });
+
+  it('谱着：优势对位 + 稳稳赢下（无 carry、无机制最高）', () => {
+    expect(g(65, 'advantaged', 'win')).toBe('book');
+    expect(g(55, 'advantaged', 'win')).toBe('book');
+    // 拿了 👑 或机制最高就不算「按剧本」
+    expect(g(65, 'advantaged', 'win', { isStarPlayer: true })).toBe('good');
+    expect(g(65, 'advantaged', 'win', { objectiveLeader: true })).toBe('good');
+    // 分数太低 / 太高都不进谱着
+    expect(g(50, 'advantaged', 'win')).not.toBe('book');
+    expect(g(78, 'advantaged', 'win')).toBe('best');
+  });
+
+  it('错失良机：优势对位输了但没崩，或机制拖后腿致败', () => {
+    expect(g(60, 'advantaged', 'loss')).toBe('miss');
+    expect(g(41, 'advantaged', 'loss')).toBe('miss');
+    expect(g(40, 'advantaged', 'loss')).toBe('blunder');
+    expect(g(60, 'neutral', 'loss', { objectiveWeak: true })).toBe('miss');
+    // 非败局不触发
+    expect(g(60, 'neutral', 'win', { objectiveWeak: true })).toBe('good');
+  });
+
+  it('九档符号齐全', () => {
+    expect(Object.keys(GRADE_SYMBOL)).toHaveLength(9);
+    expect(GRADE_ORDER).toHaveLength(9);
+    expect(GRADE_SYMBOL.book).toBe('📖');
+    expect(GRADE_SYMBOL.miss).toBe('×');
   });
 });
 
@@ -606,20 +655,20 @@ describe('模式专属指标（V1）', () => {
 describe('承受伤害的非对称评估', () => {
   const tankStat = { kills: 6, deaths: 2, damage: 25000 };
 
-  it('高承伤 + 低死亡（坦克）= 有效抗伤，拿到正向加分与高光标签', () => {
+  it('阵地坦高承伤 + 低死亡 = 有效抗伤，拿到正向加分与高光标签', () => {
     const tanking = evaluatePlayer(
       baseInput({
-        stat: { ...tankStat, damageTaken: 40000 },
-        brawlerClass: 'TANK',
+        stat: { ...tankStat, damageTaken: 60000 },
+        archetype: 'frontline_tank',
       }),
     );
-    const squishy = evaluatePlayer(
+    const light = evaluatePlayer(
       baseInput({
         stat: { ...tankStat, damageTaken: 6000 },
-        brawlerClass: 'TANK',
+        archetype: 'frontline_tank',
       }),
     );
-    expect(tanking.score!).toBeGreaterThan(squishy.score!);
+    expect(tanking.score!).toBeGreaterThan(light.score!);
     expect(tanking.notes.some((n) => n.key === 'review.note.tanking')).toBe(true);
   });
 
@@ -627,11 +676,11 @@ describe('承受伤害的非对称评估', () => {
     const withTaken = evaluatePlayer(
       baseInput({
         stat: { kills: 6, deaths: 14, damage: 25000, damageTaken: 40000 },
-        brawlerClass: 'TANK',
+        archetype: 'frontline_tank',
       }),
     );
     const withoutTaken = evaluatePlayer(
-      baseInput({ stat: { kills: 6, deaths: 14, damage: 25000 }, brawlerClass: 'TANK' }),
+      baseInput({ stat: { kills: 6, deaths: 14, damage: 25000 }, archetype: 'frontline_tank' }),
     );
 
     // 承伤完全没参与计分 → 与「没填承伤」同分
@@ -639,11 +688,24 @@ describe('承受伤害的非对称评估', () => {
     expect(withTaken.notes.some((n) => n.key === 'review.note.tanking')).toBe(false);
   });
 
-  it('脆皮吃同样多的伤害，分数低于坦克（职业参考值不同）', () => {
+  it('射手吃同样多的伤害完全不计分（承伤项不参与）', () => {
+    const stat = { kills: 5, deaths: 2, damage: 22000 };
+    const withTaken = evaluatePlayer(
+      baseInput({ stat: { ...stat, damageTaken: 30000 }, archetype: 'marksman_artillery' }),
+    );
+    const withoutTaken = evaluatePlayer(
+      baseInput({ stat, archetype: 'marksman_artillery' }),
+    );
+    expect(withTaken.score).toBe(withoutTaken.score);
+    expect(withTaken.notes.some((n) => n.key === 'review.note.tanking')).toBe(false);
+  });
+
+  it('刺客承伤门槛更高（1.3 万），同样单命承伤得分低于阵地坦', () => {
     const stat = { kills: 5, deaths: 2, damage: 22000, damageTaken: 30000 };
-    const tank = evaluatePlayer(baseInput({ stat, brawlerClass: 'TANK' }));
-    const marksman = evaluatePlayer(baseInput({ stat, brawlerClass: 'MARKSMAN' }));
-    expect(tank.score!).toBeGreaterThan(marksman.score!);
+    const tank = evaluatePlayer(baseInput({ stat, archetype: 'frontline_tank' }));
+    const assassin = evaluatePlayer(baseInput({ stat, archetype: 'assassin' }));
+    expect(tank.metrics!.damageTakenPerLife).toBe(assassin.metrics!.damageTakenPerLife);
+    expect(tank.score!).toBeGreaterThan(assassin.score!);
   });
 });
 
@@ -669,17 +731,134 @@ describe('领跑加分与治疗权重', () => {
     expect(allLeads.notes.length).toBeLessThanOrEqual(2);
   });
 
-  it('辅助职业的治疗权重更高：同样治疗量分数更高', () => {
+  it('奶妈画像的治疗权重更高：同样治疗量分数更高', () => {
     const stat = { kills: 3, deaths: 2, damage: 12000, healing: 15000 };
-    const support = evaluatePlayer(baseInput({ stat, brawlerClass: 'SUPPORT' }));
-    const damage = evaluatePlayer(baseInput({ stat, brawlerClass: 'DAMAGE' }));
-    expect(support.score!).toBeGreaterThan(damage.score!);
+    const healer = evaluatePlayer(baseInput({ stat, archetype: 'healer' }));
+    const damage = evaluatePlayer(baseInput({ stat, archetype: 'damage_controller' }));
+    expect(healer.score!).toBeGreaterThan(damage.score!);
   });
 
-  it('高额治疗即使不是领跑也能拿到「续航」高光', () => {
-    const player = evaluatePlayer(
-      baseInput({ stat: { kills: 2, deaths: 2, damage: 8000, healing: 20000 } }),
+  it('非奶妈：治疗低于 22000/场不计分、不挂续航标签（脱战回血不算功劳）', () => {
+    const stat = { kills: 6, deaths: 3, damage: 26000 };
+    const plain = evaluatePlayer(baseInput({ stat }));
+    // 20000 总治疗 = 10000/场，低于阈值
+    const naturalRegen = evaluatePlayer(baseInput({ stat: { ...stat, healing: 20000 } }));
+
+    expect(naturalRegen.score).toBe(plain.score);
+    expect(naturalRegen.notes.some((n) => n.key === 'review.note.sustain')).toBe(false);
+  });
+
+  it('非奶妈：治疗 ≥ 22000/场才给轻度加分与续航标签', () => {
+    const stat = { kills: 6, deaths: 3, damage: 26000 };
+    const plain = evaluatePlayer(baseInput({ stat }));
+    // 48000 总治疗 = 24000/场，超过阈值
+    const realHeal = evaluatePlayer(baseInput({ stat: { ...stat, healing: 48000 } }));
+
+    expect(realHeal.score!).toBeGreaterThan(plain.score!);
+    expect(realHeal.notes.some((n) => n.key === 'review.note.sustain')).toBe(true);
+  });
+
+  it('奶妈：治疗 18000/场就够挂续航标签', () => {
+    const healer = evaluatePlayer(
+      baseInput({
+        stat: { kills: 2, deaths: 2, damage: 8000, healing: 36000 },
+        archetype: 'healer',
+      }),
     );
-    expect(player.notes.some((n) => n.key === 'review.note.sustain')).toBe(true);
+    expect(healer.notes.some((n) => n.key === 'review.note.sustain')).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 10. V2：真实 K/D、总局原值、画像差异、评语单位
+ * ------------------------------------------------------------------ */
+
+describe('真实 K/D 展示', () => {
+  it('2/2 → 1.00，5/0 → ∞，0/0 → 0.00，未填 → null', () => {
+    expect(displayKdOf(2, 2)).toBe('1.00');
+    expect(displayKdOf(5, 0)).toBe('∞');
+    expect(displayKdOf(0, 0)).toBe('0.00');
+    expect(displayKdOf(3, 4)).toBe('0.75');
+    expect(displayKdOf(null, 3)).toBeNull();
+    expect(displayKdOf(3, null)).toBeNull();
+  });
+
+  it('算分仍用平滑公式，展示走真实比值', () => {
+    const player = evaluatePlayer(baseInput({ stat: { kills: 2, deaths: 2, damage: 20000 } }));
+    expect(player.metrics!.kd).toBe(0.83); // (2 + 0.5) / (2 + 1)
+    expect(player.metrics!.displayKd).toBe('1.00');
+  });
+});
+
+describe('总局原值输出', () => {
+  it('totals 与录入的原始整数完全一致（不归一化）', () => {
+    const stat = {
+      kills: 8,
+      deaths: 4,
+      damage: 60200,
+      healing: 12000,
+      damageTaken: 30000,
+      objectiveValue: 3,
+    };
+    const player = evaluatePlayer(baseInput({ stat, objectiveKind: 'goals' }));
+    expect(player.metrics!.totals).toEqual(stat);
+    // 场均仍然按局数算（2:0 = 2 局）
+    expect(player.metrics!.damagePerGame).toBe(30100);
+    expect(player.metrics!.killsPerGame).toBe(4);
+  });
+});
+
+describe('画像差异', () => {
+  const stat = { kills: 3, deaths: 2, damage: 10000 };
+  const healStat = { ...stat, healing: 30000 };
+
+  it('奶妈的治疗权重远高于功能辅助', () => {
+    const healer = evaluatePlayer(baseInput({ stat: healStat, archetype: 'healer' }));
+    const healerNoHeal = evaluatePlayer(baseInput({ stat, archetype: 'healer' }));
+    const utility = evaluatePlayer(baseInput({ stat: healStat, archetype: 'utility_support' }));
+    const utilityNoHeal = evaluatePlayer(baseInput({ stat, archetype: 'utility_support' }));
+
+    expect(healer.score!).toBeGreaterThan(utility.score!);
+    const healerGain = healer.score! - healerNoHeal.score!;
+    const utilityGain = utility.score! - utilityNoHeal.score!;
+    expect(healerGain).toBeGreaterThan(utilityGain * 2);
+  });
+
+  it('刺客不因总伤害低于射手被误判：同数据下刺客分不低于射手', () => {
+    const stat = { kills: 9, deaths: 3, damage: 16000 };
+    const assassin = evaluatePlayer(baseInput({ stat, archetype: 'assassin' }));
+    const marksman = evaluatePlayer(baseInput({ stat, archetype: 'marksman_artillery' }));
+    expect(assassin.score!).toBeGreaterThanOrEqual(marksman.score! - 2);
+  });
+});
+
+describe('评语单位格式化', () => {
+  it('评语里的伤害用注入的格式化函数，不输出裸整数', () => {
+    const player = evaluatePlayer(
+      baseInput({
+        stat: { kills: 8, deaths: 4, damage: 60000 },
+        formatBig: (v) => `${(v / 10000).toFixed(1)}万`,
+      }),
+    );
+    expect(String(player.comment.params.dmg)).toBe('3.0万');
+    expect(player.comment.params.kd).toBe('2.00');
+  });
+});
+
+describe('画像映射（真实数据）', () => {
+  const idOf = (name: string) => META.brawlers.find((b) => b.name === name)?.id ?? -1;
+
+  it('覆盖表命中：奶妈 / 功能辅助 / 阵地坦 / 刺客', () => {
+    expect(archetypeOf(IDX, idOf('POCO'))).toBe('healer');
+    expect(archetypeOf(IDX, idOf('MAX'))).toBe('utility_support');
+    expect(archetypeOf(IDX, idOf('FRANK'))).toBe('frontline_tank');
+    expect(archetypeOf(IDX, idOf('MORTIS'))).toBe('assassin');
+  });
+
+  it('未覆盖的英雄按官方职业兜底', () => {
+    expect(archetypeOf(IDX, idOf('BROCK'))).toBe('marksman_artillery');
+    expect(archetypeOf(IDX, idOf('BARLEY'))).toBe('marksman_artillery');
+    expect(archetypeOf(IDX, idOf('COLT'))).toBe('damage_controller');
+    expect(archetypeOf(IDX, idOf('TARA'))).toBe('damage_controller');
   });
 });

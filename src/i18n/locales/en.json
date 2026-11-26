@@ -376,5 +376,16 @@
   "review.note.topSafeDamage": "Top safe damage",
   "review.note.topGems": "Top gems",
   "review.note.tanking": "Effective tanking",
-  "review.note.sustain": "Strong sustain"
+  "review.note.sustain": "Strong sustain",
+
+  "review.grade.great": "Great",
+  "review.grade.book": "Book",
+  "review.grade.miss": "Miss",
+  "review.statKills": "Kills",
+  "review.statDeaths": "Deaths",
+  "review.statDamage": "Damage",
+  "review.comment.great": "Decisive: {kd} K/D and {dmg} damage — you were the turning point.",
+  "review.comment.book": "Won it by the book: {kd} K/D, {dmg} damage, never gave them a window.",
+  "review.comment.miss": "Won the matchup, lost the game: {kd} K/D and {dmg} damage — a good draft wasted.",
+  "review.comment.missObjective": "Decent panel ({kd} K/D) but the objective slipped — lost on the key fight."
 }

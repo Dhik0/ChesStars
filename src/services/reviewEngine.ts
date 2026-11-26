@@ -1,5 +1,6 @@
 import { getClass, getMapStat } from '../data/metaIndex';
 import type { MetaIndex } from '../data/metaIndex';
+import { normalizeName } from '../data/localization';
 import type { BrawlerClass } from '../data/brawlerProfile';
 import { TEAM_SLOTS, baseRateOf, counterDetail } from '../utils/draftEngine';
 import type {
@@ -12,30 +13,35 @@ import type {
 import { objectiveKindOf } from './matchHistoryStore';
 
 /**
- * 局后技术复盘引擎（V1 完整指标版，纯本地、无 IO、无随机）。
+ * 局后技术复盘引擎（V2 精细化版，纯本地、无 IO、无随机）。
  *
- * 评的是**玩家这一局的实战技术表现**，不是 BP 推荐分。三层结构：
+ * 三层结构不变：
+ *   1. BP 难度（逆风 / 均势 / 优势）
+ *   2. 场均表现（2:0 按 2 局、2:1 按 3 局归一化；只对录入了的项计分）
+ *   3. 9 档国象式评级 + 结构化评语 + 高光标签
  *
- *   第 1 层 · BP 难度：这名英雄在本图面对对面 3 人最终阵容，理论上是逆风还是顺风。
- *            逆风打出数据 / 赢局要明显加分；顺风打崩 / 输局要明显扣分。
- *   第 2 层 · 场均表现：先按实际局数归一化（2:0 与 2:1 的局数不同），再看
- *            击杀 / 死亡 / 伤害 / 治疗 / 承伤 / 模式专属指标。**只对录入了的项计分**，
- *            未填（null）的项连同权重一起剔除，剩余项按比例归一化——填一半不会被当成 0 输出。
- *   第 3 层 · 评级映射：6 档国象式评级 + 结构化评语 + 高光标签。
- *
- * 三个刻意的取舍：
- *   1. **没有数据就不评级**：六项全 null 的队友返回 `grade: null`，绝不因为「没填」
- *      就判成 0 分——那会让「忘了填」看起来像「打得烂」。
- *   2. **承受伤害不是越高越好**：按「单命承伤」结合职业评估，高承伤 + 高死亡
- *      直接剔除该项（只剩死亡惩罚），避免送人头被当成抗压。
- *   3. **评语只输出词条 key + 参数**，不在这里拼自然语言，三语由界面翻译。
+ * V2 相对 V1 的四点变化：
+ *   - 评级从 6 档扩到 9 档（新增 great / book / miss），`book` 与 `miss` 是情境专属；
+ *   - 评分按**英雄画像**差异化：奶妈、功能辅助、阵地坦、刺客、射手、默认输出各一套权重，
+ *     新增英雄只要职业对得上就自动落到默认画像，不需要维护名单；
+ *   - 承伤只对前排（阵地坦 / 刺客）计分，且门槛提高到实战量级，射手脆皮不再蹭「有效抗伤」；
+ *   - 治疗扣除脱战自然回血：非奶妈场均 < 22000 的治疗不参与计分，避免人人「高额治疗续航」。
  */
 
 /* ------------------------------------------------------------------ *
  * 类型
  * ------------------------------------------------------------------ */
 
-export type ReviewGrade = 'brilliant' | 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder';
+export type ReviewGrade =
+  | 'brilliant'
+  | 'great'
+  | 'best'
+  | 'good'
+  | 'book'
+  | 'inaccuracy'
+  | 'mistake'
+  | 'miss'
+  | 'blunder';
 
 /** BP 难度分档 */
 export type BpContext = 'disadvantaged' | 'neutral' | 'advantaged';
@@ -58,23 +64,29 @@ export const LEADER_METRICS: readonly MetricKey[] = [
 /** 整局摘要标签 */
 export type ReviewTag = 'comeback' | 'throw' | 'allOnline' | 'carry' | 'shaky' | 'incomplete';
 
-/** 国象记谱符号（界面角标用） */
+/** 国象记谱符号（界面角标用；`book` 在界面里用书本图标，这里保留文本口径） */
 export const GRADE_SYMBOL: Record<ReviewGrade, string> = {
   brilliant: '!!',
-  best: '⭐',
-  good: '👍',
+  great: '!',
+  best: '★',
+  good: '✓',
+  book: '📖',
   inaccuracy: '?!',
   mistake: '?',
+  miss: '×',
   blunder: '??',
 };
 
 /** 由高到低的档位顺序（统计、测试、排序共用） */
 export const GRADE_ORDER: readonly ReviewGrade[] = [
   'brilliant',
+  'great',
   'best',
   'good',
+  'book',
   'inaccuracy',
   'mistake',
+  'miss',
   'blunder',
 ];
 
@@ -84,9 +96,21 @@ export interface ReviewComment {
   params: Record<string, string | number>;
 }
 
+/** 六项总局原值（与游戏结算面板 1:1 对应，界面直接展示它） */
+export interface ReviewTotals {
+  kills: number | null;
+  deaths: number | null;
+  damage: number | null;
+  healing: number | null;
+  damageTaken: number | null;
+  objectiveValue: number | null;
+}
+
 export interface ReviewMetrics {
   /** 实际局数（2:0 / 0:2 = 2，2:1 / 1:2 = 3） */
   games: number;
+  /** 总局原值：界面展示用，评分仍走下面的场均 */
+  totals: ReviewTotals;
   killsPerGame: number | null;
   deathsPerGame: number | null;
   damagePerGame: number | null;
@@ -94,8 +118,10 @@ export interface ReviewMetrics {
   damageTakenPerGame: number | null;
   /** 模式专属指标的场均值；淘汰赛 / 未填为 null */
   objectivePerGame: number | null;
-  /** (kills + 0.5) / (deaths + 1)，任一未填为 null */
+  /** 算分用的平滑 K/D：(kills + 0.5) / (deaths + 1) */
   kd: number | null;
+  /** 展示用的真实 K/D：`kills / deaths`，0 死显示 ∞，0/0 显示 0.00 */
+  displayKd: string | null;
   /** 单命承伤 = 场均承伤 / (场均死亡 + 1)，用于判断「有效抗伤」 */
   damageTakenPerLife: number | null;
   /** 队内伤害占比 0~1；三人数据不全时为 null */
@@ -108,6 +134,8 @@ export interface PlayerReview {
   brawlerId: string;
   /** 属于哪一方：双方共用同一套三层评分 */
   side: ReviewSide;
+  /** 评分画像（细分英雄画像） */
+  archetype: BrawlerArchetype;
   isSelf: boolean;
   isStarPlayer: boolean;
   /** 是否录入了至少一项战绩（false = 未录入，不评级） */
@@ -125,7 +153,7 @@ export interface PlayerReview {
   /** 本局的模式专属指标类型（淘汰赛为 null） */
   objectiveKind: ObjectiveKind | null;
   metrics: ReviewMetrics | null;
-  /** 全场最高项（界面金标；含承伤，但承伤不加分） */
+  /** 全场最高项（界面金标；含承伤，但承伤只在画像允许时才加分） */
   highlights: MetricKey[];
   /** 主评语 */
   comment: ReviewComment;
@@ -153,7 +181,76 @@ export interface MatchReview {
 }
 
 /* ------------------------------------------------------------------ *
- * 可调参数（全部集中在这里，方便下一阶段微调）
+ * 英雄画像
+ * ------------------------------------------------------------------ */
+
+export type BrawlerArchetype =
+  | 'healer'
+  | 'utility_support'
+  | 'frontline_tank'
+  | 'assassin'
+  | 'marksman_artillery'
+  | 'damage_controller';
+
+/**
+ * 细分画像覆盖表（key = 英文名归一化）。
+ *
+ * 只列「官方职业不足以描述职责」的英雄；其余按官方职业兜底：
+ * MARKSMAN / ARTILLERY → 射手投掷，SUPPORT → 功能辅助，其它 → 主力输出。
+ * 新英雄即使没进这张表，也会自动落到兜底画像，不会算错。
+ */
+const ARCHETYPE_BY_NAME: Record<string, BrawlerArchetype> = {
+  // 专职治疗
+  poco: 'healer',
+  byron: 'healer',
+  berry: 'healer',
+  pam: 'healer',
+  doug: 'healer',
+  kit: 'healer',
+  // 功能辅助（不靠治疗吃饭）
+  max: 'utility_support',
+  gray: 'utility_support',
+  gus: 'utility_support',
+  ruffs: 'utility_support',
+  // 阵地纯坦
+  frank: 'frontline_tank',
+  rosa: 'frontline_tank',
+  hank: 'frontline_tank',
+  buster: 'frontline_tank',
+  elprimo: 'frontline_tank',
+  ash: 'frontline_tank',
+  jacky: 'frontline_tank',
+  draco: 'frontline_tank',
+  ollie: 'frontline_tank',
+  // 刺客 / 突进收割
+  mortis: 'assassin',
+  edgar: 'assassin',
+  lily: 'assassin',
+  leon: 'assassin',
+  fang: 'assassin',
+  melodie: 'assassin',
+  kenji: 'assassin',
+  mico: 'assassin',
+  darryl: 'assassin',
+};
+
+/** 官方职业 → 兜底画像 */
+function archetypeFromClass(brawlerClass: BrawlerClass): BrawlerArchetype {
+  if (brawlerClass === 'MARKSMAN' || brawlerClass === 'ARTILLERY') return 'marksman_artillery';
+  if (brawlerClass === 'SUPPORT') return 'utility_support';
+  return 'damage_controller';
+}
+
+/** 取英雄画像：先查覆盖表，再按官方职业兜底 */
+export function archetypeOf(idx: MetaIndex, brawlerId: number): BrawlerArchetype {
+  const ref = idx.brawlerById.get(brawlerId);
+  const override = ref ? ARCHETYPE_BY_NAME[normalizeName(ref.name)] : undefined;
+  if (override) return override;
+  return archetypeFromClass(getClass(idx, brawlerId));
+}
+
+/* ------------------------------------------------------------------ *
+ * 可调参数
  * ------------------------------------------------------------------ */
 
 /** 对位强度分档阈值（百分点）：|edge| ≥ 3 才认为有明确方向 */
@@ -164,10 +261,10 @@ export const BP_EDGE_CAP_PP = 25;
 /**
  * 模式权重表。
  *
- * 注意：这些数字**不需要加起来等于 1**——计分时只取「本局录入了的项」，
+ * 这些数字**不需要加起来等于 1**——计分时只取「本局录入了的项」，
  * 再按它们的权重和做归一化。这样「只填了 K/D 和伤害」的人不会被治疗/承伤拖死。
  *
- * 模式专属指标固定占 27%~28%（要求 25%~30%），淘汰赛没有第 5 项，权重回到基础四项。
+ * 模式专属指标固定占 27%~28%，淘汰赛没有第 5 项，权重回到基础四项。
  */
 interface WeightSet {
   kd: number;
@@ -191,10 +288,25 @@ const MODE_WEIGHTS: Record<string, WeightSet> = {
 /** 未登记的模式按 gemGrab 处理（有专属指标但不算极端） */
 const DEFAULT_WEIGHTS: WeightSet = MODE_WEIGHTS.gemGrab!;
 
-/** 辅助职业：治疗权重翻倍，同时压低伤害、抬高不死权重（面板伤害天然更低） */
-const SUPPORT_HEALING_MULTIPLIER = 2.1;
-const SUPPORT_DAMAGE_FACTOR = 0.8;
-const SUPPORT_SURVIVAL_FACTOR = 1.2;
+/**
+ * 画像权重系数（乘在模式权重上）。
+ *
+ * 每个画像只改「它真正在乎的那几项」，其余保持模式默认：
+ *   - 奶妈：治疗拉满、少死、不苛求伤害；
+ *   - 功能辅助：不考核治疗，侧重生存 + 机制 + 辅助输出；
+ *   - 阵地坦：承伤是本职，给独立权重，机制贡献略提；
+ *   - 刺客：击杀效率与占比说话，不拿总伤害跟射手比；
+ *   - 射手：伤害 + 严格死亡惩罚，承伤不计；
+ *   - 默认输出：模式标准权重均衡。
+ */
+const ARCHETYPE_WEIGHT_FACTORS: Record<BrawlerArchetype, Partial<WeightSet>> = {
+  healer: { healing: 3.2, survival: 1.25, damage: 0.65, kill: 0.8, tanking: 0.5 },
+  utility_support: { healing: 0.5, survival: 1.2, objective: 1.3, damage: 0.95, kill: 0.9 },
+  frontline_tank: { tanking: 1.9, survival: 1.15, damage: 0.85, objective: 1.15 },
+  assassin: { kill: 1.55, kd: 1.25, damage: 0.8, survival: 0.95, tanking: 0.7 },
+  marksman_artillery: { damage: 1.3, survival: 1.2, kill: 0.9 },
+  damage_controller: {},
+};
 
 /** 死亡惩罚系数（每场阵亡扣多少分）：赏金 / 淘汰赛死一次代价更高 */
 const DEATH_PENALTY_DEFAULT = 13;
@@ -216,28 +328,32 @@ const SCORE_BONUS: Record<MatchScore, number> = {
 const STAR_PLAYER_BONUS = 8;
 
 /**
- * 承伤评估：单命承伤达到「本职业参考值」时给 55 分，超出线性加分到 100。
+ * 承伤参考值：单命承伤达到它给 55 分，超出线性加分到 100。
  *
- * 参考值的含义是「拿满一半分需要吃多少伤害」——坦克门槛最低（吃伤害本来就是本职工作），
- * 脆皮门槛最高（吃这么多往往意味着被抓住 / 站位有问题）。这样同样是 7500 单命承伤，
- * 坦克拿满分、射手只拿一半，「前排有效抗伤」才不会被后排的高承伤蹭走。
+ * 只给前排两个画像开放：阵地坦 1 万、刺客 1.3 万（刺客不是专职抗伤，门槛更高）。
+ * 射手 / 投掷 / 辅助 / 奶妈一律不计——他们的高承伤通常是站位问题，不该被当成抗压。
  */
-const TANKING_TARGET_BY_CLASS: Record<BrawlerClass, number> = {
-  TANK: 4000,
-  DAMAGE: 5500,
-  CONTROL: 5500,
-  ASSASSIN: 6500,
-  MARKSMAN: 8000,
-  ARTILLERY: 8500,
-  SUPPORT: 8000,
+const TANKING_TARGET_BY_ARCHETYPE: Partial<Record<BrawlerArchetype, number>> = {
+  frontline_tank: 10000,
+  assassin: 13000,
 };
 
-/** 场均死亡 ≥ 这个数时，承伤不再算「有效抗伤」（只剩死亡惩罚） */
-const TANKING_DEATH_GATE = 5;
+/** 场均死亡 ≥ 3.5 直接取消承伤加分（防止送人头混分） */
+const TANKING_DEATH_GATE = 3.5;
 
 /** 单项领跑加分：每个领跑项 +2，最多 +5（承伤领跑不加分，只做金标） */
 const LEADER_BONUS = 2;
 const LEADER_BONUS_CAP = 5;
+
+/**
+ * 治疗门槛：脱战自然回血会算进治疗面板，所以
+ *   - 非奶妈：场均 < 22000 一律不参与计分（否则人人都是「高额治疗续航」）；
+ *   - 奶妈：≥ 18000 才算真实治疗水准，才挂续航标签。
+ */
+const HEALER_SUSTAIN_MIN = 18000;
+const SELF_HEAL_MIN = 22000;
+/** 非奶妈的治疗项只给「轻度」权重 */
+const SELF_HEAL_WEIGHT_FACTOR = 0.6;
 
 /** 模式专属指标的「满分线」（场均值） */
 const OBJECTIVE_TARGET: Record<ObjectiveKind, number> = {
@@ -314,9 +430,19 @@ export function hasAnyStat(stat: {
   );
 }
 
-/** K/D 效率：(kills + 0.5) / (deaths + 1)，0 死亡不除零 */
+/** 算分用的平滑 K/D：(kills + 0.5) / (deaths + 1)，0 死亡不除零 */
 export function kdOf(kills: number, deaths: number): number {
   return (kills + 0.5) / (deaths + 1);
+}
+
+/**
+ * 展示用的真实 K/D（与游戏内一致）：`kills / deaths` 两位小数；
+ * 0 死有击杀显示 `∞`；0/0 显示 `0.00`。
+ */
+export function displayKdOf(kills: number | null, deaths: number | null): string | null {
+  if (kills === null || deaths === null) return null;
+  if (deaths === 0) return kills > 0 ? '∞' : '0.00';
+  return (kills / deaths).toFixed(2);
 }
 
 /** 单名英雄的评分输入（与 meta 解耦，单测可以直接构造） */
@@ -324,6 +450,10 @@ export interface PlayerEvalInput {
   brawlerId: string;
   /** 阵营；只影响输出标注与「我」标签，评分逻辑完全一致 */
   side?: ReviewSide;
+  /** 评分画像；缺省时按 brawlerClass 兜底 */
+  archetype?: BrawlerArchetype;
+  /** 官方职业（仅在没给 archetype 时用于兜底） */
+  brawlerClass?: BrawlerClass;
   isSelf: boolean;
   isStarPlayer: boolean;
   /** 原始战绩（未填为 null；healing 等三项可省略，按 null 处理） */
@@ -344,11 +474,12 @@ export interface PlayerEvalInput {
   result: 'win' | 'loss';
   score: MatchScore;
   mode: string;
-  brawlerClass: BrawlerClass;
   /** 本图基准胜率（0~1），null = 该图没收录 */
   mapWinRate: number | null;
   /** 对敌方 3 人的平均残差（百分点），null = 无对位数据 */
   matchupDelta: number | null;
+  /** 大数值格式化（评语里输出「8.0万 / 80.2k」）；缺省用裸整数 */
+  formatBig?: (value: number) => string;
 }
 
 /** 单个计分项：权重 + 0~100 分 */
@@ -357,15 +488,18 @@ interface Component {
   score: number;
 }
 
-/** 表现分权重：辅助职业单独调整（治疗翻倍、伤害下调、生存上调） */
-function weightsOf(brawlerClass: BrawlerClass, mode: string): WeightSet {
+/** 模式权重 × 画像系数 */
+function weightsOf(mode: string, archetype: BrawlerArchetype): WeightSet {
   const base = MODE_WEIGHTS[mode] ?? DEFAULT_WEIGHTS;
-  if (brawlerClass !== 'SUPPORT') return base;
+  const factor = ARCHETYPE_WEIGHT_FACTORS[archetype];
   return {
-    ...base,
-    healing: base.healing * SUPPORT_HEALING_MULTIPLIER,
-    damage: base.damage * SUPPORT_DAMAGE_FACTOR,
-    survival: base.survival * SUPPORT_SURVIVAL_FACTOR,
+    kd: base.kd * (factor.kd ?? 1),
+    kill: base.kill * (factor.kill ?? 1),
+    survival: base.survival * (factor.survival ?? 1),
+    damage: base.damage * (factor.damage ?? 1),
+    healing: base.healing * (factor.healing ?? 1),
+    tanking: base.tanking * (factor.tanking ?? 1),
+    objective: base.objective * (factor.objective ?? 1),
   };
 }
 
@@ -376,12 +510,13 @@ function weightsOf(brawlerClass: BrawlerClass, mode: string): WeightSet {
  * 难度修正刻意做成**非对称**：
  *   - 逆风：赢局或打得好的部分才加分，打得差不再额外扣（本来就难）；
  *   - 顺风：输局或打得差才扣分，打得好不额外加（顺风打出来是本分）。
- * 这样「逆风赢」和「顺风输」才会分别落进 `!!` 与 `??`，而不是靠一条线性系数糊过去。
  */
 export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
-  const { result, score, mode, brawlerClass } = input;
+  const { result, score, mode } = input;
+  const archetype = input.archetype ?? archetypeFromClass(input.brawlerClass ?? 'DAMAGE');
   const objectiveKind = input.objectiveKind ?? null;
   const leaders = input.leaders ?? [];
+  const formatBig = input.formatBig ?? ((v: number) => String(Math.round(v)));
   const edgePp = bpEdgeOf(input.mapWinRate, input.matchupDelta);
   const bpContext = bpContextOf(edgePp);
 
@@ -400,6 +535,7 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
   > = {
     brawlerId: input.brawlerId,
     side: input.side ?? 'ally',
+    archetype,
     isSelf: input.isSelf,
     isStarPlayer: input.isStarPlayer,
     hasData,
@@ -444,6 +580,7 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
 
   const metrics: ReviewMetrics = {
     games,
+    totals: { kills, deaths, damage, healing, damageTaken, objectiveValue },
     killsPerGame: killsPerGame === null ? null : round(killsPerGame, 2),
     deathsPerGame: deathsPerGame === null ? null : round(deathsPerGame, 2),
     damagePerGame: damagePerGame === null ? null : Math.round(damagePerGame),
@@ -451,13 +588,14 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
     damageTakenPerGame: damageTakenPerGame === null ? null : Math.round(damageTakenPerGame),
     objectivePerGame: objectivePerGame === null ? null : Math.round(objectivePerGame),
     kd: kd === null ? null : round(kd, 2),
+    displayKd: displayKdOf(kills, deaths),
     damageTakenPerLife: takenPerLife === null ? null : Math.round(takenPerLife),
     damageShare: damageShare === null ? null : round(damageShare, 3),
     killShare: killShare === null ? null : round(killShare, 3),
   };
 
   /* --- 分项打分（只给录入了的项算，权重按已录入项归一化） --- */
-  const w = weightsOf(brawlerClass, mode);
+  const w = weightsOf(mode, archetype);
   const components: Component[] = [];
 
   if (kills !== null) {
@@ -483,24 +621,40 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
     components.push({ weight: w.damage, score: clamp((damagePerGame / 35000) * 100, 0, 100) });
   }
 
+  /**
+   * 治疗：脱战自然回血会算进面板，所以
+   *   - 奶妈：始终计分（治疗就是本职工作）；
+   *   - 其它画像：场均 ≥ 22000 才计分，且只给轻度权重。
+   */
   if (healingPerGame !== null) {
-    components.push({ weight: w.healing, score: clamp((healingPerGame / 8000) * 100, 0, 100) });
+    const isHealer = archetype === 'healer';
+    if (isHealer || healingPerGame >= SELF_HEAL_MIN) {
+      components.push({
+        weight: w.healing * (isHealer ? 1 : SELF_HEAL_WEIGHT_FACTOR),
+        score: clamp((healingPerGame / 8000) * 100, 0, 100),
+      });
+    }
   }
 
   /**
-   * 承伤：单命承伤 ÷ 职业参考值。高死亡（≥5/场）直接剔除该项——
-   * 频繁掉点的「高承伤」不是抗压，是送能量，只保留死亡惩罚。
+   * 承伤：只有前排画像参与，单命承伤 ÷ 画像参考值。
+   * 场均死亡 ≥ 3.5 直接剔除该项——频繁掉点的「高承伤」不是抗压，是送能量。
    */
+  const tankingTarget = TANKING_TARGET_BY_ARCHETYPE[archetype];
   let tankingScore: number | null = null;
-  if (takenPerLife !== null && (deathsPerGame ?? 0) < TANKING_DEATH_GATE) {
-    const target = TANKING_TARGET_BY_CLASS[brawlerClass];
-    tankingScore = clamp((takenPerLife / target) * 55, 0, 100);
+  if (
+    tankingTarget !== undefined &&
+    takenPerLife !== null &&
+    (deathsPerGame ?? 0) < TANKING_DEATH_GATE
+  ) {
+    tankingScore = clamp((takenPerLife / tankingTarget) * 55, 0, 100);
     components.push({ weight: w.tanking, score: tankingScore });
   }
 
+  let objectiveScore: number | null = null;
   if (objectivePerGame !== null && objectiveKind !== null) {
-    const target = OBJECTIVE_TARGET[objectiveKind];
-    components.push({ weight: w.objective, score: clamp((objectivePerGame / target) * 100, 0, 100) });
+    objectiveScore = clamp((objectivePerGame / OBJECTIVE_TARGET[objectiveKind]) * 100, 0, 100);
+    components.push({ weight: w.objective, score: objectiveScore });
   }
 
   const weightSum = components.reduce((sum, c) => sum + c.weight, 0);
@@ -538,12 +692,22 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
   const score100 = Math.round(
     clamp(perf + contextAdj + outcomeAdj + starAdj + leaderBonus, 0, 100),
   );
-  const grade = gradeOf(score100, bpContext, result);
+
+  const objectiveLeader = leaders.includes('objective') && objectivePerGame !== null;
+  const objectiveWeak = objectiveScore !== null && objectiveScore < 25;
+  const grade = gradeOf({
+    score: score100,
+    context: bpContext,
+    result,
+    isStarPlayer: input.isStarPlayer,
+    objectiveLeader,
+    objectiveWeak,
+  });
 
   const params: Record<string, string | number> = {
-    kd: kd === null ? '—' : kd.toFixed(2),
+    kd: metrics.displayKd ?? '—',
     dpg: deathsPerGame === null ? '—' : deathsPerGame.toFixed(1),
-    dmg: damagePerGame === null ? '—' : Math.round(damagePerGame),
+    dmg: damagePerGame === null ? '—' : formatBig(damagePerGame),
   };
 
   return {
@@ -552,8 +716,15 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
     score: score100,
     metrics,
     highlights: leaders.filter((key) => metricPresent(key, metrics, objectiveKind)),
-    comment: { key: commentKeyOf(grade, bpContext), params },
-    notes: notesOf({ leaders, metrics, objectiveKind, tankingScore }),
+    comment: { key: commentKeyOf(grade, bpContext, objectiveWeak), params },
+    notes: notesOf({
+      leaders,
+      metrics,
+      objectiveKind,
+      archetype,
+      tankingScore,
+      healingPerGame,
+    }),
   };
 }
 
@@ -579,14 +750,21 @@ function metricPresent(
   }
 }
 
-/** 高光专项：最多 2 条，先领跑、再有效抗伤 / 高额治疗 */
+/**
+ * 高光专项：最多 2 条，先领跑、再有效抗伤 / 高额治疗。
+ *
+ * 「前排有效抗伤」只发给阵地坦——射手 / 控场 / 刺客的高承伤通常是被抓，不该被表扬。
+ * 「高额治疗续航」有硬门槛：脱战回血会计进面板，不放阈值会全员触发。
+ */
 function notesOf(input: {
   leaders: MetricKey[];
   metrics: ReviewMetrics;
   objectiveKind: ObjectiveKind | null;
+  archetype: BrawlerArchetype;
   tankingScore: number | null;
+  healingPerGame: number | null;
 }): ReviewComment[] {
-  const { leaders, metrics, objectiveKind, tankingScore } = input;
+  const { leaders, metrics, objectiveKind, archetype, tankingScore, healingPerGame } = input;
   const notes: ReviewComment[] = [];
 
   if (leaders.includes('damage') && metrics.damagePerGame !== null) {
@@ -598,37 +776,86 @@ function notesOf(input: {
   if (leaders.includes('objective') && objectiveKind !== null && metrics.objectivePerGame !== null) {
     notes.push({ key: TOP_OBJECTIVE_NOTE[objectiveKind], params: {} });
   }
-  if (tankingScore !== null && tankingScore >= 70) {
+  if (archetype === 'frontline_tank' && tankingScore !== null && tankingScore >= 70) {
     notes.push({ key: 'review.note.tanking', params: {} });
   }
-  if (notes.length < 2 && metrics.healingPerGame !== null && metrics.healingPerGame >= 6000) {
+
+  const sustainMin = archetype === 'healer' ? HEALER_SUSTAIN_MIN : SELF_HEAL_MIN;
+  const sustain =
+    healingPerGame !== null && healingPerGame >= sustainMin && !leaders.includes('healing');
+  if (notes.length < 2 && sustain) {
     notes.push({ key: 'review.note.sustain', params: {} });
   }
 
   return notes.slice(0, 2);
 }
 
+/* ------------------------------------------------------------------ *
+ * 第 3 层：评级映射（9 档）
+ * ------------------------------------------------------------------ */
+
+export interface GradeContext {
+  score: number;
+  context: BpContext;
+  result: 'win' | 'loss';
+  /** 是否 👑 最佳玩家 */
+  isStarPlayer?: boolean;
+  /** 是否拿到本局模式机制最高 */
+  objectiveLeader?: boolean;
+  /** 有机制指标但明显拖后腿 */
+  objectiveWeak?: boolean;
+}
+
 /**
- * 分数 → 档位。
+ * 分数 + 情境 → 9 档。
  *
- * 两条**情境优先**的规则排在纯分数阈值之前，因为它们是这套评级的灵魂：
- *   - 逆风对位 + 赢局 + 分数 ≥ 70 → `!!`（逆天改命）
- *   - 优势对位 + 输局 + 分数 ≤ 40 → `??`（顺风翻车）
- * 其余按分数落档；`≤ 30` 无论什么对位都是「全场断层」。
+ * 判定顺序即优先级，几条**情境专属**的规则必须排在纯分数阈值之前：
+ *   - `!!` 逆风赢（逆天改命）或断层统治（≥92 且 👑 / ≥95）；
+ *   - `??` 全场断层（≤30）或优势对位输到崩（≤40）；
+ *   - `×` 优势对位输了但没崩（白费好阵容），或机制拖后腿致败；
+ *   - `!` 关键制胜（👑 且良好 / 非顺风局 ≥80 / 机制最高 + 赢）；
+ *   - `📖` 顺风局按剧本赢下（中上稳健区间，无 carry 也无失误）。
  */
-export function gradeOf(score: number, context: BpContext, result: 'win' | 'loss'): ReviewGrade {
+export function gradeOf(input: GradeContext): ReviewGrade {
+  const { score, context, result, isStarPlayer, objectiveLeader, objectiveWeak } = input;
+
+  // 妙手
   if (context === 'disadvantaged' && result === 'win' && score >= 70) return 'brilliant';
-  if (score >= 92) return 'brilliant';
-  if (context === 'advantaged' && result === 'loss' && score <= 40) return 'blunder';
+  if (score >= 92 && (isStarPlayer || score >= 95)) return 'brilliant';
+
+  // 败招：全场断层 / 顺风崩盘
   if (score <= 30) return 'blunder';
+  if (context === 'advantaged' && result === 'loss' && score <= 40) return 'blunder';
+
+  // 错失良机：白费好阵容（未到崩盘），或机制明显拖后腿致败
+  if (context === 'advantaged' && result === 'loss' && score <= 77) return 'miss';
+  if (objectiveWeak && result === 'loss' && score < 78) return 'miss';
+
+  // 好棋：关键制胜发挥
+  if (isStarPlayer && score >= 78) return 'great';
+  if (context !== 'advantaged' && score >= 80) return 'great';
+  if (objectiveLeader && result === 'win' && score >= 72) return 'great';
+
+  // 谱着：顺风局按剧本稳稳赢下（没有惊艳 carry，也没有明显失误）
+  if (
+    context === 'advantaged' &&
+    result === 'win' &&
+    score >= 55 &&
+    score < 78 &&
+    !isStarPlayer &&
+    !objectiveLeader
+  ) {
+    return 'book';
+  }
+
   if (score >= 78) return 'best';
   if (score >= 58) return 'good';
   if (score >= 44) return 'inaccuracy';
   return 'mistake';
 }
 
-/** 评语 key：只有 `!!` / `??` 需要按对位分叉，其余按档位取 */
-function commentKeyOf(grade: ReviewGrade, context: BpContext): string {
+/** 评语 key：情境专属档位单独分叉，其余按档位取 */
+function commentKeyOf(grade: ReviewGrade, context: BpContext, objectiveWeak: boolean): string {
   if (grade === 'brilliant') {
     return context === 'disadvantaged'
       ? 'review.comment.brilliant.disadvantaged'
@@ -638,6 +865,9 @@ function commentKeyOf(grade: ReviewGrade, context: BpContext): string {
     return context === 'advantaged'
       ? 'review.comment.blunder.advantaged'
       : 'review.comment.blunder.default';
+  }
+  if (grade === 'miss') {
+    return objectiveWeak ? 'review.comment.missObjective' : 'review.comment.miss';
   }
   return `review.comment.${grade}`;
 }
@@ -718,8 +948,7 @@ function computeLeaders(
  * 评估一方 3 人。
  *
  * 双方共用这一份实现：敌方只是把 `result` / `score` 取反、把对手换成我方 3 人，
- * 其余（BP 难度、场均归一化、占比、职业权重、评级映射）完全一致——
- * 对称性靠「同一段代码 + 镜像入参」保证，而不是两套相似的公式。
+ * 其余（BP 难度、场均归一化、占比、画像权重、评级映射）完全一致。
  */
 function evaluateSide(
   idx: MetaIndex,
@@ -732,6 +961,7 @@ function evaluateSide(
   sideScore: MatchScore,
   leaders: Map<string, MetricKey[]>,
   objectiveKind: ObjectiveKind | null,
+  formatBig: (value: number) => string,
 ): PlayerReview[] {
   const totalKills = stats.reduce((sum, s) => sum + (s.kills ?? 0), 0);
   const totalDamage = stats.reduce((sum, s) => sum + (s.damage ?? 0), 0);
@@ -762,6 +992,8 @@ function evaluateSide(
     return evaluatePlayer({
       brawlerId: pick.brawlerId,
       side,
+      archetype: Number.isFinite(id) ? archetypeOf(idx, id) : 'damage_controller',
+      brawlerClass: Number.isFinite(id) ? getClass(idx, id) : 'DAMAGE',
       isSelf: side === 'ally' && stat.isSelf === true,
       isStarPlayer: stat.isStarPlayer,
       stat: {
@@ -781,9 +1013,9 @@ function evaluateSide(
       result: sideResult,
       score: sideScore,
       mode: record.mode,
-      brawlerClass: Number.isFinite(id) ? getClass(idx, id) : 'DAMAGE',
       mapWinRate: mapStat ? baseRateOf(mapStat) : null,
       matchupDelta: counter.trustedCount > 0 ? counter.avgDelta : null,
+      formatBig,
     });
   });
 }
@@ -795,17 +1027,25 @@ function averageOf(reviews: PlayerReview[]): number | null {
   return Math.round(rated.reduce((sum, p) => sum + (p.score ?? 0), 0) / rated.length);
 }
 
+export interface ReviewOptions {
+  /** 评语里的大数值格式化（中文「万」/ 英文「k」），由界面注入 */
+  formatBig?: (value: number) => string;
+}
+
 /**
  * 复盘一局（我方 + 敌方 6 人）。
  *
  * 只有完赛对局参与评级；待补录直接返回 `eligible: false`（界面对它只开编辑抽屉）。
- * 队内占比要求「本方 3 人击杀与伤害都录入且总量 > 0」，两边各自独立判断——
- * 缺一个人就算占比，剩下两人的占比会被系统性高估。
+ * 队内占比要求「本方 3 人击杀与伤害都录入且总量 > 0」，两边各自独立判断。
  *
  * 敌方视角完全镜像：我方 win → 敌方 loss，2:0 → 0:2，对位对象换成我方 3 人。
  * 旧记录没有敌方战绩时，敌方 3 人按「未录入」处理，不影响我方评级。
  */
-export function reviewMatch(idx: MetaIndex, record: MatchRecord): MatchReview {
+export function reviewMatch(
+  idx: MetaIndex,
+  record: MatchRecord,
+  options: ReviewOptions = {},
+): MatchReview {
   const eligible = record.result === 'win' || record.result === 'loss';
   if (!eligible || record.score === null) {
     return {
@@ -825,6 +1065,7 @@ export function reviewMatch(idx: MetaIndex, record: MatchRecord): MatchReview {
   const result = record.result as 'win' | 'loss';
   const score = record.score;
   const objectiveKind = objectiveKindOf(record.mode);
+  const formatBig = options.formatBig ?? ((v: number) => String(Math.round(v)));
   const idsOf = (picks: MatchRecord['allyPicks']): number[] =>
     picks.map((pick) => Number(pick.brawlerId)).filter((id) => Number.isFinite(id));
 
@@ -853,6 +1094,7 @@ export function reviewMatch(idx: MetaIndex, record: MatchRecord): MatchReview {
     score,
     leaders,
     objectiveKind,
+    formatBig,
   );
 
   const enemyReviews = evaluateSide(
@@ -866,6 +1108,7 @@ export function reviewMatch(idx: MetaIndex, record: MatchRecord): MatchReview {
     flipScore(score),
     leaders,
     objectiveKind,
+    formatBig,
   );
 
   return {
@@ -887,11 +1130,13 @@ export function tagsOf(players: PlayerReview[], result: 'win' | 'loss'): ReviewT
   const tags: ReviewTag[] = [];
   const rated = players.filter((p) => p.grade !== null);
   const grades = rated.map((p) => p.grade as ReviewGrade);
+  const solid: ReviewGrade[] = ['brilliant', 'great', 'best', 'good', 'book'];
+  const weak: ReviewGrade[] = ['inaccuracy', 'mistake', 'miss', 'blunder'];
 
   if (
     result === 'win' &&
     players.some(
-      (p) => p.bpContext === 'disadvantaged' && (p.grade === 'brilliant' || p.grade === 'best'),
+      (p) => p.bpContext === 'disadvantaged' && (p.grade === 'brilliant' || p.grade === 'great'),
     )
   ) {
     tags.push('comeback');
@@ -899,26 +1144,22 @@ export function tagsOf(players: PlayerReview[], result: 'win' | 'loss'): ReviewT
   if (
     result === 'loss' &&
     players.some(
-      (p) => p.bpContext === 'advantaged' && (p.grade === 'blunder' || p.grade === 'mistake'),
+      (p) => p.bpContext === 'advantaged' && (p.grade === 'miss' || p.grade === 'blunder'),
     )
   ) {
     tags.push('throw');
   }
-  if (grades.includes('brilliant') || players.some((p) => p.isStarPlayer && p.grade === 'best')) {
+  if (grades.includes('brilliant') || players.some((p) => p.isStarPlayer && p.grade === 'great')) {
     tags.push('carry');
   }
   if (
     players.length === TEAM_SLOTS &&
     grades.length === TEAM_SLOTS &&
-    grades.every((g) => g === 'brilliant' || g === 'best' || g === 'good')
+    grades.every((g) => solid.includes(g))
   ) {
     tags.push('allOnline');
   }
-  if (
-    result === 'loss' &&
-    rated.length > 0 &&
-    grades.every((g) => g === 'inaccuracy' || g === 'mistake' || g === 'blunder')
-  ) {
+  if (result === 'loss' && rated.length > 0 && grades.every((g) => weak.includes(g))) {
     tags.push('shaky');
   }
   if (players.some((p) => !p.hasData)) tags.push('incomplete');

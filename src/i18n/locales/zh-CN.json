@@ -376,5 +376,16 @@
   "review.note.topSafeDamage": "全场最高金库伤害",
   "review.note.topGems": "全场最高宝石",
   "review.note.tanking": "前排有效抗伤",
-  "review.note.sustain": "高额治疗续航"
+  "review.note.sustain": "高额治疗续航",
+
+  "review.grade.great": "好棋",
+  "review.grade.book": "谱着",
+  "review.grade.miss": "错失良机",
+  "review.statKills": "击杀",
+  "review.statDeaths": "死亡",
+  "review.statDamage": "伤害",
+  "review.comment.great": "关键制胜：K/D {kd}、伤害 {dmg}，这一局的转折点有你。",
+  "review.comment.book": "顺风局按剧本拿下：K/D {kd}、伤害 {dmg}，没给对手机会。",
+  "review.comment.miss": "优势对位却输了：K/D {kd}、伤害 {dmg}，好阵容被浪费。",
+  "review.comment.missObjective": "面板尚可（K/D {kd}），但机制没跟上，输在关键目标上。"
 }

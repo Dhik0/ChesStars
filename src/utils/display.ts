@@ -174,7 +174,9 @@ export function formatBigNumber(value: number | null, lang: Lang): string {
   if (lang === 'en') {
     return abs >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(Math.round(value));
   }
-  return abs >= 10000 ? `${(value / 10000).toFixed(1)}万` : String(Math.round(value));
+  // 繁中用「萬」，简中用「万」——两个语言圈的用字不同，不能共用同一个字
+  const wan = lang === 'zh-TW' ? '萬' : '万';
+  return abs >= 10000 ? `${(value / 10000).toFixed(1)}${wan}` : String(Math.round(value));
 }
 
 /**

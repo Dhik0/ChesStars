@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Crown, Pencil, Volume2, VolumeX, X } from 'lucide-react';
+import { BookOpen, Crown, Pencil, Volume2, VolumeX, X } from 'lucide-react';
 import type { MetaIndex } from '../data/metaIndex';
 import { useTranslation } from '../i18n';
 import type { MatchRecord } from '../services/matchHistoryStore';
 import {
+  GRADE_ORDER,
   GRADE_SYMBOL,
   reviewMatch,
   type BpContext,
@@ -31,13 +32,19 @@ interface MatchReviewSheetProps {
 const REVEAL_STEP_MS = 350;
 const REVEAL_STEP_FAST_MS = 260;
 
-/** 评级配色（国象记谱习惯）：!! 青蓝 / ⭐ 亮绿 / 👍 淡绿 / ?! 黄 / ? 橙 / ?? 红 */
+/**
+ * 评级配色（对齐 Chess.com 的记谱习惯）：
+ * `!!` 青蓝 / `!` 蓝 / `★` 亮绿 / `✓` 淡绿 / `📖` 棕 / `?!` 黄 / `?` 橙 / `×` 浅红 / `??` 深红
+ */
 const GRADE_TONE: Record<ReviewGrade, string> = {
   brilliant: 'border-cyan-400/70 bg-cyan-400/15 text-cyan-300',
+  great: 'border-blue-400/70 bg-blue-400/15 text-blue-300',
   best: 'border-green-500/70 bg-green-500/15 text-green-400',
   good: 'border-green-300/60 bg-green-300/10 text-green-200',
+  book: 'border-amber-700/70 bg-amber-800/25 text-amber-500',
   inaccuracy: 'border-yellow-400/70 bg-yellow-400/15 text-yellow-300',
   mistake: 'border-orange-400/70 bg-orange-400/15 text-orange-300',
+  miss: 'border-rose-400/60 bg-rose-500/10 text-rose-300',
   blunder: 'border-red-500/70 bg-red-500/15 text-red-400',
 };
 
@@ -57,6 +64,22 @@ const TAG_TONE: Record<string, string> = {
   shaky: 'bg-orange-400/10 text-orange-300 ring-1 ring-orange-400/30',
   incomplete: 'bg-slate-700/40 text-slate-400 ring-1 ring-slate-600/40',
 };
+
+/**
+ * 评级符号。`book` 用书本图标而不是 emoji——📖 在深色小角标里又糊又跳，
+ * 与 ★ / ✓ 这种等宽排印放一起会显得杂乱。
+ */
+function GradeGlyph({ grade, size = 15 }: { grade: ReviewGrade; size?: number }) {
+  if (grade === 'book') {
+    // 书本图标比文字符号更耐看，但要跟字号同档，太小会糊成一团
+    return <BookOpen size={size - 1} strokeWidth={2.6} aria-hidden />;
+  }
+  return (
+    <span className="font-black leading-none" style={{ fontSize: size }} aria-hidden>
+      {GRADE_SYMBOL[grade]}
+    </span>
+  );
+}
 
 /** 一个指标格：上小字标签、下数值；`gold` = 全场最高（金标） */
 function StatCell({
@@ -121,7 +144,7 @@ function GradeBadge({ grade, revealed }: { grade: ReviewGrade; revealed: boolean
   } ${revealed ? 'animate-grade-pop' : 'opacity-0'}`;
   const body = (
     <>
-      <span className="text-[15px] font-black leading-none">{GRADE_SYMBOL[grade]}</span>
+      <GradeGlyph grade={grade} />
       <span className="text-[8px] font-semibold leading-none">{t(`review.grade.${grade}`)}</span>
     </>
   );
@@ -141,7 +164,7 @@ function GradeBadge({ grade, revealed }: { grade: ReviewGrade; revealed: boolean
   );
 }
 
-/** 单名英雄的复盘卡片 */
+/** 单名英雄的复盘卡片（数值一律是总局原值，与结算面板 1:1） */
 function ReviewCard({
   player,
   revealed,
@@ -158,38 +181,37 @@ function ReviewCard({
   const grade = player.grade;
   const ally = player.side === 'ally';
 
-  /**
-   * 第二排指标：治疗 / 承伤 / 模式专属。
-   * 只渲染录入了的项——空值占一格会让卡片变长又没信息。
-   */
+  /** 第二排指标：治疗 / 承伤 / 模式专属；只渲染录入了的项 */
   const extraCells: Array<{ key: MetricKey; label: string; value: string }> = [];
   if (player.metrics) {
-    const m = player.metrics;
-    if (m.healingPerGame !== null) {
+    const totals = player.metrics.totals;
+    if (totals.healing !== null) {
       extraCells.push({
         key: 'healing',
         label: t('review.healing'),
-        value: formatBigNumber(m.healingPerGame, lang),
+        value: formatBigNumber(totals.healing, lang),
       });
     }
-    if (m.damageTakenPerGame !== null) {
+    if (totals.damageTaken !== null) {
       extraCells.push({
         key: 'damageTaken',
         label: t('review.damageTaken'),
-        value: formatBigNumber(m.damageTakenPerGame, lang),
+        value: formatBigNumber(totals.damageTaken, lang),
       });
     }
-    if (m.objectivePerGame !== null && player.objectiveKind) {
+    if (totals.objectiveValue !== null && player.objectiveKind) {
       extraCells.push({
         key: 'objective',
         label: t(`objective.${player.objectiveKind}`),
         value:
           player.objectiveKind === 'safeDamage'
-            ? formatBigNumber(m.objectivePerGame, lang)
-            : String(m.objectivePerGame),
+            ? formatBigNumber(totals.objectiveValue, lang)
+            : String(totals.objectiveValue),
       });
     }
   }
+
+  const totals = player.metrics?.totals;
 
   return (
     <article
@@ -246,34 +268,26 @@ function ReviewCard({
         )}
       </div>
 
-      {player.metrics ? (
+      {player.metrics && totals ? (
         <>
           <div className="mt-2 grid grid-cols-4 gap-1">
+            <StatCell label={t('review.kd')} value={player.metrics.displayKd ?? '—'} />
             <StatCell
-              label={t('review.kd')}
-              value={player.metrics.kd === null ? '—' : player.metrics.kd.toFixed(2)}
-            />
-            <StatCell
-              label={t('review.kpg')}
-              value={
-                player.metrics.killsPerGame === null ? '—' : String(player.metrics.killsPerGame)
-              }
+              label={t('review.statKills')}
+              value={totals.kills === null ? '—' : String(totals.kills)}
               gold={player.highlights.includes('kills')}
             />
             <StatCell
-              label={t('review.dpg')}
-              value={
-                player.metrics.deathsPerGame === null ? '—' : String(player.metrics.deathsPerGame)
-              }
+              label={t('review.statDeaths')}
+              value={totals.deaths === null ? '—' : String(totals.deaths)}
             />
             <StatCell
-              label={t('review.dmgpg')}
-              value={formatBigNumber(player.metrics.damagePerGame, lang)}
+              label={t('review.statDamage')}
+              value={formatBigNumber(totals.damage, lang)}
               gold={player.highlights.includes('damage')}
             />
           </div>
 
-          {/* 第二排只渲染有值的项：治疗 / 承伤 / 模式专属 */}
           {extraCells.length > 0 && (
             <div
               className="mt-1 grid gap-1"
@@ -336,8 +350,6 @@ function ReviewCard({
  * 3 人以内用 350ms，超过 3 人收紧到 260ms，避免 6 个人揭晓拖成两秒以上。
  *
  * 声音只在 `!!` 出现时响（参照 Chess.com），其余档位纯视觉，避免连续噪音。
- * 音效上下文在打开复盘的点击里就已经解锁（见 HistoryView / MatchSaveSheet），
- * 所以这一声不会被浏览器拦截。
  */
 export default function MatchReviewSheet({
   idx,
@@ -346,9 +358,14 @@ export default function MatchReviewSheet({
   onEdit,
   onClose,
 }: MatchReviewSheetProps) {
-  const { t, map: mapLabel, mode: modeLabel } = useTranslation();
+  const { t, lang, map: mapLabel, mode: modeLabel } = useTranslation();
   const { muted, toggle } = useSfxMuted();
-  const review = useMemo(() => reviewMatch(idx, record), [idx, record]);
+
+  // 评语里的伤害用本地化单位（万 / k），不输出裸整数
+  const review = useMemo(
+    () => reviewMatch(idx, record, { formatBig: (v) => formatBigNumber(v, lang) }),
+    [idx, record, lang],
+  );
 
   /** 有评级的英雄，按我方 → 敌方排列 */
   const rated = useMemo(
@@ -361,6 +378,19 @@ export default function MatchReviewSheet({
     rated.forEach((player, i) => map.set(player, i));
     return map;
   }, [rated]);
+
+  /** 顶部评级符号汇总：只列本局出现过的档位 */
+  const gradeSummary = useMemo(() => {
+    const counts = new Map<ReviewGrade, number>();
+    for (const player of [...review.allyReviews, ...review.enemyReviews]) {
+      if (!player.grade) continue;
+      counts.set(player.grade, (counts.get(player.grade) ?? 0) + 1);
+    }
+    return GRADE_ORDER.filter((grade) => counts.has(grade)).map((grade) => ({
+      grade,
+      count: counts.get(grade) ?? 0,
+    }));
+  }, [review]);
 
   const [revealed, setRevealed] = useState(0);
 
@@ -382,6 +412,7 @@ export default function MatchReviewSheet({
 
   const win = record.result === 'win';
   const enemyHasData = review.enemyReviews.some((p) => p.hasData);
+  const hasCompare = review.enemyAvgScore !== null;
 
   const cardOf = (player: PlayerReview) => {
     const index = revealIndexOf.get(player);
@@ -408,7 +439,7 @@ export default function MatchReviewSheet({
         className="mx-auto flex max-h-dvh-88 w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border-t border-slate-700 bg-slate-900 animate-slide-up landscape:max-w-[760px] safe-bottom"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 顶部：地图 / 模式 / 比分 / 双方均分 / 音效开关 */}
+        {/* 顶部：地图 / 模式 / 比分 / 音效开关 */}
         <div className="shrink-0 border-b border-slate-800 px-3 py-2.5">
           <div className="flex items-center gap-2">
             <ModeIcon mode={record.mode} size={16} />
@@ -453,34 +484,64 @@ export default function MatchReviewSheet({
             </button>
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {review.enemyAvgScore !== null ? (
-              // 双方都有数据时才做对比：单边数据下的「对比」只是自说自话
-              <span className="flex items-center gap-1 rounded-full bg-slate-950/70 px-2 py-0.5 text-[10px] font-semibold tabular-nums ring-1 ring-slate-700/70">
-                <span className="text-ally">
-                  {t('review.allyTeam')} {review.allyAvgScore ?? '—'}
+          {/* 对局总览：双色均分方块 + 标签 + 评级符号汇总 */}
+          <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/50 p-1.5">
+            <div className="flex items-stretch gap-1.5">
+              <div className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-md border border-ally/40 bg-ally/10 py-1">
+                <span className="text-[9px] leading-none text-ally/80">
+                  {t(hasCompare ? 'review.allyTeam' : 'review.teamAvg')}
                 </span>
-                <span className="text-slate-600">{t('review.vs')}</span>
-                <span className="text-enemy">
-                  {t('review.enemyTeam')} {review.enemyAvgScore}
+                <span className="mt-0.5 text-[17px] font-bold leading-none tabular-nums text-ally">
+                  {review.allyAvgScore ?? '—'}
                 </span>
-              </span>
-            ) : (
-              <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-sky-300 ring-1 ring-sky-500/30">
-                {t('review.teamAvg')} {review.allyAvgScore ?? '—'}
-              </span>
-            )}
+              </div>
 
-            {review.tags.map((tag) => (
-              <span
-                key={tag}
-                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                  TAG_TONE[tag] ?? TAG_TONE.incomplete
-                }`}
-              >
-                {t(`review.tag.${tag}`)}
-              </span>
-            ))}
+              {hasCompare && (
+                <>
+                  <span className="self-center text-[9px] font-semibold text-slate-600">
+                    {t('review.vs')}
+                  </span>
+                  <div className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-md border border-enemy/40 bg-enemy/10 py-1">
+                    <span className="text-[9px] leading-none text-enemy/80">
+                      {t('review.enemyTeam')}
+                    </span>
+                    <span className="mt-0.5 text-[17px] font-bold leading-none tabular-nums text-enemy">
+                      {review.enemyAvgScore}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {(review.tags.length > 0 || gradeSummary.length > 0) && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                {review.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      TAG_TONE[tag] ?? TAG_TONE.incomplete
+                    }`}
+                  >
+                    {t(`review.tag.${tag}`)}
+                  </span>
+                ))}
+
+                {gradeSummary.length > 0 && (
+                  <span className="ml-auto flex items-center gap-1">
+                    {gradeSummary.map(({ grade, count }) => (
+                      <span
+                        key={grade}
+                        title={t(`review.grade.${grade}`)}
+                        className={`flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-[10px] font-bold leading-none ${GRADE_TONE[grade]}`}
+                      >
+                        <GradeGlyph grade={grade} size={12} />
+                        <span className="tabular-nums">{count}</span>
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
