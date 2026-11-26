@@ -22,10 +22,10 @@
 export const EXIT_CONFIRM_WINDOW_MS = 2000;
 
 /** 可叠放的模态层。数组末尾 = 最顶层（z-index 更高） */
-export type BackLayer = 'matchup' | 'blocked' | 'detail' | 'update';
+export type BackLayer = 'matchSheet' | 'matchup' | 'blocked' | 'detail' | 'update';
 
 /** 一级页面 */
-export type BackTab = 'draft' | 'settings';
+export type BackTab = 'draft' | 'history' | 'settings';
 
 /** 「BP 助手」Tab 内的二级页面 */
 export type BackScreen = 'select' | 'draft';

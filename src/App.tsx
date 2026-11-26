@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { App as NativeApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
-import { Ban as EmptyBanIcon, EyeOff, Flame, Loader2, RefreshCw, Swords } from 'lucide-react';
+import { Ban as EmptyBanIcon, ClipboardCheck, EyeOff, Flame, Loader2, RefreshCw, Save, Swords } from 'lucide-react';
 import BottomNav, { type MainTab } from './components/BottomNav';
 import BlockedBrawlersSheet from './components/BlockedBrawlersSheet';
 import BrawlerDetail from './components/BrawlerDetail';
 import BrawlerTile from './components/BrawlerTile';
 import DraftBar from './components/DraftBar';
+import HistoryView from './components/HistoryView';
 import MapPicker from './components/MapPicker';
+import MatchSaveSheet from './components/MatchSaveSheet';
 import MatchupSheet from './components/MatchupSheet';
 import SettingsView from './components/SettingsView';
 import TopBar from './components/TopBar';
@@ -19,6 +21,12 @@ import { CLASS_COLOR, CLASS_ORDER, type BrawlerClass } from './data/brawlerProfi
 import { useTranslation } from './i18n';
 import { loadErrorMessage } from './i18n/format';
 import { metaStore, type MetaSnapshot } from './services/metaStore';
+import {
+  buildMatchFromDraft,
+  draftSignature,
+  useMatchHistory,
+  type MatchRecord,
+} from './services/matchHistoryStore';
 import { applyWebUpdate, isSwUpdateReady, onSwUpdateReady } from './services/swUpdate';
 import {
   checkForUpdate,
@@ -135,6 +143,24 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
 
+  /* ---------------- 历史对局 ---------------- */
+
+  const {
+    records: matches,
+    add: addMatchRecord,
+    update: updateMatchRecord,
+    remove: removeMatchRecord,
+  } = useMatchHistory();
+
+  /**
+   * 已保存的那一局：`signature` 是保存时的 BP 指纹。
+   * 换图 / 改英雄后指纹对不上，按钮自动回到「保存到历史对局」——
+   * 这样同一次 BP 不会被重复保存成两条，而新的一局也不会被旧状态卡住。
+   */
+  const [savedMatch, setSavedMatch] = useState<{ signature: string; id: string } | null>(null);
+  /** 保存 / 编辑抽屉（新建时记录来自当前 BP，编辑时来自库里那条） */
+  const [matchSheet, setMatchSheet] = useState<{ record: MatchRecord; isNew: boolean } | null>(null);
+
   /* ---------------- 侧滑返回 / 系统返回键 ---------------- */
 
   /** 上一次「退出提示」的时间戳：双击退出的计时窗口，放 ref 里避免闭包读到旧值 */
@@ -152,6 +178,7 @@ export default function App() {
    * 更新弹窗 z-60 盖在详情 / 对位抽屉 z-50 之上，所以排在最后。
    */
   const layers: BackLayer[] = [];
+  if (matchSheet) layers.push('matchSheet');
   if (matchupId !== null) layers.push('matchup');
   if (blockedOpen) layers.push('blocked');
   if (detailId !== null) layers.push('detail');
@@ -185,6 +212,7 @@ export default function App() {
         if (decision.action.layer === 'update') setUpdateOpen(false);
         else if (decision.action.layer === 'detail') setDetailId(null);
         else if (decision.action.layer === 'blocked') setBlockedOpen(false);
+        else if (decision.action.layer === 'matchSheet') setMatchSheet(null);
         else setMatchupId(null);
         break;
       case 'runGuard':
@@ -368,6 +396,16 @@ export default function App() {
   /** 推荐分排名表：卡片角标用全局名次，稀有度分区里也能看出它在总榜的位置 */
   const ranks = useMemo(() => rankMap(candidates), [candidates]);
 
+  /**
+   * 当前 BP 的指纹 + 「这一局已经存过了吗」。
+   * 记录被删掉时 savedRecord 变 null，按钮自动退回「保存到历史对局」。
+   */
+  const draftSig = draft ? draftSignature(draft) : '';
+  const savedRecord =
+    savedMatch && savedMatch.signature === draftSig
+      ? matches.find((m) => m.id === savedMatch.id) ?? null
+      : null;
+
   const detailCandidate = useMemo<Candidate | null>(() => {
     if (!snap || !draft || detailId === null) return null;
     return (
@@ -462,6 +500,42 @@ export default function App() {
   const handleEmptyBan = () => {
     if (!draft || !draft.firstPick) return;
     applyState(applyPick(draft, EMPTY_BAN));
+  };
+
+  /* ---------------- 历史对局：保存 / 编辑 ---------------- */
+
+  /**
+   * 打开保存抽屉。
+   * 已保存过的这一局直接进编辑态（改比分 / 补战绩），否则从当前 BP 生成新记录。
+   */
+  const handleOpenSaveSheet = () => {
+    if (!draft) return;
+    if (savedRecord) {
+      setMatchSheet({ record: savedRecord, isNew: false });
+      return;
+    }
+    setMatchSheet({ record: buildMatchFromDraft(draft), isNew: true });
+  };
+
+  /** 抽屉提交：新建走 add，编辑只覆盖比分与战绩，不动阵容快照 */
+  const handleSaveMatch = (record: MatchRecord) => {
+    if (matchSheet?.isNew) {
+      addMatchRecord(record);
+      setSavedMatch({ signature: draftSig, id: record.id });
+    } else {
+      updateMatchRecord(record.id, {
+        result: record.result,
+        score: record.score,
+        allyStats: record.allyStats,
+      });
+    }
+    setMatchSheet(null);
+  };
+
+  /** 删除对局：若删的正是当前 BP 存的那条，顺手清掉保存态 */
+  const handleDeleteMatch = (id: string) => {
+    removeMatchRecord(id);
+    if (savedMatch?.id === id) setSavedMatch(null);
   };
 
   /* ---------------- 版本更新 ---------------- */
@@ -587,6 +661,16 @@ export default function App() {
     <>
       {updateOverlay}
 
+      {matchSheet && (
+        <MatchSaveSheet
+          record={matchSheet.record}
+          isNew={matchSheet.isNew}
+          getBrawler={getBrawler}
+          onSave={handleSaveMatch}
+          onClose={() => setMatchSheet(null)}
+        />
+      )}
+
       {blockedOpen && (
         <BlockedBrawlersSheet
           ids={blockedIds}
@@ -633,7 +717,7 @@ export default function App() {
    * PC 浏览器打开时自动居中成紧凑的移动端面板，不会被横向拉伸变形。
    *
    * `navVisible` 由各页面决定：
-   *   - 选图页 / 设置页：常驻（设置是这里的唯一入口，必须可达）；
+   *   - 选图页 / 战绩页 / 设置页：常驻（都是底部导航的入口，必须可达）；
    *   - BP 页：竖向空间充足时（非矮视口竖屏）常驻，否则让位给英雄网格与 BP 台
    *     ——此时回设置要走顶部地图卡回到选图页，BP 进度不会因此丢失。
    */
@@ -680,6 +764,21 @@ export default function App() {
         qqGroupUrl={qqGroupUrl}
         onCheckUpdate={handleCheckUpdate}
         onShowUpdate={() => setUpdateOpen(true)}
+      />,
+      true,
+    );
+  }
+
+  /* ---------------- 一级页面：战绩 ---------------- */
+
+  if (tab === 'history') {
+    return shell(
+      <HistoryView
+        records={matches}
+        getBrawler={getBrawler}
+        onEdit={(record) => setMatchSheet({ record, isNew: false })}
+        onDelete={handleDeleteMatch}
+        onGoDraft={() => setTab('draft')}
       />,
       true,
     );
@@ -782,6 +881,23 @@ export default function App() {
     <div className="flex h-full flex-col items-center justify-center gap-1.5 px-6 text-center">
       <p className="text-[13px] font-semibold text-slate-300">{t('pool.completeTitle')}</p>
       <p className="text-[11px] leading-relaxed text-slate-500">{t('pool.completeDesc')}</p>
+      {/*
+        6 手选完的落点：把这一局存进历史战绩。
+        已经存过的同一局不再重复建记录，按钮切成「已保存 · 查看/编辑战绩」；
+        换图或改英雄后指纹变化，自动回到「保存到历史对局」。
+      */}
+      <button
+        type="button"
+        onClick={handleOpenSaveSheet}
+        className={`mt-1.5 flex h-10 w-full max-w-[260px] items-center justify-center gap-1.5 rounded-lg px-3 text-[12.5px] font-semibold transition-colors ${
+          savedRecord
+            ? 'border border-slate-700 bg-slate-900/80 text-slate-300 active:bg-slate-800'
+            : 'bg-sky-600 text-white active:bg-sky-700'
+        }`}
+      >
+        {savedRecord ? <ClipboardCheck size={14} /> : <Save size={14} />}
+        {savedRecord ? t('save.savedCta') : t('save.cta')}
+      </button>
     </div>
   ) : (
     <>

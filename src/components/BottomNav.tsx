@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
-import { Settings, Swords } from 'lucide-react';
+import { History, Settings, Swords } from 'lucide-react';
 import { useTranslation } from '../i18n';
 
-/** 一级页面：左侧「BP 助手」（选图 + BP 主流程）/ 右侧「设置」 */
-export type MainTab = 'draft' | 'settings';
+/** 一级页面：BP 助手（选图 + BP 主流程）/ 战绩 / 设置 */
+export type MainTab = 'draft' | 'history' | 'settings';
 
 interface BottomNavProps {
   tab: MainTab;
@@ -56,8 +56,8 @@ function TabButton({ active, label, dot = false, ariaLabel, onClick, children }:
 /**
  * 底部一级导航。
  *
- * 两个入口：左侧回到「选图 / BP」主流程，右侧进入「设置」页。
- * 只负责切换一级页面，BP 状态由 App 持有，切走再切回不会丢进度。
+ * 三个入口：BP 主流程 / 战绩 / 设置。只负责切换一级页面，
+ * BP 状态与历史对局都由 App 持有，切走再切回不会丢进度。
  *
  * 底部按 `env(safe-area-inset-bottom)` 留出安全区（全面屏手势条 / 刘海屏）。
  */
@@ -69,7 +69,7 @@ export default function BottomNav({ tab, onChange, hasUpdate = false }: BottomNa
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       aria-label={t('nav.main')}
     >
-      <div className="grid grid-cols-2">
+      <div className="grid grid-cols-3">
         <TabButton
           active={tab === 'draft'}
           label={t('nav.draft')}
@@ -77,6 +77,15 @@ export default function BottomNav({ tab, onChange, hasUpdate = false }: BottomNa
           onClick={() => onChange('draft')}
         >
           <Swords size={19} strokeWidth={tab === 'draft' ? 2.4 : 2} />
+        </TabButton>
+
+        <TabButton
+          active={tab === 'history'}
+          label={t('nav.history')}
+          ariaLabel={t('nav.historyAria')}
+          onClick={() => onChange('history')}
+        >
+          <History size={19} strokeWidth={tab === 'history' ? 2.4 : 2} />
         </TabButton>
 
         <TabButton

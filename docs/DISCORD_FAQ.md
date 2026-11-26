@@ -1,117 +1,60 @@
-# ChesStars · Discord `#faq`
+# ChesStars · Discord `#faq`（繁體中文）
 
-> 维护说明（不要粘贴）：每两个 `---` 之间是一段**可直接复制到 Discord 的消息**，都控制在
-> 2000 字符以内。前三条英文、后三条中文，内容一一对应；改文案时两边一起改。
-> 频道里建议按「英文三条置顶 + 中文三条置顶」的顺序排列。
-
----
-
-**ChesStars · FAQ — Web / PWA: updates & cache**
-
-**Getting a new version**
-The web app checks for a new build a few seconds after launch. When one is out, a thin bar appears at the top of the screen: **New version vX.X.X — Update now**. Tap it to reload into the new build. It never reloads on its own, so a draft in progress is never interrupted.
-You can also check manually: **Settings → Check for updates**.
-
-**Still seeing an old screen or old data?**
-The app version and the match data update separately — check the data date in Settings first.
-
-- Desktop: hard reload with `Ctrl+Shift+R` (`Cmd+Shift+R` on Mac).
-- iPhone / iPad (added to home screen): close it from the app switcher and reopen. Still stuck? Settings → Safari → Advanced → Website Data → delete `chesstars.pages.dev`.
-- Android Chrome: ⋮ → Settings → Site settings → All sites → `chesstars.pages.dev` → Clear & reset.
-- Then open **Settings → Update data now** to pull the latest dataset.
-
-**Why the banner matters**
-Updates are handed over by a service worker. If a very old copy is cached, the banner is the fastest way onto the current build — no reinstall, no data loss.
+> 維護說明（不要貼上）：每兩個 `---` 之間是一段**可直接複製到 Discord 的訊息**，都控制在
+> 2000 字元以內。改文案時記得同步 App 內 `zh-TW` 的用詞（設定 / 資料 / 已封鎖 / 選人推薦）。
 
 ---
 
-**ChesStars · 常见问题 — 网页版 / PWA：更新与缓存**
+**ChesStars · 常見問題 — 網頁版 / PWA：更新與快取**
 
-**怎么拿到新版本**
-网页版启动几秒后会在后台检查新构建。有新版本时，页面顶部会出现一条提示：**发现新版本 vX.X.X — 立即更新**，点一下就会刷新到新版本。它不会自己刷新，所以正在进行的 BP 不会被打断。
-也可以手动检查：**设置 → 检查更新**。
+**怎麼拿到新版本**
+網頁版啟動幾秒後會在背景檢查新版本。有新版本時，頁面頂端會出現一條提示：**發現新版本 vX.X.X — 立即更新**，點一下就會重新整理到新版本。它不會自己重新整理，所以正在進行的 BP 不會被打斷。
+也可以手動檢查：**設定 → 檢查更新**。
 
-**刷新后还是旧界面 / 旧数据？**
-应用版本和对战数据是分开更新的，先看设置里的「数据日期」。
+**重新整理後還是舊畫面 / 舊資料？**
+應用程式版本和對戰資料是分開更新的，先看設定裡的「資料日期」。
 
-- 电脑：`Ctrl+Shift+R` 强制刷新（Mac 是 `Cmd+Shift+R`）。
-- iPhone / iPad（已添加到主屏幕）：从多任务里划掉再重新打开；还不行就去 设置 → Safari → 高级 → 网站数据，删除 `chesstars.pages.dev`。
-- 安卓 Chrome：⋮ → 设置 → 网站设置 → 所有网站 → `chesstars.pages.dev` → 清除并重置。
-- 之后进 **设置 → 立即拉取最新数据** 拉一次最新数据集。
+- 電腦：`Ctrl+Shift+R` 強制重新整理（Mac 是 `Cmd+Shift+R`）。
+- iPhone / iPad（已加入主畫面）：從多工列滑掉再重新開啟；還是不行就到 設定 → Safari → 進階 → 網站資料，刪除 `chesstars.pages.dev`。
+- Android Chrome：⋮ → 設定 → 網站設定 → 所有網站 → `chesstars.pages.dev` → 清除並重設。
+- 之後進 **設定 → 立即取得最新資料** 抓一次最新資料集。
 
-**为什么需要那条提示条**
-更新是由 Service Worker 接管的。缓存里那份太旧时，提示条是最快的切换方式——不用重装，也不会丢数据。
+**為什麼需要那條提示**
+更新是由 Service Worker 接手的。快取裡那份太舊時，提示條是最快的切換方式——不用重新安裝，也不會遺失資料。
 
 ---
 
-**ChesStars · FAQ — Android APK: install errors**
+**ChesStars · 常見問題 — Android APK：安裝錯誤**
 
-**Download only from GitHub Releases**
+**只從 GitHub Releases 下載**
 https://github.com/Dhik0/ChesStars/releases/latest
-The mirror links inside the app point to exactly the same file.
+App 內提供的國內鏡像下載的是同一個檔案。
 
-**Signatures**
-Every release APK carries both **V1 (JAR)** and **V2 (APK Signature Scheme)** signatures, so it installs on Android 5.1 and newer, including Android 14 / 15.
+**簽章**
+每個正式版都帶完整的 **V1（JAR）** 與 **V2（APK Signature Scheme）** 簽章，Android 5.1 以上（含 Android 14 / 15）都能正常安裝。
 
-**"Package contains no certificates" / "There was a problem parsing the package"**
-This is almost always a damaged or renamed file, not a broken build.
+**提示「未包含任何憑證」/「解析套件時發生問題」**
+幾乎都不是檔案壞了，而是下載不完整或被改了檔名。
 
-- Chat apps (Telegram, WeChat, QQ) often save the APK as `ChesStars-v1.3.2.apk.1` or `.apk.zip`. Android only installs files ending in `.apk` — rename it back first.
-- Re-download from the Releases page above, then open the file from the system **Files** app instead of tapping it inside the chat.
-- Check that there is enough free storage, and allow "Install unknown apps" for the app you open it from.
+- Telegram / 微信 / QQ 這類聊天軟體常常把 APK 存成 `ChesStars-v1.3.2.apk.1` 或 `.apk.zip`。Android 只認以 `.apk` 結尾的檔案，先把檔名改回去。
+- 從上面的 Releases 頁面重新下載，然後用系統內建的「檔案管理」開啟安裝，不要在聊天視窗裡直接點。
+- 順便確認手機剩餘空間夠用，並給「檔案管理 / 瀏覽器」開啟「安裝未知的應用程式」權限。
 
-**Upgrading**
-Installing over an older version keeps your settings. Uninstalling first is only needed if you previously installed a build with a different signature (for example a debug build).
-
----
-
-**ChesStars · 常见问题 — 安卓 APK：安装报错**
-
-**只从 GitHub Releases 下载**
-https://github.com/Dhik0/ChesStars/releases/latest
-App 内提供的国内镜像下载的是同一个文件。
-
-**签名**
-每个正式包都带完整的 **V1（JAR）** 与 **V2（APK Signature Scheme）** 签名，Android 5.1 及以上（含 Android 14 / 15）都能正常安装。
-
-**提示「未包含任何证书」/「解析软件包时出现问题」**
-基本都不是包坏了，而是下载不完整或被改了名。
-
-- Telegram / 微信 / QQ 这类聊天软件经常把 APK 存成 `ChesStars-v1.3.2.apk.1` 或 `.apk.zip`。安卓只认以 `.apk` 结尾的文件，先把名字改回去。
-- 从上面的 Releases 页面重新下载，然后用系统自带的「文件管理」打开安装，不要在聊天窗口里直接点。
-- 顺便确认手机剩余空间够用，并给「文件管理 / 浏览器」打开「安装未知应用」权限。
-
-**覆盖升级**
-直接覆盖安装会保留设置。只有之前装的是签名不同的包（比如 debug 包）时，才需要先卸载。
+**覆蓋升級**
+直接覆蓋安裝會保留設定。只有之前裝的是簽章不同的版本（例如 debug 版）時，才需要先解除安裝。
 
 ---
 
-**ChesStars · FAQ — Data updates & handy features**
+**ChesStars · 常見問題 — 資料更新與實用功能**
 
-**Daily data**
-The match dataset is rebuilt every day. On launch the app checks in the background and pulls a newer set automatically; **Settings → Update data now** forces a check and tells you exactly what happened (updated / already current / failed, with the reason). The data date is always shown in Settings.
+**每日資料**
+對戰資料每天重建一次。啟動時 App 會在背景檢查並自動取得較新的資料；**設定 → 立即取得最新資料** 會強制檢查一次，並明確告訴你結果（已更新 / 目前已是最新 / 失敗及原因）。資料日期一直顯示在設定裡。
 
-**Works offline**
-The dataset ships inside the app (and is cached for the web version), so drafting works with no connection at all. Only pulling new data needs the network.
+**離線也能用**
+資料集隨 App 一起打包（網頁版由 Service Worker 預先快取），完全離線也能正常 BP。只有取得新資料需要連網。
 
-**Maps grouped by mode**
-The map picker groups maps by mode and starts with every group collapsed — tap a mode to expand it. Picking a map expands its group and starts the draft.
+**地圖依模式摺疊**
+選圖頁依模式分組，預設全部摺疊，點模式名稱展開。選中一張地圖後，它所屬的模式會自動展開並直接進入 BP。
 
-**Block the brawlers you don't play**
-Mark brawlers as blocked from the brawler pool or the detail sheet. This only filters **your own pick recommendations** — ban suggestions and the full brawler list stay untouched. The list is stored on your device and never uploaded.
-
----
-
-**ChesStars · 常见问题 — 数据更新与实用功能**
-
-**每日数据**
-对战数据每天重建一次。启动时 App 会在后台检查并自动拉取更新的数据；**设置 → 立即拉取最新数据** 会强制检查一次，并明确告诉你结果（已更新 / 已是最新 / 失败及原因）。数据日期一直显示在设置里。
-
-**断网也能用**
-数据集随 App 一起打包（网页版由 Service Worker 预缓存），完全断网也能正常 BP。只有拉取新数据需要联网。
-
-**地图按模式折叠**
-选图页按模式分组，默认全部折叠，点模式名展开。选中一张地图后，它所在的模式会自动展开并直接进入 BP。
-
-**屏蔽不喜欢的英雄**
-在英雄池的「已屏蔽」入口或英雄详情里标记。它**只影响你自己的选人推荐**——Ban 推荐和全英雄列表都不受影响。名单存在本机，不会上传。
+**封鎖不喜歡的英雄**
+在英雄池的「已封鎖」入口或英雄詳情裡標記。它**只影響你自己的選人推薦**——Ban 推薦和全英雄清單都不受影響。名單存在本機，不會上傳。
