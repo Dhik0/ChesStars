@@ -13,7 +13,6 @@ import {
   shouldReplaceMeta,
   withCacheBust,
 } from './metaRemote';
-
 const SHA = '54efc4bfccd9e4e0e787ee466aa1e27a6b0215d1';
 
 /** 最小 Response 替身：只提供 fetchOnce 用到的 ok / status / headers / json */
@@ -239,5 +238,84 @@ describe('updated_at 增量判断', () => {
     expect(
       shouldReplaceMeta(meta(micro), meta('2026-11-23T01:11:11Z'), { hasCache: true }),
     ).toBe(true);
+  });
+});
+
+describe('Web 端优先取新鲜源（preferFresh）', () => {
+  it('Raw 可用时直接命中，不碰 jsDelivr 分支缓存', async () => {
+    const fetchMock = routeFetch({
+      commit: () => res(null, { ok: false, status: 403 }),
+      raw: () => res({ ok: 1 }),
+      branch: () => res({ ok: 0 }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const out = await fetchRepoJson(META_REPO_REF, { preferFresh: true, cacheBust: 7 });
+
+    expect(out.channel).toBe('raw');
+    expect(calledUrls(fetchMock).some((u) => u.includes('cdn.jsdelivr.net'))).toBe(false);
+    // 提交接口失败的原因仍保留，便于排查
+    expect(out.failures[0]).toContain('GitHub 提交接口');
+  });
+
+  it('Raw 不通时先走国内反代，仍不碰分支缓存', async () => {
+    const fetchMock = routeFetch({
+      commit: () => res(null, { ok: false, status: 403 }),
+      raw: () => res(null, { ok: false, status: 502 }),
+      branch: () => res({ ok: 0 }),
+    });
+    // 反代走的是 ghfast.top 前缀 + raw 地址，需要单独兜住
+    const withMirror = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('https://ghfast.top/')) return res({ ok: 1 });
+      return fetchMock(input);
+    });
+    vi.stubGlobal('fetch', withMirror);
+
+    const out = await fetchRepoJson(META_REPO_REF, { preferFresh: true, cacheBust: 8 });
+
+    expect(out.channel).toBe('mirror');
+    expect(out.url).toBe(`https://ghfast.top/${RAW_URL}`);
+    expect(calledUrls(withMirror).some((u) => u.includes('cdn.jsdelivr.net'))).toBe(false);
+  });
+
+  it('前两段都不通时才回落到 jsDelivr 分支（并保留 Age 供上层判断新旧）', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('https://api.github.com/')) return res(null, { ok: false, status: 403 });
+      if (url.startsWith('https://raw.githubusercontent.com/')) {
+        return res(null, { ok: false, status: 502 });
+      }
+      if (url.startsWith('https://ghfast.top/')) return res(null, { ok: false, status: 502 });
+      return {
+        ok: true,
+        status: 200,
+        headers: {
+          get: (key: string) =>
+            key.toLowerCase() === 'age' ? '24603' : null,
+        },
+        json: async () => ({ ok: 0 }),
+      } as unknown as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const out = await fetchRepoJson(META_REPO_REF, { preferFresh: true, cacheBust: 9 });
+
+    expect(out.channel).toBe('cdn-branch');
+    expect(out.ageSeconds).toBe(24603);
+    expect(out.failures).toHaveLength(3);
+  });
+
+  it('原生默认顺序不变：分支优先（国内更快）', async () => {
+    const fetchMock = routeFetch({
+      commit: () => res(null, { ok: false, status: 403 }),
+      branch: () => res({ ok: 1 }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const out = await fetchRepoJson(META_REPO_REF, { cacheBust: 10 });
+
+    expect(out.channel).toBe('cdn-branch');
+    expect(calledUrls(fetchMock).some((u) => u.includes('ghfast.top'))).toBe(false);
   });
 });

@@ -1,8 +1,15 @@
 import { buildIndex, type MetaIndex } from '../data/metaIndex';
+import { IS_WEB } from '../config/platform';
 import { validateMeta, type BrawlMeta, type MetaSource } from '../types/meta';
 import { fetchJsonWithRetry, HttpError, HttpTimeoutError } from './http';
 import { metaCache, type MetaCacheAdapter } from './metaCache';
-import { fetchRepoJson, META_REPO_REF, shouldReplaceMeta } from './metaRemote';
+import {
+  fetchRepoJson,
+  META_REPO_REF,
+  MetaRemoteError,
+  shouldReplaceMeta,
+  type MetaChannel,
+} from './metaRemote';
 
 /**
  * 数据仓库：离线优先 + 远程热更新（Stale-While-Revalidate）
@@ -55,7 +62,10 @@ export interface MetaSnapshot {
  * 手动拉取的结果类型。
  * 服务层只回结构化结果，具体文案由界面按当前语言组装（`i18n/format.ts`）。
  */
-export type PullCode = 'notReady' | 'latest' | 'updated' | 'failed';
+export type PullCode = 'notReady' | 'latest' | 'updated' | 'failed' | 'stale';
+
+/** 拉取失败的性质：给界面一句「具体原因」，而不是笼统的「失败」 */
+export type PullFailureReason = 'timeout' | 'offline' | 'blocked' | 'unavailable';
 
 export interface PullResult {
   ok: boolean;
@@ -68,7 +78,17 @@ export interface PullResult {
   battles?: number;
   /** 是否成功落盘；false = 仅本次启动内有效（仅 updated 有意义） */
   persisted?: boolean;
+  /** 失败原因（仅 failed 有） */
+  reason?: PullFailureReason;
+  /** 拿到的缓存副本大约多少小时前（仅 stale 有） */
+  staleHours?: number;
 }
+
+/**
+ * 分支缓存副本的「过期」判定线：响应在 CDN 缓存里躺了超过 10 分钟，
+ * 就不能再断言「已是最新」——jsDelivr 的分支地址最长能缓存 12 小时。
+ */
+export const PULL_STALE_AFTER_SECONDS = 600;
 
 type Listener = (snap: MetaSnapshot) => void;
 
@@ -151,6 +171,24 @@ function classifyNetworkError(err: unknown): MetaLoadError {
 }
 
 /**
+ * 远程链路全挂 → 一句可解释的原因。
+ *
+ * 判定顺序：全超时 → 超时；全断网（fetch 抛 TypeError）→ 断网；
+ * 出现 403 / 429 → 被限流（未认证的 GitHub 接口每小时只有 60 次）；其余归「不可用」。
+ */
+function pullFailureReason(err: unknown): PullFailureReason {
+  if (!(err instanceof MetaRemoteError) || err.kinds.length === 0) return 'unavailable';
+
+  const kinds = err.kinds;
+  if (kinds.every((f) => f.kind === 'timeout')) return 'timeout';
+  if (kinds.every((f) => f.kind === 'offline')) return 'offline';
+  if (kinds.some((f) => f.kind === 'http' && (f.status === 403 || f.status === 429))) {
+    return 'blocked';
+  }
+  return 'unavailable';
+}
+
+/**
  * 数据仓库。
  *
  * 缓存读写全部走 `MetaCacheAdapter`（默认实现是 IndexedDB）：
@@ -195,15 +233,30 @@ export class MetaStore {
   }
 
   /**
-   * 走三段式链路拉一次远程，并把结构校验过一遍。
+   * 走远程链路拉一次数据，并把结构校验过一遍。
    *
-   * 每次调用都带一个**新的**防缓存时间戳（三段链路共用同一个值）。
-   * 这是「手动拉取却提示已是最新」的根因所在：请求一旦命中浏览器磁盘缓存或
-   * CDN 边缘缓存，拿回来的就是旧文件，与本地一比自然「没有更新」。
+   * 每次调用都带一个**新的**防缓存时间戳（所有段共用同一个值）；
+   * Web 端额外打开 `preferFresh`——浏览器里 GitHub 提交接口常被限流，
+   * 一旦落到 jsDelivr 的分支地址就会拿到最长 12 小时的旧副本。
+   *
+   * 返回值带上命中渠道与缓存年龄，`pullNow` 靠它区分「真的最新」和「拿到旧副本」。
    */
-  private async loadRemote(): Promise<{ meta: BrawlMeta; lastModified: string | null }> {
-    const res = await fetchRepoJson<unknown>(META_REPO_REF, { cacheBust: Date.now() });
-    return { meta: validateMeta(res.data), lastModified: res.lastModified };
+  private async loadRemote(): Promise<{
+    meta: BrawlMeta;
+    lastModified: string | null;
+    channel: MetaChannel;
+    ageSeconds: number | null;
+  }> {
+    const res = await fetchRepoJson<unknown>(META_REPO_REF, {
+      cacheBust: Date.now(),
+      preferFresh: IS_WEB,
+    });
+    return {
+      meta: validateMeta(res.data),
+      lastModified: res.lastModified,
+      channel: res.channel,
+      ageSeconds: res.ageSeconds,
+    };
   }
 
   /**
@@ -294,7 +347,7 @@ export class MetaStore {
 
   /**
    * 手动「立即拉取最新数据」：强制走网络，不查任何冷却时间，
-   * 并把「已更新 / 已是最新 / 失败」明确回报给界面。
+   * 并把「已更新 / 已是最新 / 失败 / 只拿到缓存副本」明确回报给界面。
    */
   async pullNow(): Promise<PullResult> {
     if (!this.snapshot) return { ok: false, updated: false, code: 'notReady' };
@@ -309,7 +362,23 @@ export class MetaStore {
       // 对比基准是「本地当前正在用的那份数据」（缓存 / 内置 / 本会话已拉到的远端），
       // 而不是再拿缓存跟缓存比——loadRemote 已经强制走了一次网络（带防缓存参数）。
       if (!shouldReplaceMeta(remote.meta, this.snapshot.meta, { hasCache: this.hasCache })) {
-        // 远端没有更新（甚至比本地更旧）：报本地当前数据的日期，
+        // 只拿到 jsDelivr 分支缓存副本时，**不能**说「已是最新」：
+        // 那份文件可能已经躺在边缘节点上好几个小时，本地反而才是新的。
+        // 这是 Web 端「明明后端更新了却提示已是最新」的真正原因。
+        if (
+          remote.channel === 'cdn-branch' &&
+          remote.ageSeconds !== null &&
+          remote.ageSeconds > PULL_STALE_AFTER_SECONDS
+        ) {
+          return {
+            ok: false,
+            updated: false,
+            code: 'stale',
+            staleHours: Math.max(1, Math.round(remote.ageSeconds / 3600)),
+          };
+        }
+
+        // 远端确实没有更新（甚至比本地更旧）：报本地当前数据的日期，
         // 不能把远端那份旧日期当成「最新」讲给用户。
         return {
           ok: true,
@@ -326,8 +395,10 @@ export class MetaStore {
       this.setMeta(remote.meta, 'remote', remote.lastModified);
 
       return { ok: true, updated: true, code: 'updated', date, battles, persisted };
-    } catch {
-      return { ok: false, updated: false, code: 'failed' };
+    } catch (err) {
+      // 所有段都失败：把「超时 / 断网 / 被限流 / 不可用」分出来告诉用户，
+      // 绝不能在这一步吞掉错误去说「已是最新」。
+      return { ok: false, updated: false, code: 'failed', reason: pullFailureReason(err) };
     }
   }
 }

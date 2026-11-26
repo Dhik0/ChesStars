@@ -25,7 +25,7 @@
  * AbortSignal，反而让防缓存与超时控制失效，这里刻意继续用 WebView 的 fetch。
  */
 import type { BrawlMeta } from '../types/meta';
-import { fetchJsonWithRetry, type FetchJsonResult } from './http';
+import { fetchJsonWithRetry, HttpError, HttpTimeoutError, type FetchJsonResult } from './http';
 
 /* ------------------------------- 仓库常量 ------------------------------- */
 
@@ -72,6 +72,20 @@ export function rawUrl(ref: RepoRef): string {
   return `https://raw.githubusercontent.com/${ref.owner}/${ref.repo}/${ref.branch}/${ref.path}`;
 }
 
+/**
+ * raw 的国内反代（ghfast.top），与 APK 下载用的是同一套镜像前缀。
+ *
+ * 只给 Web 端兜底用：`raw.githubusercontent.com` 在国内经常连不上，而 jsDelivr 的
+ * 分支地址又有 12 小时边缘缓存。这个反代走的是同一份 raw 文件（`max-age=300`），
+ * 不经过分支缓存，所以拿到的一定是最新提交；响应头带 `Access-Control-Allow-Origin: *`，
+ * 浏览器可以直接取。
+ */
+export const RAW_MIRROR_PREFIX = 'https://ghfast.top/';
+
+export function mirrorRawUrl(ref: RepoRef): string {
+  return `${RAW_MIRROR_PREFIX}${rawUrl(ref)}`;
+}
+
 /** jsDelivr 精确版本地址（不可变引用，无分支缓存） */
 export function pinnedUrl(ref: RepoRef, sha: string): string {
   return `https://cdn.jsdelivr.net/gh/${ref.owner}/${ref.repo}@${sha}/${ref.path}`;
@@ -100,8 +114,30 @@ export const META_DOWNLOAD_RETRIES = 0;
 
 /* ------------------------------- 渠道标识 ------------------------------- */
 
-/** 数据实际从哪一段拿到的（仅用于内部排查，不在界面展示） */
-export type MetaChannel = 'cdn-sha' | 'cdn-branch' | 'raw';
+/**
+ * 数据实际从哪一段拿到的（仅用于内部排查，不在界面展示）。
+ *
+ * `cdn-branch` 是唯一可能「成功但返回旧数据」的一段：jsDelivr 对分支引用
+ * 有 12 小时边缘缓存，且 `?t=` 绕不过去，只能靠响应头 `Age` 识别。
+ */
+export type MetaChannel = 'cdn-sha' | 'raw' | 'mirror' | 'cdn-branch';
+
+/** 单段失败的性质：上层据此把「超时 / 断网 / 被拒」翻译成人话 */
+export type FailureKind = 'timeout' | 'offline' | 'http' | 'other';
+
+export interface MetaFailure {
+  kind: FailureKind;
+  /** 仅 kind === 'http' 时有值 */
+  status?: number;
+}
+
+function failureOf(err: unknown): MetaFailure {
+  if (err instanceof HttpTimeoutError) return { kind: 'timeout' };
+  if (err instanceof HttpError) return { kind: 'http', status: err.status };
+  // 浏览器 fetch 在断网 / DNS 失败 / CORS 被拒时抛的都是 TypeError
+  if (err instanceof TypeError) return { kind: 'offline' };
+  return { kind: 'other' };
+}
 
 /* ------------------------------- 类型定义 ------------------------------- */
 
@@ -112,12 +148,24 @@ export interface MetaRemoteOptions {
   retries?: number;
   /** 防缓存参数用的时间戳，测试注入用 */
   cacheBust?: number;
+  /**
+   * 优先取「新鲜」的源（Web 端必开）。
+   *
+   * 纯浏览器里，GitHub 提交接口经常被限流（未认证 60 次/小时/IP），
+   * 一旦失败就只能落到 jsDelivr 的分支地址——而它有 12 小时边缘缓存，
+   * `?t=` 也绕不过去，于是「拉取成功」却拿到昨天的文件。
+   * 打开这个开关后顺序变成：精确 sha → Raw 直连 → 国内反代 → jsDelivr 分支，
+   * 前两段都不经过分支缓存。原生壳仍走原来的「分支优先」（国内更快）。
+   */
+  preferFresh?: boolean;
 }
 
 export interface MetaRemoteResult<T = unknown> {
   data: T;
   /** 响应头 Last-Modified（数据日期兜底） */
   lastModified: string | null;
+  /** 响应在共享缓存里躺了多久（秒），仅用于判断是否拿到旧副本 */
+  ageSeconds: number | null;
   /** 实际命中的链路 */
   channel: MetaChannel;
   /** 实际请求的地址（不含防缓存参数） */
@@ -129,11 +177,14 @@ export interface MetaRemoteResult<T = unknown> {
 /** 三段链路全部失败：message 已拼好可读原因，供界面直接展示 */
 export class MetaRemoteError extends Error {
   readonly failures: string[];
+  /** 与 failures 一一对应的失败性质 */
+  readonly kinds: MetaFailure[];
 
-  constructor(failures: string[]) {
+  constructor(failures: string[], kinds: MetaFailure[] = []) {
     super(failures.length ? failures.join(' ｜ ') : '所有远程链路均失败');
     this.name = 'MetaRemoteError';
     this.failures = failures;
+    this.kinds = kinds;
   }
 }
 
@@ -231,6 +282,7 @@ export async function resolveLatestSha(
   failures: string[] = [],
   cacheBust?: number,
   ref: RepoRef = META_REPO_REF,
+  kinds: MetaFailure[] = [],
 ): Promise<string | null> {
   try {
     const { data } = await fetchJsonWithRetry<{ sha?: unknown }>(
@@ -244,18 +296,28 @@ export async function resolveLatestSha(
     const sha = typeof data?.sha === 'string' ? data.sha.trim() : '';
     if (!SHA_RE.test(sha)) {
       failures.push('GitHub 提交接口：返回体缺少有效 sha');
+      kinds.push({ kind: 'other' });
       return null;
     }
     return sha;
   } catch (err) {
     failures.push(`GitHub 提交接口：${reason(err)}`);
+    kinds.push(failureOf(err));
     return null;
   }
 }
 
 /**
- * 按「sha 精确版本 → 分支 CDN → Raw」顺序拉取任意仓库的 JSON。
- * 全部失败时抛 MetaRemoteError（message 含三段原因）。
+ * 按顺序尝试各段，谁先成功用谁。
+ *
+ * 顺序有两种：
+ *   - 默认（原生壳）：`jsDelivr@main` → `Raw`。国内 jsDelivr 更快，
+ *     而且原生端不受 CORS 限制，两条都通。
+ *   - `preferFresh`（Web）：`Raw` → `国内反代` → `jsDelivr@main`。
+ *     浏览器里提交接口常被限流，一旦落到分支地址就会拿到最长 12 小时的旧副本，
+ *     所以 Web 端宁可先走两个「不经过分支缓存」的源。
+ *
+ * 全部失败时抛 MetaRemoteError（message 含每段原因，kinds 含失败性质）。
  */
 export async function fetchRepoJson<T = unknown>(
   ref: RepoRef,
@@ -264,9 +326,10 @@ export async function fetchRepoJson<T = unknown>(
   const timeoutMs = options.timeoutMs ?? META_DOWNLOAD_TIMEOUT_MS;
   const retries = Math.max(0, options.retries ?? META_DOWNLOAD_RETRIES);
   const failures: string[] = [];
+  const kinds: MetaFailure[] = [];
 
-  // 1) 精确 Commit SHA：绕开 jsDelivr 分支缓存
-  const sha = await resolveLatestSha(failures, options.cacheBust, ref);
+  // 1) 精确 Commit SHA：既能绕开分支缓存，又能走 jsDelivr 的快车
+  const sha = await resolveLatestSha(failures, options.cacheBust, ref, kinds);
   if (sha) {
     const url = pinnedUrl(ref, sha);
     try {
@@ -274,26 +337,32 @@ export async function fetchRepoJson<T = unknown>(
       return { ...res, channel: 'cdn-sha', url, failures };
     } catch (err) {
       failures.push(`jsDelivr@${sha.slice(0, 7)}：${reason(err)}`);
+      kinds.push(failureOf(err));
     }
   }
 
-  // 2) 第一兜底：jsDelivr 分支直连
-  const branchUrl = branchCdnUrl(ref);
-  try {
-    const res = await download<T>(branchUrl, timeoutMs, retries, options.cacheBust);
-    return { ...res, channel: 'cdn-branch', url: branchUrl, failures };
-  } catch (err) {
-    failures.push(`jsDelivr@${ref.branch}：${reason(err)}`);
+  // 2) 兜底段：顺序见上方注释
+  const fallbacks: Array<{ channel: MetaChannel; url: string; label: string }> =
+    options.preferFresh
+      ? [
+          { channel: 'raw', url: rawUrl(ref), label: 'GitHub Raw' },
+          { channel: 'mirror', url: mirrorRawUrl(ref), label: '国内反代' },
+          { channel: 'cdn-branch', url: branchCdnUrl(ref), label: `jsDelivr@${ref.branch}` },
+        ]
+      : [
+          { channel: 'cdn-branch', url: branchCdnUrl(ref), label: `jsDelivr@${ref.branch}` },
+          { channel: 'raw', url: rawUrl(ref), label: 'GitHub Raw' },
+        ];
+
+  for (const segment of fallbacks) {
+    try {
+      const res = await download<T>(segment.url, timeoutMs, retries, options.cacheBust);
+      return { ...res, channel: segment.channel, url: segment.url, failures };
+    } catch (err) {
+      failures.push(`${segment.label}：${reason(err)}`);
+      kinds.push(failureOf(err));
+    }
   }
 
-  // 3) 最终兜底：GitHub Raw 直连
-  const raw = rawUrl(ref);
-  try {
-    const res = await download<T>(raw, timeoutMs, retries, options.cacheBust);
-    return { ...res, channel: 'raw', url: raw, failures };
-  } catch (err) {
-    failures.push(`GitHub Raw：${reason(err)}`);
-  }
-
-  throw new MetaRemoteError(failures);
+  throw new MetaRemoteError(failures, kinds);
 }

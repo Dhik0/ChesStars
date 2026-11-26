@@ -21,6 +21,14 @@ export interface FetchJsonResult<T> {
   data: T;
   /** 响应的 Last-Modified 头（可能为空），用于数据日期兜底 */
   lastModified: string | null;
+  /**
+   * 响应在共享缓存里躺了多久（秒），取自 `Age` 头；拿不到时为 null。
+   *
+   * 用途只有一个：判断「这份数据是从 CDN 缓存里翻出来的旧副本」。
+   * jsDelivr 的分支地址（`@main`）边缘缓存 12 小时，`?t=` 也绕不过去，
+   * 只有 `Age` 能证明它有多旧。
+   */
+  ageSeconds: number | null;
 }
 
 /** 带 HTTP 状态码的错误，便于判断是否值得重试 */
@@ -63,6 +71,14 @@ function timeoutError(timeoutMs: number): Error {
   return new HttpTimeoutError(timeoutMs);
 }
 
+/** `Age` 头 → 秒；缺失或非法返回 null */
+function readAgeSeconds(headers: Headers): number | null {
+  const raw = headers.get('age');
+  if (!raw) return null;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
 async function fetchOnce<T>(
   url: string,
   timeoutMs: number,
@@ -78,7 +94,11 @@ async function fetchOnce<T>(
     });
     if (!res.ok) throw new HttpError(res.status, `HTTP ${res.status}`);
     const data = (await res.json()) as T;
-    return { data, lastModified: res.headers.get('last-modified') };
+    return {
+      data,
+      lastModified: res.headers.get('last-modified'),
+      ageSeconds: readAgeSeconds(res.headers),
+    };
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') throw timeoutError(timeoutMs);
     throw err;

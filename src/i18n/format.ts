@@ -22,8 +22,12 @@ export function pullMessage(
       return result.persisted === false
         ? t('pull.updatedNoPersist', params)
         : t('pull.updated', params);
+    case 'stale':
+      // 只拿到镜像缓存副本：本地数据没有变化，但也不能说「已是最新」
+      return t('pull.stale', { h: result.staleHours ?? 1 });
     case 'failed':
-      return t('pull.failed');
+      // 按失败性质给具体原因：超时 / 断网 / 被限流 / 源不可用
+      return result.reason ? t(`pull.failed.${result.reason}`) : t('pull.failed');
     case 'notReady':
     default:
       return t('pull.notReady');

@@ -21,11 +21,17 @@ const msg = (result: PullResult): string =>
     (n) => n.toLocaleString('zh-CN'),
   );
 
-function res(body: unknown, init: { ok?: boolean; status?: number } = {}): Response {
+function res(
+  body: unknown,
+  init: { ok?: boolean; status?: number; age?: number } = {},
+): Response {
   return {
     ok: init.ok ?? true,
     status: init.status ?? 200,
-    headers: { get: () => null },
+    headers: {
+      get: (key: string) =>
+        key.toLowerCase() === 'age' && init.age !== undefined ? String(init.age) : null,
+    },
     json: async () => body,
   } as unknown as Response;
 }
@@ -186,7 +192,7 @@ describe('MetaStore.pullNow', () => {
     const result = await store.pullNow();
 
     expect(result.ok).toBe(false);
-    expect(msg(result)).toBe('拉取失败，请检查网络后重试');
+    expect(msg(result)).toBe('拉取失败：数据源不可用，请稍后再试');
   });
 
   it('时间戳相同且已落盘后，不再重复覆盖', async () => {
@@ -266,5 +272,123 @@ describe('首屏加载失败的原因分类', () => {
       String(c[0]).includes('data/brawl_meta.json'),
     );
     expect(builtinCalls).toHaveLength(2);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Web 端：拿到的到底是最新数据，还是 CDN 的旧副本                        */
+/* ------------------------------------------------------------------ */
+
+/** 按 URL 分流的 fetch 替身：模拟 Web 端「提交接口被限流 + Raw 不可用」 */
+function webRouteFetch(handlers: {
+  raw?: () => Response;
+  mirror?: () => Response;
+  branch?: () => Response;
+  commit?: () => Response;
+}) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.startsWith('https://api.github.com/')) {
+      return handlers.commit ? handlers.commit() : res(null, { ok: false, status: 403 });
+    }
+    if (url.includes('ghfast.top')) {
+      return handlers.mirror ? handlers.mirror() : res(null, { ok: false, status: 500 });
+    }
+    if (url.startsWith('https://raw.githubusercontent.com/')) {
+      return handlers.raw ? handlers.raw() : res(null, { ok: false, status: 500 });
+    }
+    if (url.includes('cdn.jsdelivr.net')) {
+      return handlers.branch ? handlers.branch() : res(null, { ok: false, status: 500 });
+    }
+    return res(null, { ok: false, status: 404 });
+  });
+}
+
+describe('远端数据的新鲜度判定', () => {
+  it('Raw 拿到新数据时直接更新（不再落到分支缓存）', async () => {
+    const cached = makeTestMeta({ updated_at: '2026-11-25T10:07:43Z', total_battles: 1738719 });
+    const fresh = makeTestMeta({ updated_at: '2026-11-26T06:06:50Z', total_battles: 2266003 });
+    const cache = fakeCache({ meta: cached, origin: 'indexeddb' });
+    // 先用缓存启动、让启动时的静默检查失败，保证下面的对比基准仍是本地缓存
+    const store = await initOffline(cache);
+    const fetchMock = webRouteFetch({ raw: () => res(fresh) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await store.pullNow();
+
+    expect(result.code).toBe('updated');
+    expect(msg(result)).toContain('2,266,003');
+    // 分支地址一次都不该被请求：它可能就是那份旧缓存
+    expect(fetchMock.mock.calls.map((c) => String(c[0])).some((u) => u.includes('cdn.jsdelivr'))).toBe(
+      false,
+    );
+  });
+
+  it('只拿到 jsDelivr 分支缓存副本时，报「缓存副本」而不是「已是最新」', async () => {
+    const cached = makeTestMeta({ updated_at: '2026-11-26T06:06:50Z', total_battles: 2266003 });
+    // 边缘节点上那份：6 小时前缓存，场次还停留在 173 万
+    const staleCopy = makeTestMeta({ updated_at: '2026-11-25T10:07:43Z', total_battles: 1738719 });
+    const cache = fakeCache({ meta: cached, origin: 'indexeddb' });
+    vi.stubGlobal(
+      'fetch',
+      webRouteFetch({ branch: () => res(staleCopy, { age: 24603 }) }),
+    );
+
+    const store = new MetaStore(cache);
+    await store.init();
+    const result = await store.pullNow();
+
+    expect(result.code).toBe('stale');
+    expect(result.ok).toBe(false);
+    expect(result.staleHours).toBeGreaterThanOrEqual(6);
+    expect(msg(result)).toContain('缓存副本');
+    expect(msg(result)).not.toContain('已是最新');
+    // 旧副本不能覆盖本地更新的数据
+    expect(cache.write).not.toHaveBeenCalled();
+  });
+
+  it('分支缓存刚回源（Age 很小）时，才算真的「已是最新」', async () => {
+    const cached = makeTestMeta();
+    const cache = fakeCache({ meta: cached, origin: 'indexeddb' });
+    vi.stubGlobal('fetch', webRouteFetch({ branch: () => res(cached, { age: 3 }) }));
+
+    const store = new MetaStore(cache);
+    await store.init();
+    const result = await store.pullNow();
+
+    expect(result.code).toBe('latest');
+    expect(result.ok).toBe(true);
+  });
+
+  it('全部源都失败时给出具体原因（403 → 被限流），绝不报「已是最新」', async () => {
+    const cached = makeTestMeta();
+    const cache = fakeCache({ meta: cached, origin: 'indexeddb' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => res(null, { ok: false, status: 403 })),
+    );
+
+    const store = new MetaStore(cache);
+    await store.init();
+    const result = await store.pullNow();
+
+    expect(result.code).toBe('failed');
+    expect(result.reason).toBe('blocked');
+    expect(msg(result)).toContain('拒绝访问');
+    expect(msg(result)).not.toContain('已是最新');
+  });
+
+  it('全部源都连不上时，原因是「断网」', async () => {
+    const cached = makeTestMeta();
+    const cache = fakeCache({ meta: cached, origin: 'indexeddb' });
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+
+    const store = new MetaStore(cache);
+    await store.init();
+    const result = await store.pullNow();
+
+    expect(result.code).toBe('failed');
+    expect(result.reason).toBe('offline');
+    expect(msg(result)).toContain('网络已断开');
   });
 });

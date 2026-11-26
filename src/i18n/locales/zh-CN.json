@@ -219,6 +219,11 @@
   "pull.updated": "已更新至 {date}（{n} 场对局）",
   "pull.updatedNoPersist": "已更新至 {date}（{n} 场对局）（本地存储空间不足，仅本次启动内有效）",
   "pull.failed": "拉取失败，请检查网络后重试",
+  "pull.failed.timeout": "拉取失败：连接超时，请检查网络后重试",
+  "pull.failed.offline": "拉取失败：网络已断开，请检查网络后重试",
+  "pull.failed.blocked": "拉取失败：数据源暂时拒绝访问（可能限流），请稍后再试",
+  "pull.failed.unavailable": "拉取失败：数据源不可用，请稍后再试",
+  "pull.stale": "镜像返回的是约 {h} 小时前的缓存副本，暂时拿不到更新，请稍后再试",
 
   "error.timeout": "连接超时",
   "error.offline": "网络已断开",

@@ -219,6 +219,11 @@
   "pull.updated": "Updated to {date} ({n} battles)",
   "pull.updatedNoPersist": "Updated to {date} ({n} battles) — device storage is full, so this lasts for the current session only",
   "pull.failed": "Update failed. Check your connection and try again",
+  "pull.failed.timeout": "Update failed: connection timed out. Check your connection and try again",
+  "pull.failed.offline": "Update failed: network unreachable. Check your connection and try again",
+  "pull.failed.blocked": "Update failed: the data source is refusing requests (rate limited). Try again later",
+  "pull.failed.unavailable": "Update failed: the data source is unavailable. Try again later",
+  "pull.stale": "The mirror returned a cached copy from about {h}h ago, so no update is available yet. Try again later",
 
   "error.timeout": "connection timed out",
   "error.offline": "network unreachable",

@@ -219,6 +219,11 @@
   "pull.updated": "已更新至 {date}（{n} 場對局）",
   "pull.updatedNoPersist": "已更新至 {date}（{n} 場對局）（本機儲存空間不足，僅本次啟動內有效）",
   "pull.failed": "取得失敗，請檢查網路後重試",
+  "pull.failed.timeout": "取得失敗：連線逾時，請檢查網路後重試",
+  "pull.failed.offline": "取得失敗：網路已中斷，請檢查網路後重試",
+  "pull.failed.blocked": "取得失敗：資料源暫時拒絕存取（可能限流），請稍後再試",
+  "pull.failed.unavailable": "取得失敗：資料源無法使用，請稍後再試",
+  "pull.stale": "鏡像回傳的是約 {h} 小時前的快取副本，暫時取得不到更新，請稍後再試",
 
   "error.timeout": "連線逾時",
   "error.offline": "網路已中斷",
