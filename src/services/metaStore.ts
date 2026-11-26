@@ -1,5 +1,4 @@
 import { buildIndex, type MetaIndex } from '../data/metaIndex';
-import { IS_WEB } from '../config/platform';
 import { validateMeta, type BrawlMeta, type MetaSource } from '../types/meta';
 import { fetchJsonWithRetry, HttpError, HttpTimeoutError } from './http';
 import { metaCache, type MetaCacheAdapter } from './metaCache';
@@ -23,7 +22,7 @@ import {
  * 持久化细节见 `metaCache.ts`：容量上限由磁盘决定，只有 IndexedDB 本身写失败
  * （极端磁盘满 / 隐私模式）才退化成「本次启动内有效」。
  *
- * 远程请求走 `metaRemote.fetchRepoJson` 的三段式链路，细节见该模块注释。
+ * 远程请求走 `metaRemote.fetchRepoJson` 的多段链路（新鲜优先），细节见该模块注释。
  * 界面只需要知道「有没有更新、数据是哪天的」，链路与超时细节不外露。
  */
 
@@ -235,9 +234,9 @@ export class MetaStore {
   /**
    * 走远程链路拉一次数据，并把结构校验过一遍。
    *
-   * 每次调用都带一个**新的**防缓存时间戳（所有段共用同一个值）；
-   * Web 端额外打开 `preferFresh`——浏览器里 GitHub 提交接口常被限流，
-   * 一旦落到 jsDelivr 的分支地址就会拿到最长 12 小时的旧副本。
+   * 每次调用都带一个**新的**防缓存时间戳（所有段共用同一个值）。
+   * 链路顺序是「新鲜优先」：精确 sha → Raw → 国内反代 → jsDelivr 分支，
+   * 因为提交接口被限流时，分支地址会返回最长 12 小时的旧副本。
    *
    * 返回值带上命中渠道与缓存年龄，`pullNow` 靠它区分「真的最新」和「拿到旧副本」。
    */
@@ -247,10 +246,7 @@ export class MetaStore {
     channel: MetaChannel;
     ageSeconds: number | null;
   }> {
-    const res = await fetchRepoJson<unknown>(META_REPO_REF, {
-      cacheBust: Date.now(),
-      preferFresh: IS_WEB,
-    });
+    const res = await fetchRepoJson<unknown>(META_REPO_REF, { cacheBust: Date.now() });
     return {
       meta: validateMeta(res.data),
       lastModified: res.lastModified,
@@ -304,7 +300,7 @@ export class MetaStore {
       }
 
       // 2) 冷启动（新浏览器 / 无痕 / 刚清过缓存）：只等同源内置文件。
-      //    远端三段链路一律在进入界面之后异步跑，绝不挡在首屏前面——
+      //    远端链路一律在进入界面之后异步跑，绝不挡在首屏前面——
       //    弱网下它每段都可能超时，叠起来就是「一直转圈」。
       const { meta, lastModified } = await this.loadBuiltin();
       this.setMeta(meta, 'builtin', lastModified);

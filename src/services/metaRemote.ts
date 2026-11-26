@@ -1,25 +1,26 @@
 /**
- * 远程元数据（brawl_meta.json）拉取：三段式降级链路。
+ * 远程元数据（brawl_meta.json）拉取：多段降级链路，新鲜优先。
  *
  * 背景：jsDelivr 对**分支引用**（`@main`）的文件在边缘节点缓存 12 小时
  * （响应头 `Cache-Control: public, max-age=604800, s-maxage=43200`），
  * 后端推送新数据后，App 可能半天都拉不到——这不是 URL 写错，而是 CDN 分支缓存。
+ * 注意 `?t=` 也绕不过去：jsDelivr 按「解析后的分支版本」建缓存键，不看 query。
  *
- * 解决办法是先把「分支」换成「精确 Commit SHA」再走 CDN：
- * 不可变引用（@sha）在 jsDelivr 上是永久缓存 + 毫秒级回源，天然绕过分支缓存。
- *
- * 链路顺序：
+ * 链路顺序（Web 与原生壳一致）：
  *   1. GitHub Commit API 取 main 最新 sha（4s 超时）
  *      → `https://cdn.jsdelivr.net/gh/Dhik0/-brawl-draft-core-@<sha>/dist/brawl_meta.json`
- *   2. 第一兜底：jsDelivr 分支直连 `@main`（API 超时 / 限流 / 被墙时）
- *   3. 最终兜底：GitHub Raw 直连
+ *      不可变引用，永久缓存 + 毫秒级回源，天然绕过分支缓存。
+ *   2. 第一兜底：GitHub Raw 直连（`max-age=300`，同样不走分支缓存）
+ *   3. 第二兜底：ghfast.top 反代同一份 Raw（国内 raw 常连不上）
+ *   4. 最终兜底：jsDelivr 分支直连 `@main`——**可能是最长 12 小时的旧副本**，
+ *      只在前面全挂时才用，调用方靠响应头 `Age` 识别并如实告知用户。
  *
- * 每一段都带 `?t=<时间戳>` 防缓存参数（jsDelivr / Raw 的边缘缓存键含 query，
- * 等于强制回源）。**不**发 `Cache-Control: no-cache` 请求头：它不属于 CORS 安全
- * 列表头，跨域时会触发预检请求，而 jsDelivr / Raw 并未在
+ * 每一段都带 `?t=<时间戳>` 防缓存参数（对第 2/3/4 段有效；分支缓存不吃这一套）。
+ * **不**发 `Cache-Control: no-cache` 请求头：它不属于 CORS 安全列表头，
+ * 跨域时会触发预检请求，而 jsDelivr / Raw 并未在
  * `Access-Control-Allow-Headers` 里放行它，反而会把请求直接打死。
  *
- * Capacitor Android 侧：页面 origin 是 `https://localhost`，上面三个域名的响应都带
+ * Capacitor Android 侧：页面 origin 是 `https://localhost`，上面几个域名的响应都带
  * `Access-Control-Allow-Origin: *`，请求头只有 CORS 安全列表内的 `Accept`，不触发预检，
  * 所以**不需要**启用 CapacitorHttp。原生 HTTP 插件会忽略 `cache: 'no-store'` 与
  * AbortSignal，反而让防缓存与超时控制失效，这里刻意继续用 WebView 的 fetch。
@@ -30,7 +31,7 @@ import { fetchJsonWithRetry, HttpError, HttpTimeoutError, type FetchJsonResult }
 /* ------------------------------- 仓库常量 ------------------------------- */
 
 /**
- * 一个「GitHub 仓库 + 分支 + 文件路径」的引用，三段式链路对它是通用的：
+ * 一个「GitHub 仓库 + 分支 + 文件路径」的引用，多段链路对它是通用的：
  * 数据仓库的 brawl_meta.json 与 App 仓库的 version.json 都走同一套逻辑。
  */
 export interface RepoRef {
@@ -106,7 +107,7 @@ export function pinnedCdnUrl(sha: string): string {
 export const COMMIT_TIMEOUT_MS = 4000;
 /**
  * JSON 下载超时：1.9MB 在移动端弱网下 6s 明显不够（≈320KB/s 才勉强），
- * 放宽到 15s，链路本身有三段兜底，所以每段只尝试一次。
+ * 放宽到 15s，链路本身有多段兜底，所以每段只尝试一次。
  */
 export const META_DOWNLOAD_TIMEOUT_MS = 15000;
 /** 每段下载的额外重试次数：0 = 单次尝试，失败就降级到下一段 */
@@ -148,16 +149,6 @@ export interface MetaRemoteOptions {
   retries?: number;
   /** 防缓存参数用的时间戳，测试注入用 */
   cacheBust?: number;
-  /**
-   * 优先取「新鲜」的源（Web 端必开）。
-   *
-   * 纯浏览器里，GitHub 提交接口经常被限流（未认证 60 次/小时/IP），
-   * 一旦失败就只能落到 jsDelivr 的分支地址——而它有 12 小时边缘缓存，
-   * `?t=` 也绕不过去，于是「拉取成功」却拿到昨天的文件。
-   * 打开这个开关后顺序变成：精确 sha → Raw 直连 → 国内反代 → jsDelivr 分支，
-   * 前两段都不经过分支缓存。原生壳仍走原来的「分支优先」（国内更快）。
-   */
-  preferFresh?: boolean;
 }
 
 export interface MetaRemoteResult<T = unknown> {
@@ -174,7 +165,7 @@ export interface MetaRemoteResult<T = unknown> {
   failures: string[];
 }
 
-/** 三段链路全部失败：message 已拼好可读原因，供界面直接展示 */
+/** 所有段都失败：message 已拼好可读原因，供界面直接展示 */
 export class MetaRemoteError extends Error {
   readonly failures: string[];
   /** 与 failures 一一对应的失败性质 */
@@ -310,12 +301,14 @@ export async function resolveLatestSha(
 /**
  * 按顺序尝试各段，谁先成功用谁。
  *
- * 顺序有两种：
- *   - 默认（原生壳）：`jsDelivr@main` → `Raw`。国内 jsDelivr 更快，
- *     而且原生端不受 CORS 限制，两条都通。
- *   - `preferFresh`（Web）：`Raw` → `国内反代` → `jsDelivr@main`。
- *     浏览器里提交接口常被限流，一旦落到分支地址就会拿到最长 12 小时的旧副本，
- *     所以 Web 端宁可先走两个「不经过分支缓存」的源。
+ * 顺序对 Web 与原生壳是**同一套**：
+ *   `精确 sha → GitHub Raw → 国内反代 → jsDelivr 分支`
+ *
+ * 前两段都不经过 jsDelivr 的分支缓存。之所以不再「分支优先」，是因为
+ * 未认证的 GitHub 提交接口只有 60 次/小时/IP，一旦被限流（403），
+ * 分支地址会返回最长 12 小时的旧副本——`?t=` 绕不过去，手机端同样会吃到，
+ * 不是 Web 独有的问题。原生壳原先靠分支 CDN「更快」的优势，被「可能拿到旧数据」
+ * 完全抵消，所以统一改成新鲜优先。
  *
  * 全部失败时抛 MetaRemoteError（message 含每段原因，kinds 含失败性质）。
  */
@@ -341,18 +334,12 @@ export async function fetchRepoJson<T = unknown>(
     }
   }
 
-  // 2) 兜底段：顺序见上方注释
-  const fallbacks: Array<{ channel: MetaChannel; url: string; label: string }> =
-    options.preferFresh
-      ? [
-          { channel: 'raw', url: rawUrl(ref), label: 'GitHub Raw' },
-          { channel: 'mirror', url: mirrorRawUrl(ref), label: '国内反代' },
-          { channel: 'cdn-branch', url: branchCdnUrl(ref), label: `jsDelivr@${ref.branch}` },
-        ]
-      : [
-          { channel: 'cdn-branch', url: branchCdnUrl(ref), label: `jsDelivr@${ref.branch}` },
-          { channel: 'raw', url: rawUrl(ref), label: 'GitHub Raw' },
-        ];
+  // 2) 兜底段：两个「不经过分支缓存」的源，最后才是 jsDelivr 分支
+  const fallbacks: Array<{ channel: MetaChannel; url: string; label: string }> = [
+    { channel: 'raw', url: rawUrl(ref), label: 'GitHub Raw' },
+    { channel: 'mirror', url: mirrorRawUrl(ref), label: '国内反代' },
+    { channel: 'cdn-branch', url: branchCdnUrl(ref), label: `jsDelivr@${ref.branch}` },
+  ];
 
   for (const segment of fallbacks) {
     try {

@@ -276,11 +276,11 @@ describe('首屏加载失败的原因分类', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* Web 端：拿到的到底是最新数据，还是 CDN 的旧副本                        */
+/* 拿到的到底是最新数据，还是 CDN 的旧副本（Web 与原生同一套顺序）        */
 /* ------------------------------------------------------------------ */
 
-/** 按 URL 分流的 fetch 替身：模拟 Web 端「提交接口被限流 + Raw 不可用」 */
-function webRouteFetch(handlers: {
+/** 按 URL 分流的 fetch 替身：模拟「提交接口被限流 + Raw / 反代不可用」 */
+function freshFirstFetch(handlers: {
   raw?: () => Response;
   mirror?: () => Response;
   branch?: () => Response;
@@ -311,7 +311,7 @@ describe('远端数据的新鲜度判定', () => {
     const cache = fakeCache({ meta: cached, origin: 'indexeddb' });
     // 先用缓存启动、让启动时的静默检查失败，保证下面的对比基准仍是本地缓存
     const store = await initOffline(cache);
-    const fetchMock = webRouteFetch({ raw: () => res(fresh) });
+    const fetchMock = freshFirstFetch({ raw: () => res(fresh) });
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await store.pullNow();
@@ -331,7 +331,7 @@ describe('远端数据的新鲜度判定', () => {
     const cache = fakeCache({ meta: cached, origin: 'indexeddb' });
     vi.stubGlobal(
       'fetch',
-      webRouteFetch({ branch: () => res(staleCopy, { age: 24603 }) }),
+      freshFirstFetch({ branch: () => res(staleCopy, { age: 24603 }) }),
     );
 
     const store = new MetaStore(cache);
@@ -350,7 +350,7 @@ describe('远端数据的新鲜度判定', () => {
   it('分支缓存刚回源（Age 很小）时，才算真的「已是最新」', async () => {
     const cached = makeTestMeta();
     const cache = fakeCache({ meta: cached, origin: 'indexeddb' });
-    vi.stubGlobal('fetch', webRouteFetch({ branch: () => res(cached, { age: 3 }) }));
+    vi.stubGlobal('fetch', freshFirstFetch({ branch: () => res(cached, { age: 3 }) }));
 
     const store = new MetaStore(cache);
     await store.init();

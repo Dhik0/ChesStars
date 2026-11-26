@@ -112,7 +112,7 @@ describe('三段式降级链路', () => {
     for (const url of calledUrls(fetchMock)) expect(url).toContain('t=1');
   });
 
-  it('2) 提交接口失败（403 限流）时回退 jsDelivr @main', async () => {
+  it('2) 提交接口失败（403 限流）时先试 Raw，Raw 也不通才回退 @main', async () => {
     const fetchMock = routeFetch({
       commit: () => res(null, { ok: false, status: 403 }),
       branch: () => res({ ok: 1 }),
@@ -125,9 +125,11 @@ describe('三段式降级链路', () => {
     expect(out.url).toBe(BRANCH_CDN_URL);
     expect(out.failures[0]).toContain('GitHub 提交接口');
     expect(out.failures[0]).toContain('403');
+    // 顺序固定：Raw 排在分支前面（分支可能是 12 小时前的旧副本）
+    expect(out.failures[1]).toContain('GitHub Raw');
   });
 
-  it('2) 拿到 sha 但精确版本下载失败时回退 @main', async () => {
+  it('2) 拿到 sha 但精确版本下载失败时，先走 Raw 再回退 @main', async () => {
     const fetchMock = routeFetch({
       commit: () => res({ sha: SHA }),
       sha: () => res(null, { ok: false, status: 503 }),
@@ -140,13 +142,13 @@ describe('三段式降级链路', () => {
     expect(out.channel).toBe('cdn-branch');
     expect(out.failures[0]).toContain(`jsDelivr@${SHA.slice(0, 7)}`);
     expect(out.failures[0]).toContain('503');
+    expect(out.failures[1]).toContain('GitHub Raw');
   });
 
-  it('3) 前两段都失败时最终走 GitHub Raw', async () => {
+  it('2) 精确版本失败时立刻走 GitHub Raw，不等分支缓存', async () => {
     const fetchMock = routeFetch({
       commit: () => res({ sha: SHA }),
       sha: () => res(null, { ok: false, status: 503 }),
-      branch: () => res(null, { ok: false, status: 404 }),
       raw: () => res({ ok: 1 }),
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -155,7 +157,9 @@ describe('三段式降级链路', () => {
 
     expect(out.channel).toBe('raw');
     expect(out.url).toBe(RAW_URL);
-    expect(out.failures).toHaveLength(2);
+    expect(out.failures).toHaveLength(1);
+    // 分支地址（@main）一次都不该被请求
+    expect(calledUrls(fetchMock).some((u) => u.includes('@main/'))).toBe(false);
   });
 
   it('3) 提交接口返回体没有 sha 时也要能降级', async () => {
@@ -170,7 +174,7 @@ describe('三段式降级链路', () => {
     expect(out.failures[0]).toContain('缺少有效 sha');
   });
 
-  it('全部失败时抛 MetaRemoteError，message 含三段原因', async () => {
+  it('全部失败时抛 MetaRemoteError，message 含每段原因', async () => {
     const fetchMock = routeFetch({
       commit: () => res(null, { ok: false, status: 403 }),
       branch: () => res(null, { ok: false, status: 404 }),
@@ -181,10 +185,12 @@ describe('三段式降级链路', () => {
     const err = await fetchRepoJson(META_REPO_REF).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(MetaRemoteError);
     const failures = (err as MetaRemoteError).failures;
-    expect(failures).toHaveLength(3);
+    // 提交接口 + Raw + 国内反代 + 分支，四段都要有原因
+    expect(failures).toHaveLength(4);
     expect(failures[0]).toContain('GitHub 提交接口');
-    expect(failures[1]).toContain('jsDelivr@main');
-    expect(failures[2]).toContain('GitHub Raw');
+    expect(failures[1]).toContain('GitHub Raw');
+    expect(failures[2]).toContain('国内反代');
+    expect(failures[3]).toContain('jsDelivr@main');
     expect((err as MetaRemoteError).message).toContain('｜');
   });
 
@@ -241,7 +247,7 @@ describe('updated_at 增量判断', () => {
   });
 });
 
-describe('Web 端优先取新鲜源（preferFresh）', () => {
+describe('新鲜优先的源顺序（Web 与原生壳同一套）', () => {
   it('Raw 可用时直接命中，不碰 jsDelivr 分支缓存', async () => {
     const fetchMock = routeFetch({
       commit: () => res(null, { ok: false, status: 403 }),
@@ -250,7 +256,7 @@ describe('Web 端优先取新鲜源（preferFresh）', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const out = await fetchRepoJson(META_REPO_REF, { preferFresh: true, cacheBust: 7 });
+    const out = await fetchRepoJson(META_REPO_REF, { cacheBust: 7 });
 
     expect(out.channel).toBe('raw');
     expect(calledUrls(fetchMock).some((u) => u.includes('cdn.jsdelivr.net'))).toBe(false);
@@ -272,14 +278,14 @@ describe('Web 端优先取新鲜源（preferFresh）', () => {
     });
     vi.stubGlobal('fetch', withMirror);
 
-    const out = await fetchRepoJson(META_REPO_REF, { preferFresh: true, cacheBust: 8 });
+    const out = await fetchRepoJson(META_REPO_REF, { cacheBust: 8 });
 
     expect(out.channel).toBe('mirror');
     expect(out.url).toBe(`https://ghfast.top/${RAW_URL}`);
     expect(calledUrls(withMirror).some((u) => u.includes('cdn.jsdelivr.net'))).toBe(false);
   });
 
-  it('前两段都不通时才回落到 jsDelivr 分支（并保留 Age 供上层判断新旧）', async () => {
+  it('前三段都不通时才回落到 jsDelivr 分支（并保留 Age 供上层判断新旧）', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith('https://api.github.com/')) return res(null, { ok: false, status: 403 });
@@ -291,31 +297,17 @@ describe('Web 端优先取新鲜源（preferFresh）', () => {
         ok: true,
         status: 200,
         headers: {
-          get: (key: string) =>
-            key.toLowerCase() === 'age' ? '24603' : null,
+          get: (key: string) => (key.toLowerCase() === 'age' ? '24603' : null),
         },
         json: async () => ({ ok: 0 }),
       } as unknown as Response;
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const out = await fetchRepoJson(META_REPO_REF, { preferFresh: true, cacheBust: 9 });
+    const out = await fetchRepoJson(META_REPO_REF, { cacheBust: 9 });
 
     expect(out.channel).toBe('cdn-branch');
     expect(out.ageSeconds).toBe(24603);
     expect(out.failures).toHaveLength(3);
-  });
-
-  it('原生默认顺序不变：分支优先（国内更快）', async () => {
-    const fetchMock = routeFetch({
-      commit: () => res(null, { ok: false, status: 403 }),
-      branch: () => res({ ok: 1 }),
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const out = await fetchRepoJson(META_REPO_REF, { cacheBust: 10 });
-
-    expect(out.channel).toBe('cdn-branch');
-    expect(calledUrls(fetchMock).some((u) => u.includes('ghfast.top'))).toBe(false);
   });
 });
