@@ -118,3 +118,17 @@
     max-height: 88dvh;
   }
 }
+
+/*
+ * 妙手（`!!`）联动特效：流光 / 波纹 / 闪光 / 播报条。
+ * 系统开启「减少动态效果」时整体关停，只保留常驻的青蓝描边（静态，不晃眼）。
+ * 这里用媒体查询兜底，不依赖 Tailwind 的 motion-reduce 变体是否被 JIT 命中。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .animate-brilliant-sweep,
+  .animate-brilliant-ring,
+  .animate-brilliant-flash,
+  .animate-banner-life {
+    animation: none !important;
+  }
+}

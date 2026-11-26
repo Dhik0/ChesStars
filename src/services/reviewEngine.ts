@@ -308,6 +308,17 @@ const ARCHETYPE_WEIGHT_FACTORS: Record<BrawlerArchetype, Partial<WeightSet>> = {
   damage_controller: {},
 };
 
+/**
+ * 金库模式下的刺客：击杀 / 对人伤害的极端倾斜收一收，机制权重抬上来。
+ * 金库的胜负是「谁先把箱子拆了」，拆箱流不该被击杀面板压死。
+ */
+const HEIST_ASSASSIN_FACTOR: Partial<WeightSet> = {
+  kill: 1.15,
+  kd: 1,
+  damage: 0.9,
+  objective: 1.35,
+};
+
 /** 死亡惩罚系数（每场阵亡扣多少分）：赏金 / 淘汰赛死一次代价更高 */
 const DEATH_PENALTY_DEFAULT = 13;
 const DEATH_PENALTY_HEAVY = 18;
@@ -340,6 +351,20 @@ const TANKING_TARGET_BY_ARCHETYPE: Partial<Record<BrawlerArchetype, number>> = {
 
 /** 场均死亡 ≥ 3.5 直接取消承伤加分（防止送人头混分） */
 const TANKING_DEATH_GATE = 3.5;
+
+/**
+ * 金库「拆箱换命流」保护：对金库贡献足够大的人，不该因为击杀少被判欠佳。
+ * 判定口径是「场均金库伤 ≥ 25000」或「占本队金库总伤 ≥ 30%」。
+ */
+const HEIST_CARRY_DAMAGE = 25000;
+const HEIST_CARRY_SHARE = 0.3;
+/** 达到上述贡献时的保底分（对应「稳健」档） */
+const HEIST_CARRY_FLOOR = 58;
+/** 金库贡献大的人，死亡惩罚打折（换命是战术，不是送） */
+const HEIST_CARRY_DEATH_RELIEF = 0.6;
+
+/** 整局顺逆风判定：双方净 BP 优势差超过这个值才算真顺风 / 真逆风 */
+export const NET_BP_THRESHOLD_PP = 3;
 
 /** 单项领跑加分：每个领跑项 +2，最多 +5（承伤领跑不加分，只做金标） */
 const LEADER_BONUS = 2;
@@ -471,6 +496,8 @@ export interface PlayerEvalInput {
   leaders?: MetricKey[];
   /** 队内占比；只有三人伤害 / 击杀都录入时才有 */
   shares?: { damage: number; kills: number } | null;
+  /** 本队模式机制总占比（金库拆箱流保护用）；null = 无机制指标 */
+  objectiveShare?: number | null;
   result: 'win' | 'loss';
   score: MatchScore;
   mode: string;
@@ -491,7 +518,10 @@ interface Component {
 /** 模式权重 × 画像系数 */
 function weightsOf(mode: string, archetype: BrawlerArchetype): WeightSet {
   const base = MODE_WEIGHTS[mode] ?? DEFAULT_WEIGHTS;
-  const factor = ARCHETYPE_WEIGHT_FACTORS[archetype];
+  const factor: Partial<WeightSet> = {
+    ...ARCHETYPE_WEIGHT_FACTORS[archetype],
+    ...(mode === 'heist' && archetype === 'assassin' ? HEIST_ASSASSIN_FACTOR : {}),
+  };
   return {
     kd: base.kd * (factor.kd ?? 1),
     kill: base.kill * (factor.kill ?? 1),
@@ -577,6 +607,17 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
 
   const damageShare = input.shares ? input.shares.damage : null;
   const killShare = input.shares ? input.shares.kills : null;
+  const objectiveShare = input.objectiveShare ?? null;
+
+  /**
+   * 金库拆箱流：机制贡献足够大时给保底 + 死亡减免。
+   * 「场均 2.5 万金库伤」或「占本队金库总伤 30%」都算真的在拆家，不是混子。
+   */
+  const heistCarry =
+    mode === 'heist' &&
+    objectivePerGame !== null &&
+    (objectivePerGame >= HEIST_CARRY_DAMAGE ||
+      (objectiveShare !== null && objectiveShare >= HEIST_CARRY_SHARE));
 
   const metrics: ReviewMetrics = {
     games,
@@ -606,7 +647,11 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
   }
 
   if (deaths !== null) {
-    const penalty = HEAVY_DEATH_MODES.includes(mode) ? DEATH_PENALTY_HEAVY : DEATH_PENALTY_DEFAULT;
+    const basePenalty = HEAVY_DEATH_MODES.includes(mode)
+      ? DEATH_PENALTY_HEAVY
+      : DEATH_PENALTY_DEFAULT;
+    // 金库拆箱流是「换命」不是「送」：死亡惩罚打折
+    const penalty = basePenalty * (heistCarry ? HEIST_CARRY_DEATH_RELIEF : 1);
     components.push({
       weight: w.survival,
       score: clamp(100 - (deathsPerGame ?? 0) * penalty, 0, 100),
@@ -689,12 +734,16 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
     LEADER_BONUS_CAP,
   );
 
-  const score100 = Math.round(
-    clamp(perf + contextAdj + outcomeAdj + starAdj + leaderBonus, 0, 100),
-  );
+  // 金库拆箱流的机制保底：贡献够了就不该被判欠佳
+  const rawScore = Math.round(clamp(perf + contextAdj + outcomeAdj + starAdj + leaderBonus, 0, 100));
+  const score100 = heistCarry ? Math.max(rawScore, HEIST_CARRY_FLOOR) : rawScore;
 
   const objectiveLeader = leaders.includes('objective') && objectivePerGame !== null;
   const objectiveWeak = objectiveScore !== null && objectiveScore < 25;
+  // 真实 K/D（用于评级里的「面板尚可」判定，不吃平滑公式的便宜）
+  const kdRatio =
+    kills === null || deaths === null ? null : deaths === 0 ? (kills > 0 ? Infinity : 0) : kills / deaths;
+
   const grade = gradeOf({
     score: score100,
     context: bpContext,
@@ -702,12 +751,15 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
     isStarPlayer: input.isStarPlayer,
     objectiveLeader,
     objectiveWeak,
+    kdRatio,
+    damageShare,
   });
 
+  // 评语里的伤害 / 阵亡统一用总局原值，与卡片 1:1 对应
   const params: Record<string, string | number> = {
     kd: metrics.displayKd ?? '—',
-    dpg: deathsPerGame === null ? '—' : deathsPerGame.toFixed(1),
-    dmg: damagePerGame === null ? '—' : formatBig(damagePerGame),
+    deaths: deaths === null ? '—' : deaths,
+    dmg: damage === null ? '—' : formatBig(damage),
   };
 
   return {
@@ -804,7 +856,15 @@ export interface GradeContext {
   objectiveLeader?: boolean;
   /** 有机制指标但明显拖后腿 */
   objectiveWeak?: boolean;
+  /** 真实 K/D（kills / deaths），用于「面板尚可」判定 */
+  kdRatio?: number | null;
+  /** 队内伤害占比 0~1 */
+  damageShare?: number | null;
 }
+
+/** 「面板尚可」的门槛：真实 K/D 与队内伤害占比都不能垫底 */
+const PANEL_OK_KD = 1;
+const PANEL_OK_SHARE = 0.25;
 
 /**
  * 分数 + 情境 → 9 档。
@@ -817,7 +877,16 @@ export interface GradeContext {
  *   - `📖` 顺风局按剧本赢下（中上稳健区间，无 carry 也无失误）。
  */
 export function gradeOf(input: GradeContext): ReviewGrade {
-  const { score, context, result, isStarPlayer, objectiveLeader, objectiveWeak } = input;
+  const {
+    score,
+    context,
+    result,
+    isStarPlayer,
+    objectiveLeader,
+    objectiveWeak,
+    kdRatio,
+    damageShare,
+  } = input;
 
   // 妙手
   if (context === 'disadvantaged' && result === 'win' && score >= 70) return 'brilliant';
@@ -827,14 +896,28 @@ export function gradeOf(input: GradeContext): ReviewGrade {
   if (score <= 30) return 'blunder';
   if (context === 'advantaged' && result === 'loss' && score <= 40) return 'blunder';
 
-  // 错失良机：白费好阵容（未到崩盘），或机制明显拖后腿致败
+  // 错失良机：白费好阵容（未到崩盘）
   if (context === 'advantaged' && result === 'loss' && score <= 77) return 'miss';
-  if (objectiveWeak && result === 'loss' && score < 78) return 'miss';
+
+  /**
+   * 错失良机（机制拖后腿）：只有「面板真的还行」的人配这条。
+   * 真实 K/D < 1 或伤害占比垫底的低效输局，直接落到 ? / ??，不能拿 × 洗白。
+   */
+  const panelOk = (kdRatio ?? 0) >= PANEL_OK_KD && (damageShare ?? 0) >= PANEL_OK_SHARE;
+  if (objectiveWeak && result === 'loss' && score < 78 && panelOk) return 'miss';
 
   // 好棋：关键制胜发挥
   if (isStarPlayer && score >= 78) return 'great';
   if (context !== 'advantaged' && score >= 80) return 'great';
-  if (objectiveLeader && result === 'win' && score >= 72) return 'great';
+  // 机制最高 + 赢：加底分保护，且不能是「躺赢」（K/D 太低要靠分数本身兜住）
+  if (
+    objectiveLeader &&
+    result === 'win' &&
+    score >= 65 &&
+    ((kdRatio ?? 0) >= PANEL_OK_KD || score >= 78)
+  ) {
+    return 'great';
+  }
 
   // 谱着：顺风局按剧本稳稳赢下（没有惊艳 carry，也没有明显失误）
   if (
@@ -965,6 +1048,7 @@ function evaluateSide(
 ): PlayerReview[] {
   const totalKills = stats.reduce((sum, s) => sum + (s.kills ?? 0), 0);
   const totalDamage = stats.reduce((sum, s) => sum + (s.damage ?? 0), 0);
+  const totalObjective = stats.reduce((sum, s) => sum + (s.objectiveValue ?? 0), 0);
   const sharesAvailable =
     stats.length === TEAM_SLOTS &&
     stats.every((s) => s.kills !== null && s.damage !== null) &&
@@ -1009,6 +1093,10 @@ function evaluateSide(
       shares:
         sharesAvailable && stat.kills !== null && stat.damage !== null
           ? { damage: stat.damage / totalDamage, kills: stat.kills / totalKills }
+          : null,
+      objectiveShare:
+        stat.objectiveValue !== null && totalObjective > 0
+          ? stat.objectiveValue / totalObjective
           : null,
       result: sideResult,
       score: sideScore,
@@ -1121,28 +1209,52 @@ export function reviewMatch(
     allyReviews,
     enemyReviews,
     objectiveKind,
-    tags: tagsOf(allyReviews, result),
+    tags: tagsOf(allyReviews, result, netBpEdgeOf(allyReviews, enemyReviews)),
   };
 }
 
+/** 一方平均 BP 优势（百分点）；空数组按 0 处理 */
+function avgEdgeOf(reviews: PlayerReview[]): number {
+  if (reviews.length === 0) return 0;
+  return reviews.reduce((sum, p) => sum + p.edgePp, 0) / reviews.length;
+}
+
+/**
+ * 整局净 BP 优势 = 我方平均 edge − 敌方平均 edge。
+ *
+ * 用它判顺逆风，而不是看「某个人是否优势对位」：双方各有一个优势对位时，
+ * 这局其实是均势 BP，不该被记成「顺风翻车」。
+ */
+export function netBpEdgeOf(allyReviews: PlayerReview[], enemyReviews: PlayerReview[]): number {
+  return avgEdgeOf(allyReviews) - avgEdgeOf(enemyReviews);
+}
+
 /** 整局摘要标签：按「逆风翻盘 / 顺风翻车 / 一己之力 / 全员在线 / 状态低迷 / 数据不全」排优先级 */
-export function tagsOf(players: PlayerReview[], result: 'win' | 'loss'): ReviewTag[] {
+export function tagsOf(
+  players: PlayerReview[],
+  result: 'win' | 'loss',
+  netEdgePp = 0,
+): ReviewTag[] {
   const tags: ReviewTag[] = [];
   const rated = players.filter((p) => p.grade !== null);
   const grades = rated.map((p) => p.grade as ReviewGrade);
   const solid: ReviewGrade[] = ['brilliant', 'great', 'best', 'good', 'book'];
   const weak: ReviewGrade[] = ['inaccuracy', 'mistake', 'miss', 'blunder'];
 
+  // 只有整局真的逆风（净差 ≤ -3pp）才算翻盘；单个人逆风不作数
   if (
     result === 'win' &&
+    netEdgePp <= -NET_BP_THRESHOLD_PP &&
     players.some(
       (p) => p.bpContext === 'disadvantaged' && (p.grade === 'brilliant' || p.grade === 'great'),
     )
   ) {
     tags.push('comeback');
   }
+  // 只有整局真的顺风（净差 ≥ 3pp）才算翻车；双方各有优势对位时是均势，不记
   if (
     result === 'loss' &&
+    netEdgePp >= NET_BP_THRESHOLD_PP &&
     players.some(
       (p) => p.bpContext === 'advantaged' && (p.grade === 'miss' || p.grade === 'blunder'),
     )

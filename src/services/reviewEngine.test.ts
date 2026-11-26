@@ -19,10 +19,13 @@ import {
   gamesOfScore,
   gradeOf,
   kdOf,
+  netBpEdgeOf,
   reviewMatch,
+  tagsOf,
   type BpContext,
   type GradeContext,
   type PlayerEvalInput,
+  type PlayerReview,
 } from './reviewEngine';
 
 /**
@@ -555,9 +558,35 @@ describe('评级映射', () => {
   it('好棋：👑 良好 / 非顺风局 ≥80 / 机制最高带队取胜', () => {
     expect(g(78, 'neutral', 'win', { isStarPlayer: true })).toBe('great');
     expect(g(85, 'neutral', 'win')).toBe('great');
-    expect(g(75, 'neutral', 'win', { objectiveLeader: true })).toBe('great');
+    expect(g(75, 'neutral', 'win', { objectiveLeader: true, kdRatio: 1.2 })).toBe('great');
     // 顺风局不吃「非顺风 ≥80」这条
     expect(g(85, 'advantaged', 'win')).not.toBe('great');
+  });
+
+  it('好棋的机制分支有底分与躺赢保护', () => {
+    // 0/6 捡漏进 1 球：机制最高 + 赢，但面板太差，不能拿 !
+    expect(g(60, 'neutral', 'win', { objectiveLeader: true, kdRatio: 0 })).toBe('good');
+    // 底分保护：低于 65 一律不进 !
+    expect(g(64, 'neutral', 'win', { objectiveLeader: true, kdRatio: 2 })).toBe('good');
+    expect(g(65, 'neutral', 'win', { objectiveLeader: true, kdRatio: 2 })).toBe('great');
+  });
+
+  it('错失良机：优势对位输了但没崩', () => {
+    expect(g(60, 'advantaged', 'loss')).toBe('miss');
+    expect(g(41, 'advantaged', 'loss')).toBe('miss');
+    expect(g(40, 'advantaged', 'loss')).toBe('blunder');
+  });
+
+  it('错失良机的「机制拖后腿」只发给面板尚可的人', () => {
+    const panelOk = { objectiveWeak: true, kdRatio: 1.2, damageShare: 0.32 };
+    expect(g(60, 'neutral', 'loss', panelOk)).toBe('miss');
+    // 非败局不触发
+    expect(g(60, 'neutral', 'win', panelOk)).toBe('good');
+    // K/D 0.6（6/10）或 0.8（4/5）的低效输局，直接落常规档
+    expect(g(60, 'neutral', 'loss', { ...panelOk, kdRatio: 0.6 })).toBe('good');
+    expect(g(60, 'neutral', 'loss', { ...panelOk, kdRatio: 0.8 })).toBe('good');
+    // 伤害占比垫底（< 25%）同样不触发
+    expect(g(60, 'neutral', 'loss', { ...panelOk, damageShare: 0.2 })).toBe('good');
   });
 
   it('谱着：优势对位 + 稳稳赢下（无 carry、无机制最高）', () => {
@@ -571,13 +600,10 @@ describe('评级映射', () => {
     expect(g(78, 'advantaged', 'win')).toBe('best');
   });
 
-  it('错失良机：优势对位输了但没崩，或机制拖后腿致败', () => {
+  it('错失良机：优势对位输了但没崩', () => {
     expect(g(60, 'advantaged', 'loss')).toBe('miss');
     expect(g(41, 'advantaged', 'loss')).toBe('miss');
     expect(g(40, 'advantaged', 'loss')).toBe('blunder');
-    expect(g(60, 'neutral', 'loss', { objectiveWeak: true })).toBe('miss');
-    // 非败局不触发
-    expect(g(60, 'neutral', 'win', { objectiveWeak: true })).toBe('good');
   });
 
   it('九档符号齐全', () => {
@@ -833,14 +859,16 @@ describe('画像差异', () => {
 });
 
 describe('评语单位格式化', () => {
-  it('评语里的伤害用注入的格式化函数，不输出裸整数', () => {
+  it('评语里的伤害用总局原值 + 注入的格式化函数，不输出裸整数', () => {
     const player = evaluatePlayer(
       baseInput({
         stat: { kills: 8, deaths: 4, damage: 60000 },
         formatBig: (v) => `${(v / 10000).toFixed(1)}万`,
       }),
     );
-    expect(String(player.comment.params.dmg)).toBe('3.0万');
+    // 总局 60000（不是场均 30000），与卡片 1:1
+    expect(String(player.comment.params.dmg)).toBe('6.0万');
+    expect(player.comment.params.deaths).toBe(4);
     expect(player.comment.params.kd).toBe('2.00');
   });
 });
@@ -860,5 +888,139 @@ describe('画像映射（真实数据）', () => {
     expect(archetypeOf(IDX, idOf('BARLEY'))).toBe('marksman_artillery');
     expect(archetypeOf(IDX, idOf('COLT'))).toBe('damage_controller');
     expect(archetypeOf(IDX, idOf('TARA'))).toBe('damage_controller');
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 11. V2.1：金库拆箱流 / 整局净 BP 判定
+ * ------------------------------------------------------------------ */
+
+describe('金库拆箱流保护', () => {
+  const heistStat = (objectiveValue: number) => ({
+    kills: 0,
+    deaths: 6,
+    damage: 12000,
+    objectiveValue,
+  });
+
+  it('高金库贡献（场均 ≥ 2.5 万）拿机制保底，不再判欠佳', () => {
+    const carry = evaluatePlayer(
+      baseInput({
+        stat: heistStat(60000), // 2 局 → 30000/场
+        mode: 'heist',
+        objectiveKind: 'safeDamage',
+        archetype: 'assassin',
+      }),
+    );
+    const plain = evaluatePlayer(
+      baseInput({
+        stat: heistStat(2000),
+        mode: 'heist',
+        objectiveKind: 'safeDamage',
+        archetype: 'assassin',
+      }),
+    );
+
+    expect(carry.score!).toBeGreaterThanOrEqual(58);
+    expect(carry.score!).toBeGreaterThan(plain.score!);
+    expect(['good', 'best', 'great', 'brilliant', 'book']).toContain(carry.grade);
+  });
+
+  it('占本队金库总伤 ≥ 30% 也算贡献（即使场均没到 2.5 万）', () => {
+    const shareCarry = evaluatePlayer(
+      baseInput({
+        stat: heistStat(6000), // 3000/场
+        mode: 'heist',
+        objectiveKind: 'safeDamage',
+        archetype: 'assassin',
+        objectiveShare: 0.4,
+      }),
+    );
+    expect(shareCarry.score!).toBeGreaterThanOrEqual(58);
+  });
+
+  it('拆箱流的死亡惩罚打折：同样阵亡，贡献高的人扣得少', () => {
+    const carry = evaluatePlayer(
+      baseInput({
+        stat: heistStat(60000),
+        mode: 'heist',
+        objectiveKind: 'safeDamage',
+        archetype: 'assassin',
+      }),
+    );
+    const noCarry = evaluatePlayer(
+      baseInput({
+        stat: heistStat(2000),
+        mode: 'heist',
+        objectiveKind: 'safeDamage',
+        archetype: 'assassin',
+      }),
+    );
+    // 两者的击杀 / 死亡完全相同，差异来自机制贡献与死亡减免
+    expect(carry.score! - noCarry.score!).toBeGreaterThan(5);
+  });
+
+  it('金库：拆箱贡献压过纯击杀面板', () => {
+    const boxer = evaluatePlayer(
+      baseInput({
+        stat: { kills: 1, deaths: 4, damage: 9000, objectiveValue: 60000 },
+        mode: 'heist',
+        objectiveKind: 'safeDamage',
+        archetype: 'assassin',
+      }),
+    );
+    const killer = evaluatePlayer(
+      baseInput({
+        stat: { kills: 12, deaths: 4, damage: 30000, objectiveValue: 1000 },
+        mode: 'heist',
+        objectiveKind: 'safeDamage',
+        archetype: 'assassin',
+      }),
+    );
+    expect(boxer.score!).toBeGreaterThan(killer.score!);
+  });
+});
+
+describe('整局净 BP 判定', () => {
+  const fakePlayer = (over: Partial<PlayerReview>): PlayerReview => ({
+    brawlerId: '1',
+    side: 'ally',
+    archetype: 'damage_controller',
+    isSelf: false,
+    isStarPlayer: false,
+    hasData: true,
+    grade: 'good',
+    score: 60,
+    bpContext: 'neutral',
+    edgePp: 0,
+    mapWinRate: null,
+    matchupDelta: null,
+    objectiveKind: null,
+    metrics: null,
+    highlights: [],
+    comment: { key: '', params: {} },
+    notes: [],
+    ...over,
+  });
+
+  it('净 BP 差不足 3pp 时不记「顺风翻车」', () => {
+    const players = [fakePlayer({ bpContext: 'advantaged', grade: 'miss' })];
+    expect(tagsOf(players, 'loss', -1)).not.toContain('throw');
+    expect(tagsOf(players, 'loss', 2.9)).not.toContain('throw');
+    expect(tagsOf(players, 'loss', 3)).toContain('throw');
+  });
+
+  it('净 BP 差不足 3pp 时不记「逆风翻盘」', () => {
+    const players = [fakePlayer({ bpContext: 'disadvantaged', grade: 'brilliant' })];
+    expect(tagsOf(players, 'win', 1)).not.toContain('comeback');
+    expect(tagsOf(players, 'win', -2.9)).not.toContain('comeback');
+    expect(tagsOf(players, 'win', -3)).toContain('comeback');
+  });
+
+  it('netBpEdgeOf = 我方平均 edge − 敌方平均 edge', () => {
+    const ally = [fakePlayer({ edgePp: 6 }), fakePlayer({ edgePp: 3 })];
+    const enemy = [fakePlayer({ edgePp: -3 }), fakePlayer({ edgePp: 0 })];
+    // 4.5 - (-1.5) = 6
+    expect(netBpEdgeOf(ally, enemy)).toBeCloseTo(6, 5);
   });
 });

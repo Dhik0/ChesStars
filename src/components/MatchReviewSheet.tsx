@@ -32,6 +32,9 @@ interface MatchReviewSheetProps {
 const REVEAL_STEP_MS = 350;
 const REVEAL_STEP_FAST_MS = 260;
 
+/** 顶部高光播报条停留时长（与 banner-life 动画时长一致） */
+const BANNER_LIFE_MS = 2000;
+
 /**
  * 评级配色（对齐 Chess.com 的记谱习惯）：
  * `!!` 青蓝 / `!` 蓝 / `★` 亮绿 / `✓` 淡绿 / `📖` 棕 / `?!` 黄 / `?` 橙 / `×` 浅红 / `??` 深红
@@ -64,6 +67,9 @@ const TAG_TONE: Record<string, string> = {
   shaky: 'bg-orange-400/10 text-orange-300 ring-1 ring-orange-400/30',
   incomplete: 'bg-slate-700/40 text-slate-400 ring-1 ring-slate-600/40',
 };
+
+/** 卡片的稳定标识（同一英雄在同一侧不会重复） */
+const cardKeyOf = (player: PlayerReview): string => `${player.side}-${player.brawlerId}`;
 
 /**
  * 评级符号。`book` 用书本图标而不是 emoji——📖 在深色小角标里又糊又跳，
@@ -133,10 +139,20 @@ function TeamHeader({ side, count }: { side: ReviewSide; count: number }) {
 /**
  * 评级角标。
  *
- * 只有 `!!` 是可点的（点一下重播妙手音效）——参照 Chess.com：
- * 其余档位只有视觉弹出，不做成按钮，也就不会给出「能点」的错误暗示。
+ * 只有 `!!` 是可点的（点一下重播妙手音效 + 重新触发流光），其余档位只有视觉弹出。
+ * `fxNonce` 变化时用 key 强制重挂波纹 / 闪光层，从而让动画重播。
  */
-function GradeBadge({ grade, revealed }: { grade: ReviewGrade; revealed: boolean }) {
+function GradeBadge({
+  grade,
+  revealed,
+  fxNonce,
+  onReplay,
+}: {
+  grade: ReviewGrade;
+  revealed: boolean;
+  fxNonce: number;
+  onReplay?: () => void;
+}) {
   const { t } = useTranslation();
   const playable = grade === 'brilliant';
   const cls = `flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border ${
@@ -152,15 +168,35 @@ function GradeBadge({ grade, revealed }: { grade: ReviewGrade; revealed: boolean
   if (!playable) return <span className={cls}>{body}</span>;
 
   return (
-    <button
-      type="button"
-      onClick={() => playReviewSfx(grade)}
-      aria-label={`${t(`review.grade.${grade}`)} · ${GRADE_SYMBOL[grade]}`}
-      title={t(`review.grade.${grade}`)}
-      className={`${cls} transition-transform active:scale-95`}
-    >
-      {body}
-    </button>
+    <span className="relative inline-flex shrink-0">
+      {/* 能量波纹 + 瞬时闪光：只在 !!/ 重播时出现，动画结束即透明 */}
+      {fxNonce > 0 && (
+        <>
+          <span
+            key={`ring-${fxNonce}`}
+            aria-hidden
+            className="pointer-events-none absolute inset-0 rounded-lg border-2 border-cyan-300/80 animate-brilliant-ring motion-reduce:hidden"
+          />
+          <span
+            key={`flash-${fxNonce}`}
+            aria-hidden
+            className="pointer-events-none absolute inset-0 rounded-lg bg-cyan-300/30 animate-brilliant-flash motion-reduce:hidden"
+          />
+        </>
+      )}
+      <button
+        type="button"
+        onClick={() => {
+          playReviewSfx(grade);
+          onReplay?.();
+        }}
+        aria-label={`${t(`review.grade.${grade}`)} · ${GRADE_SYMBOL[grade]}`}
+        title={t(`review.grade.${grade}`)}
+        className={`${cls} transition-transform active:scale-95`}
+      >
+        {body}
+      </button>
+    </span>
   );
 }
 
@@ -168,10 +204,15 @@ function GradeBadge({ grade, revealed }: { grade: ReviewGrade; revealed: boolean
 function ReviewCard({
   player,
   revealed,
+  fxNonce,
+  onReplay,
   getBrawler,
 }: {
   player: PlayerReview;
   revealed: boolean;
+  /** `!!` 特效触发计数：每次 +1 都重放流光 */
+  fxNonce: number;
+  onReplay: () => void;
   getBrawler: (id: number) => { name: string } | undefined;
 }) {
   const { t, lang, brawler } = useTranslation();
@@ -180,6 +221,9 @@ function ReviewCard({
   const displayName = info ? brawler(info.name) : `#${player.brawlerId}`;
   const grade = player.grade;
   const ally = player.side === 'ally';
+  const brilliant = grade === 'brilliant';
+  /** 常驻微光只在揭晓之后亮起，避免「还没轮到他先发光」 */
+  const glowing = brilliant && revealed;
 
   /** 第二排指标：治疗 / 承伤 / 模式专属；只渲染录入了的项 */
   const extraCells: Array<{ key: MetricKey; label: string; value: string }> = [];
@@ -215,11 +259,30 @@ function ReviewCard({
 
   return (
     <article
-      className={`rounded-lg border border-slate-800 border-l-2 bg-slate-950/60 p-2 ${
+      data-card-key={cardKeyOf(player)}
+      data-fx={fxNonce}
+      className={`relative overflow-hidden rounded-lg border border-slate-800 border-l-2 bg-slate-950/60 p-2 transition-shadow duration-300 ${
         ally ? 'border-l-ally/70' : 'border-l-enemy/70'
-      }`}
+      } ${glowing ? 'shadow-[0_0_22px_-8px_rgba(34,211,238,0.75)] ring-1 ring-cyan-400/60' : ''}`}
     >
-      <div className="flex items-center gap-2">
+      {/* 常驻青蓝氛围：顶部一层很淡的渐变，和普通卡片拉开层次 */}
+      {glowing && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-cyan-400/10 to-transparent"
+        />
+      )}
+
+      {/* 流光扫过：fxNonce 变化即重挂，从而重放 900ms 的斜向高光 */}
+      {fxNonce > 0 && (
+        <span
+          key={`sweep-${fxNonce}`}
+          aria-hidden
+          className="pointer-events-none absolute inset-y-[-30%] left-0 w-[45%] bg-gradient-to-r from-transparent via-cyan-300/28 to-transparent animate-brilliant-sweep motion-reduce:animate-none"
+        />
+      )}
+
+      <div className="relative flex items-center gap-2">
         <Avatar
           id={Number.isFinite(id) ? id : 0}
           name={info?.name ?? `#${player.brawlerId}`}
@@ -260,7 +323,12 @@ function ReviewCard({
         </div>
 
         {grade ? (
-          <GradeBadge grade={grade} revealed={revealed} />
+          <GradeBadge
+            grade={grade}
+            revealed={revealed}
+            fxNonce={fxNonce}
+            onReplay={onReplay}
+          />
         ) : (
           <span className="shrink-0 rounded-lg border border-dashed border-slate-700 px-2 py-1.5 text-[9.5px] leading-tight text-slate-500">
             {t('review.noData')}
@@ -270,7 +338,7 @@ function ReviewCard({
 
       {player.metrics && totals ? (
         <>
-          <div className="mt-2 grid grid-cols-4 gap-1">
+          <div className="relative mt-2 grid grid-cols-4 gap-1">
             <StatCell label={t('review.kd')} value={player.metrics.displayKd ?? '—'} />
             <StatCell
               label={t('review.statKills')}
@@ -290,7 +358,7 @@ function ReviewCard({
 
           {extraCells.length > 0 && (
             <div
-              className="mt-1 grid gap-1"
+              className="relative mt-1 grid gap-1"
               style={{ gridTemplateColumns: `repeat(${extraCells.length}, minmax(0, 1fr))` }}
             >
               {extraCells.map((cell) => (
@@ -305,7 +373,7 @@ function ReviewCard({
           )}
 
           {player.metrics.damageShare !== null && player.metrics.killShare !== null && (
-            <div className="mt-1 flex items-center gap-2 text-[9.5px] tabular-nums text-slate-500">
+            <div className="relative mt-1 flex items-center gap-2 text-[9.5px] tabular-nums text-slate-500">
               <span>
                 {t('review.dmgShare')} {Math.round(player.metrics.damageShare * 100)}%
               </span>
@@ -316,12 +384,12 @@ function ReviewCard({
             </div>
           )}
 
-          <p className="mt-1.5 text-[10.5px] leading-relaxed text-slate-400">
+          <p className="relative mt-1.5 text-[10.5px] leading-relaxed text-slate-400">
             {t(player.comment.key, player.comment.params)}
           </p>
 
           {player.notes.length > 0 && (
-            <div className="mt-1 flex flex-wrap items-center gap-1">
+            <div className="relative mt-1 flex flex-wrap items-center gap-1">
               {player.notes.map((note) => (
                 <span
                   key={note.key}
@@ -334,7 +402,7 @@ function ReviewCard({
           )}
         </>
       ) : (
-        <p className="mt-1.5 text-[10.5px] leading-relaxed text-slate-600">
+        <p className="relative mt-1.5 text-[10.5px] leading-relaxed text-slate-600">
           {t('review.noDataHint')}
         </p>
       )}
@@ -349,7 +417,9 @@ function ReviewCard({
  * 只揭晓真正有评级的英雄——没录数据的人没有角标，不该占节奏。
  * 3 人以内用 350ms，超过 3 人收紧到 260ms，避免 6 个人揭晓拖成两秒以上。
  *
- * 声音只在 `!!` 出现时响（参照 Chess.com），其余档位纯视觉，避免连续噪音。
+ * 声音只在 `!!` 出现时响（参照 Chess.com）。声音响起的同时，该卡片会扫过一道青蓝流光、
+ * 角标炸开一圈波纹，并在顶部弹一条播报条——小屏上卡片可能还在屏幕外，
+ * 播报条是「听得到但找不到人」的兜底，点一下直接滚过去。
  */
 export default function MatchReviewSheet({
   idx,
@@ -358,7 +428,7 @@ export default function MatchReviewSheet({
   onEdit,
   onClose,
 }: MatchReviewSheetProps) {
-  const { t, lang, map: mapLabel, mode: modeLabel } = useTranslation();
+  const { t, lang, brawler, map: mapLabel, mode: modeLabel } = useTranslation();
   const { muted, toggle } = useSfxMuted();
 
   // 评语里的伤害用本地化单位（万 / k），不输出裸整数
@@ -393,14 +463,26 @@ export default function MatchReviewSheet({
   }, [review]);
 
   const [revealed, setRevealed] = useState(0);
+  /** 每张卡片的 `!!` 特效触发计数：+1 即重放流光 / 波纹 */
+  const [fx, setFx] = useState<Record<string, number>>({});
+  /** 顶部高光播报条：后触发的直接替换前一个 */
+  const [banner, setBanner] = useState<{ player: PlayerReview; at: number } | null>(null);
 
-  // 逐个揭晓：到点弹角标；只有 !! 出声（其余档位纯视觉）
+  const bumpFx = (key: string) =>
+    setFx((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
+
+  // 逐个揭晓：到点弹角标；只有 !! 出声 + 触发联动特效
   useEffect(() => {
     setRevealed(0);
     const timers = rated.map((player, index) =>
       window.setTimeout(() => {
         setRevealed(index + 1);
-        if (player.grade === 'brilliant') playReviewSfx(player.grade);
+        if (player.grade === 'brilliant') {
+          playReviewSfx(player.grade);
+          const key = cardKeyOf(player);
+          setFx((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
+          setBanner({ player, at: Date.now() });
+        }
       }, stepMs * (index + 1)),
     );
     return () => {
@@ -408,23 +490,51 @@ export default function MatchReviewSheet({
     };
   }, [rated, stepMs]);
 
+  // 播报条 2s 自动消失；连续触发时新 banner 会重置计时
+  useEffect(() => {
+    if (!banner) return;
+    const timer = window.setTimeout(() => setBanner(null), BANNER_LIFE_MS);
+    return () => window.clearTimeout(timer);
+  }, [banner]);
+
   if (!review.eligible) return null;
 
   const win = record.result === 'win';
   const enemyHasData = review.enemyReviews.some((p) => p.hasData);
   const hasCompare = review.enemyAvgScore !== null;
 
+  /** 点击角标重播：音效由角标自己播，这里只负责重放卡片特效 */
+  const replayFx = (player: PlayerReview) => bumpFx(cardKeyOf(player));
+
+  /** 点击播报条：滚到那张卡片并重放流光 */
+  const focusPlayer = (player: PlayerReview) => {
+    const key = cardKeyOf(player);
+    const target = document.querySelector<HTMLElement>(`[data-card-key="${key}"]`);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    bumpFx(key);
+  };
+
   const cardOf = (player: PlayerReview) => {
     const index = revealIndexOf.get(player);
     return (
       <ReviewCard
-        key={`${player.side}-${player.brawlerId}`}
+        key={cardKeyOf(player)}
         player={player}
         revealed={index !== undefined && revealed > index}
+        fxNonce={fx[cardKeyOf(player)] ?? 0}
+        onReplay={() => replayFx(player)}
         getBrawler={getBrawler}
       />
     );
   };
+
+  const bannerName = banner
+    ? (() => {
+        const id = Number(banner.player.brawlerId);
+        const info = Number.isFinite(id) ? getBrawler(id) : undefined;
+        return info ? brawler(info.name) : `#${banner.player.brawlerId}`;
+      })()
+    : '';
 
   return (
     <div
@@ -546,24 +656,64 @@ export default function MatchReviewSheet({
         </div>
 
         {/* 主体：我方 / 敌方。横屏并排两列，竖屏上下分区 */}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-2.5">
-          <div className="grid gap-2.5 landscape:grid-cols-2 landscape:items-start">
-            <section>
-              <TeamHeader side="ally" count={review.allyReviews.length} />
-              <div className="flex flex-col gap-1.5">{review.allyReviews.map(cardOf)}</div>
-            </section>
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {/*
+            高光播报条：浮在滚动区上方（不进文档流），所以出现 / 消失都不会让内容跳动，
+            也不会挡住右上角的关闭 / 静音——那两颗按钮在头部，播报条在这块区域顶端。
+            wrapper 必须 pointer-events-none，否则这层会吃掉滚轮与点击。
+          */}
+          {banner && (
+            <div
+              key={banner.at}
+              className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pt-2"
+            >
+              <button
+                type="button"
+                onClick={() => focusPlayer(banner.player)}
+                aria-label={t('review.brilliantBannerAria', { name: bannerName })}
+                className="pointer-events-auto flex w-full items-center gap-1.5 rounded-full border border-cyan-400/50 bg-slate-900/95 px-2 py-1 text-left shadow-lg shadow-cyan-500/10 animate-banner-life motion-reduce:animate-none active:bg-slate-800"
+              >
+                <Avatar
+                  id={Number(banner.player.brawlerId) || 0}
+                  name={bannerName}
+                  size={18}
+                  rounded="rounded-full"
+                />
+                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-cyan-100">
+                  {bannerName}
+                </span>
+                <span className="shrink-0 rounded-full bg-cyan-400/15 px-1.5 py-0.5 text-[9px] font-bold leading-none text-cyan-300">
+                  {GRADE_SYMBOL.brilliant} {t('review.grade.brilliant')}
+                </span>
+              </button>
+            </div>
+          )}
 
-            <section>
-              <TeamHeader side="enemy" count={review.enemyReviews.length} />
-              {enemyHasData ? (
-                <div className="flex flex-col gap-1.5">{review.enemyReviews.map(cardOf)}</div>
-              ) : (
-                // 敌方完全没录：收起成一行的提示，别留一大片空白
-                <p className="rounded-lg border border-dashed border-slate-800 px-2.5 py-2 text-[10px] leading-relaxed text-slate-500">
-                  {t('review.enemyEmpty')}
-                </p>
-              )}
-            </section>
+          {/*
+            滚动区必须是 flex 子项（flex-1 min-h-0）而不是 height:100%：
+            百分比高度在「高度由 flex 分配」的父级里解析不出来，会退化成内容高度，
+            结果就是容器永远不溢出、滚轮和触屏都滚不动（V2.2 实测 bug）。
+            这里也不能加 overflow-hidden——那是卡片裁剪流光专用的。
+          */}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-2.5">
+            <div className="grid gap-2.5 landscape:grid-cols-2 landscape:items-start">
+              <section>
+                <TeamHeader side="ally" count={review.allyReviews.length} />
+                <div className="flex flex-col gap-1.5">{review.allyReviews.map(cardOf)}</div>
+              </section>
+
+              <section>
+                <TeamHeader side="enemy" count={review.enemyReviews.length} />
+                {enemyHasData ? (
+                  <div className="flex flex-col gap-1.5">{review.enemyReviews.map(cardOf)}</div>
+                ) : (
+                  // 敌方完全没录：收起成一行的提示，别留一大片空白
+                  <p className="rounded-lg border border-dashed border-slate-800 px-2.5 py-2 text-[10px] leading-relaxed text-slate-500">
+                    {t('review.enemyEmpty')}
+                  </p>
+                )}
+              </section>
+            </div>
           </div>
         </div>
 
