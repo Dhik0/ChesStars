@@ -14,12 +14,13 @@ import {
 import LanguageAccordion from './LanguageAccordion';
 import { APP_NAME, APP_VERSION, DISCORD_INVITE_URL, GITHUB_REPO, GITHUB_REPO_URL, QQ_GROUP_ID } from '../config/app';
 import { bundledQqGroupUrl } from '../config/bundledManifest';
-import { IS_NATIVE_APP } from '../config/platform';
+import { IS_NATIVE_APP, IS_WEB } from '../config/platform';
 import { useTranslation } from '../i18n';
 import { pullMessage } from '../i18n/format';
 import type { MetaSnapshot, PullResult } from '../services/metaStore';
-import type { UpdateCheckResult, UpdateInfo } from '../services/updateChecker';
+import type { UpdateInfo } from '../services/updateChecker';
 import { mirrorDownloadUrl } from '../services/updateChecker';
+import type { UpdateCheckOutcome } from '../services/webUpdate';
 import { openExternal } from '../utils/openExternal';
 
 interface SettingsViewProps {
@@ -29,8 +30,8 @@ interface SettingsViewProps {
   updateInfo: UpdateInfo | null;
   /** 远程清单里的 QQ 群链接；null = 用打包内置的 version.json */
   qqGroupUrl: string | null;
-  /** 手动检查更新，返回结构化结果供按钮旁反馈 */
-  onCheckUpdate: () => Promise<UpdateCheckResult>;
+  /** 手动检查更新（原生壳问 GitHub 清单，网页端问线上 version.json），返回统一结果 */
+  onCheckUpdate: () => Promise<UpdateCheckOutcome>;
   /** 打开更新说明弹窗 */
   onShowUpdate: () => void;
 }
@@ -162,8 +163,12 @@ export default function SettingsView({
     setCheckMsg(null);
     try {
       const res = await onCheckUpdate();
-      if (res.status === 'update' && res.info) {
-        setCheckMsg({ tone: 'warn', text: t('settings.checkFound', { v: res.info.version }) });
+      if (res.status === 'update' && res.version) {
+        // 网页端没有安装包，「去上方下载」会误导，换成「点顶部提示条」
+        setCheckMsg({
+          tone: 'warn',
+          text: t(IS_WEB ? 'settings.checkFoundWeb' : 'settings.checkFound', { v: res.version }),
+        });
       } else if (res.status === 'latest') {
         setCheckMsg({ tone: 'ok', text: t('settings.checkLatest', { v: res.current }) });
       } else {
@@ -320,27 +325,26 @@ export default function SettingsView({
             </span>
           </div>
 
-          {/* 检查安装包更新：仅原生壳有意义，Web / PWA 直接不渲染 */}
-          {IS_NATIVE_APP && (
-            <>
-              <button
-                type="button"
-                onClick={handleCheckUpdate}
-                disabled={checking}
-                className="mb-1.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-800 text-[12px] text-slate-300 active:bg-slate-800 disabled:opacity-60"
-              >
-                <RefreshCw size={13} className={checking ? 'animate-spin' : ''} />
-                {checking ? t('settings.checking') : t('settings.checkUpdate')}
-              </button>
+          {/*
+            检查更新：原生壳查的是 APK 版本，网页端查的是线上 version.json，
+            两者都走同一个按钮与同一套反馈文案。
+          */}
+          <button
+            type="button"
+            onClick={handleCheckUpdate}
+            disabled={checking}
+            className="mb-1.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-800 text-[12px] text-slate-300 active:bg-slate-800 disabled:opacity-60"
+          >
+            <RefreshCw size={13} className={checking ? 'animate-spin' : ''} />
+            {checking ? t('settings.checking') : t('settings.checkUpdate')}
+          </button>
 
-              {checkMsg && (
-                <p
-                  className={`mb-1.5 rounded-lg px-2 py-1.5 text-[11px] leading-snug ${CHECK_TONE[checkMsg.tone]}`}
-                >
-                  {checkMsg.text}
-                </p>
-              )}
-            </>
+          {checkMsg && (
+            <p
+              className={`mb-1.5 rounded-lg px-2 py-1.5 text-[11px] leading-snug ${CHECK_TONE[checkMsg.tone]}`}
+            >
+              {checkMsg.text}
+            </p>
           )}
 
           <LinkRow

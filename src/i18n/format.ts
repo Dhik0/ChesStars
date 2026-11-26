@@ -1,4 +1,4 @@
-import type { PullResult } from '../services/metaStore';
+import { MetaLoadError, type PullResult } from '../services/metaStore';
 import type { Translator } from './translate';
 
 /**
@@ -27,5 +27,29 @@ export function pullMessage(
     case 'notReady':
     default:
       return t('pull.notReady');
+  }
+}
+
+/**
+ * 首屏加载失败的原因 → 一句短话（超时 / 断网 / 状态码 / 文件损坏）。
+ *
+ * 只讲现象不讲链路：用户看到「连接超时」知道该重试，看到「服务器返回 404」
+ * 知道该反馈，不需要知道三段式降级、CDN 或 IndexedDB 这些内部细节。
+ */
+export function loadErrorMessage(error: unknown, t: Translator): string | null {
+  if (!(error instanceof MetaLoadError)) return null;
+
+  switch (error.kind) {
+    case 'timeout':
+      return t('error.timeout');
+    case 'offline':
+      return t('error.offline');
+    case 'http':
+      return t('error.http', { code: String(error.status ?? '') });
+    case 'invalid':
+      return t('error.invalid');
+    case 'unknown':
+    default:
+      return t('error.unknown');
   }
 }

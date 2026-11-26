@@ -224,7 +224,11 @@ function pickApkAsset(assets: unknown, version: string): string | null {
 
 /** 通道 1：version.json（三段式链路） */
 async function checkViaManifest(current: string): Promise<UpdateCheckResult> {
-  const res = await fetchRepoJson<unknown>(APP_MANIFEST_REF, { timeoutMs: MANIFEST_TIMEOUT_MS });
+  // 每次检查都带新的防缓存时间戳：命中缓存会拿到上一版清单，把「有新版本」吞掉
+  const res = await fetchRepoJson<unknown>(APP_MANIFEST_REF, {
+    timeoutMs: MANIFEST_TIMEOUT_MS,
+    cacheBust: Date.now(),
+  });
   const manifest = parseVersionManifest(res.data);
 
   const info: UpdateInfo = {

@@ -34,6 +34,20 @@ export class HttpError extends Error {
   }
 }
 
+/**
+ * 请求超时（本地 AbortController 触发，不是服务端返回的 4xx/5xx）。
+ * 单独一个类型是为了让界面能把「超时」和「断网」「状态码」区分开显示。
+ */
+export class HttpTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`请求超时（${Math.round(timeoutMs / 1000)}s）`);
+    this.name = 'HttpTimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 function isRetryable(err: unknown): boolean {
@@ -46,7 +60,7 @@ function isRetryable(err: unknown): boolean {
 }
 
 function timeoutError(timeoutMs: number): Error {
-  return new Error(`请求超时（${Math.round(timeoutMs / 1000)}s）`);
+  return new HttpTimeoutError(timeoutMs);
 }
 
 async function fetchOnce<T>(

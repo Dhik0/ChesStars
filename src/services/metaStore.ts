@@ -1,6 +1,6 @@
 import { buildIndex, type MetaIndex } from '../data/metaIndex';
 import { validateMeta, type BrawlMeta, type MetaSource } from '../types/meta';
-import { fetchJsonWithRetry } from './http';
+import { fetchJsonWithRetry, HttpError, HttpTimeoutError } from './http';
 import { metaCache, type MetaCacheAdapter } from './metaCache';
 import { fetchRepoJson, META_REPO_REF, shouldReplaceMeta } from './metaRemote';
 
@@ -20,8 +20,19 @@ import { fetchRepoJson, META_REPO_REF, shouldReplaceMeta } from './metaRemote';
  * 界面只需要知道「有没有更新、数据是哪天的」，链路与超时细节不外露。
  */
 
-/** 内置文件是本地产物，超时给宽一点，不重试 */
-export const BUILTIN_TIMEOUT_MS = 15000;
+/**
+ * 内置文件超时。
+ *
+ * 这份文件是首屏唯一的关键资源，而且**不再走网络优化**：国内直连时 8.6MB 在弱网下
+ * 十几秒很正常，短超时只会把「慢」误判成「失败」。给到 20 秒（需求允许的 15~20s 上限），
+ * 并且**不重试**——重试是从头再下一遍 8.6MB，只会让卡住的时间翻倍；
+ * 失败后由界面给出原因 + 重试按钮，用户点一次时 Service Worker 的预缓存往往已经装好，
+ * 第二次几乎瞬时命中。
+ */
+export const BUILTIN_TIMEOUT_MS = 20000;
+
+/** 内置文件的重试次数：见上，重试等于重下 8.6MB，交给用户手动触发 */
+export const BUILTIN_RETRIES = 0;
 
 /** 内置兜底文件路径：兼容 dev（/）与 Capacitor（./）两种 base */
 export function builtinMetaUrl(): string {
@@ -100,6 +111,46 @@ function reason(err: unknown): string {
 }
 
 /**
+ * 首屏数据加载失败的「可分类」原因。
+ *
+ * 服务层只回种类与状态码，具体文案由 `i18n/format.ts` 按当前语言组装——
+ * 与 `PullResult` 同一套约定，服务层不认识任何语言。
+ */
+export type MetaLoadFailureKind = 'timeout' | 'offline' | 'http' | 'invalid' | 'unknown';
+
+export class MetaLoadError extends Error {
+  readonly kind: MetaLoadFailureKind;
+  /** 仅 kind === 'http' 时有值 */
+  readonly status?: number;
+
+  constructor(kind: MetaLoadFailureKind, message: string, status?: number) {
+    super(message);
+    this.name = 'MetaLoadError';
+    this.kind = kind;
+    this.status = status;
+  }
+}
+
+/**
+ * 网络层错误 → 分类。
+ *
+ * 顺序不能反：`HttpTimeoutError` / `HttpError` 都是 Error 子类，
+ * 先判类型再落到「断网」（fetch 在断网 / DNS 失败 / CORS 被拒时抛的是 TypeError）。
+ */
+function classifyNetworkError(err: unknown): MetaLoadError {
+  if (err instanceof HttpTimeoutError) {
+    return new MetaLoadError('timeout', `内置数据加载超时：${reason(err)}`);
+  }
+  if (err instanceof HttpError) {
+    return new MetaLoadError('http', `内置数据加载失败：${reason(err)}`, err.status);
+  }
+  if (err instanceof TypeError) {
+    return new MetaLoadError('offline', `内置数据加载失败：${reason(err)}`);
+  }
+  return new MetaLoadError('unknown', `内置数据加载失败：${reason(err)}`);
+}
+
+/**
  * 数据仓库。
  *
  * 缓存读写全部走 `MetaCacheAdapter`（默认实现是 IndexedDB）：
@@ -143,10 +194,44 @@ export class MetaStore {
     this.emit();
   }
 
-  /** 走三段式链路拉一次远程，并把结构校验过一遍 */
+  /**
+   * 走三段式链路拉一次远程，并把结构校验过一遍。
+   *
+   * 每次调用都带一个**新的**防缓存时间戳（三段链路共用同一个值）。
+   * 这是「手动拉取却提示已是最新」的根因所在：请求一旦命中浏览器磁盘缓存或
+   * CDN 边缘缓存，拿回来的就是旧文件，与本地一比自然「没有更新」。
+   */
   private async loadRemote(): Promise<{ meta: BrawlMeta; lastModified: string | null }> {
-    const res = await fetchRepoJson<unknown>(META_REPO_REF);
+    const res = await fetchRepoJson<unknown>(META_REPO_REF, { cacheBust: Date.now() });
     return { meta: validateMeta(res.data), lastModified: res.lastModified };
+  }
+
+  /**
+   * 拉内置文件——首屏唯一的阻塞项。
+   *
+   * 网络失败与结构异常分开归类，界面才能把「超时 / 断网 / 状态码 / 文件损坏」讲清楚。
+   * 这里刻意**不**加 `?t=` 防缓存参数：线上这份文件由 Service Worker 预缓存，
+   * 加了会绕开预缓存，断网时就取不到了。
+   */
+  private async loadBuiltin(): Promise<{ meta: BrawlMeta; lastModified: string | null }> {
+    let data: unknown;
+    let lastModified: string | null;
+    try {
+      const res = await fetchJsonWithRetry(builtinMetaUrl(), {
+        timeoutMs: BUILTIN_TIMEOUT_MS,
+        retries: BUILTIN_RETRIES,
+      });
+      data = res.data;
+      lastModified = res.lastModified;
+    } catch (err) {
+      throw classifyNetworkError(err);
+    }
+
+    try {
+      return { meta: validateMeta(data), lastModified };
+    } catch (err) {
+      throw new MetaLoadError('invalid', `内置数据格式异常：${reason(err)}`);
+    }
   }
 
   /** 首次加载：缓存优先，其次内置，全部失败才报错 */
@@ -155,6 +240,7 @@ export class MetaStore {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async () => {
+      // 1) 本地缓存：有就直接进界面，远端检查放后台
       const cached = await this.cache.read();
       this.hasCache = cached !== null;
       if (cached) {
@@ -164,20 +250,22 @@ export class MetaStore {
         return this.snapshot!;
       }
 
-      try {
-        const { data, lastModified } = await fetchJsonWithRetry(builtinMetaUrl(), {
-          timeoutMs: BUILTIN_TIMEOUT_MS,
-          retries: 1,
-        });
-        this.setMeta(validateMeta(data), 'builtin', lastModified);
-        void this.silentCheck();
-        return this.snapshot!;
-      } catch (err) {
-        throw new Error(`内置数据加载失败：${reason(err)}`);
-      }
+      // 2) 冷启动（新浏览器 / 无痕 / 刚清过缓存）：只等同源内置文件。
+      //    远端三段链路一律在进入界面之后异步跑，绝不挡在首屏前面——
+      //    弱网下它每段都可能超时，叠起来就是「一直转圈」。
+      const { meta, lastModified } = await this.loadBuiltin();
+      this.setMeta(meta, 'builtin', lastModified);
+      void this.silentCheck();
+      return this.snapshot!;
     })();
 
-    return this.initPromise;
+    try {
+      return await this.initPromise;
+    } catch (err) {
+      // 失败不能把 initPromise 永久钉住，否则界面上的「重试」拿到的永远是同一个失败结果
+      this.initPromise = null;
+      throw err;
+    }
   }
 
   /** 启动时静默检查：超时/失败一律忽略（用户手动拉取时才需要看到失败原因） */
@@ -218,8 +306,18 @@ export class MetaStore {
       const date = toLocalDateString(remote.meta.updated_at) ?? remote.meta.updated_at;
       const battles = remote.meta.total_battles;
 
+      // 对比基准是「本地当前正在用的那份数据」（缓存 / 内置 / 本会话已拉到的远端），
+      // 而不是再拿缓存跟缓存比——loadRemote 已经强制走了一次网络（带防缓存参数）。
       if (!shouldReplaceMeta(remote.meta, this.snapshot.meta, { hasCache: this.hasCache })) {
-        return { ok: true, updated: false, code: 'latest', date, battles };
+        // 远端没有更新（甚至比本地更旧）：报本地当前数据的日期，
+        // 不能把远端那份旧日期当成「最新」讲给用户。
+        return {
+          ok: true,
+          updated: false,
+          code: 'latest',
+          date: this.snapshot.dataDate ?? date,
+          battles: this.snapshot.totalBattles,
+        };
       }
 
       // 只有 IndexedDB 真的写不进去（磁盘满等极端情况）才降级为内存生效

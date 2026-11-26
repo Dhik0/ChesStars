@@ -93,6 +93,17 @@
   .safe-top {
     padding-top: env(safe-area-inset-top, 0px);
   }
+  /* 顶部版本提示条：安全区由它自己吃掉，见下方 .has-update-banner 规则 */
+  .safe-top-banner {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  /*
+   * 版本提示条出现时，页头已经不在屏幕最顶部了，
+   * 再留一次状态栏高度会白白多出一条空白，这里统一归零。
+   */
+  .has-update-banner .safe-top {
+    padding-top: 0;
+  }
   /* dvh 在老 WebView 不支持时回退到 vh，避免容器高度塌陷 */
   .h-dvh {
     height: 100vh;

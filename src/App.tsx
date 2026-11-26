@@ -11,19 +11,22 @@ import MapPicker from './components/MapPicker';
 import MatchupSheet from './components/MatchupSheet';
 import SettingsView from './components/SettingsView';
 import TopBar from './components/TopBar';
+import UpdateBanner from './components/UpdateBanner';
 import UpdateDialog from './components/UpdateDialog';
 import { APP_VERSION } from './config/app';
-import { IS_NATIVE_APP } from './config/platform';
+import { IS_NATIVE_APP, IS_WEB } from './config/platform';
 import { CLASS_COLOR, CLASS_ORDER, type BrawlerClass } from './data/brawlerProfile';
 import { useTranslation } from './i18n';
+import { loadErrorMessage } from './i18n/format';
 import { metaStore, type MetaSnapshot } from './services/metaStore';
+import { applyWebUpdate, isSwUpdateReady, onSwUpdateReady } from './services/swUpdate';
 import {
   checkForUpdate,
   ignoreVersion,
   isVersionIgnored,
-  type UpdateCheckResult,
   type UpdateInfo,
 } from './services/updateChecker';
+import { checkWebUpdate, type UpdateCheckOutcome } from './services/webUpdate';
 import {
   EMPTY_BAN,
   applyPick,
@@ -49,6 +52,9 @@ import { TOP_PICK_COUNT, buildBrawlerPool, rankMap } from './utils/pool';
 import { useViewport } from './utils/useViewport';
 
 const LS_MAP = 'brawl.draft.map';
+
+/** 网页端版本检测的启动延迟：避开首屏数据加载，2.5 秒后静默执行 */
+const WEB_UPDATE_DELAY_MS = 2500;
 
 /** 「BP 助手」Tab 内的二级页面：首屏是「选择地图」，选完才进 BP 面板 */
 type Screen = 'select' | 'draft';
@@ -94,7 +100,8 @@ function ClassChip({
 export default function App() {
   const { t, brawler, tier } = useTranslation();
   const [snap, setSnap] = useState<MetaSnapshot | null>(metaStore.getSnapshot());
-  const [error, setError] = useState<string | null>(null);
+  /** 首屏加载失败的原因对象（含「超时 / 断网 / 状态码」分类），null = 正常 */
+  const [error, setError] = useState<unknown>(null);
 
   const [draft, setDraft] = useState<DraftState | null>(null);
   /** 一级页面（底部导航）：左侧选图 + BP 主流程 / 右侧设置 */
@@ -119,6 +126,10 @@ export default function App() {
   const [updateOpen, setUpdateOpen] = useState(false);
   /** 远程清单里的 QQ 群链接（与是否有新版本无关）；null = 用打包内置的那份 */
   const [qqGroupUrl, setQqGroupUrl] = useState<string | null>(null);
+  /** 网页端：线上 version.json 的版本比当前构建更新时记下版本号（null = 没有更新） */
+  const [webVersion, setWebVersion] = useState<string | null>(null);
+  /** 网页端：Service Worker 已装好新构建，等用户点「立即更新」 */
+  const [swReady, setSwReady] = useState(false);
 
   /** 底部轻提示（目前只有「再滑一次退出应用」用它），非阻塞、自动消失 */
   const [toast, setToast] = useState<string | null>(null);
@@ -242,7 +253,7 @@ export default function App() {
         }
       })
       .catch((e: unknown) => {
-        if (alive) setError(e instanceof Error ? e.message : String(e));
+        if (alive) setError(e);
       });
     return () => {
       alive = false;
@@ -272,6 +283,39 @@ export default function App() {
     return () => {
       alive = false;
     };
+  }, []);
+
+  /* ---------------- 网页端新版本检测（静默、延迟、不阻塞首屏） ----------------
+   * 网页没有安装包可下载，问的是同目录的 version.json（构建时由 vite.config.ts 生成）：
+   * 线上版本比当前这份 JS 的构建版本高，就说明部署了新版，提示刷新即可。
+   * 延迟 2.5 秒再发，避免和首屏数据加载抢带宽；断网 / 404 一律静默忽略。
+   */
+  useEffect(() => {
+    if (!IS_WEB) return;
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      void checkWebUpdate().then((res) => {
+        if (!alive) return;
+        if (res.status === 'update' && res.version && !isVersionIgnored(res.version)) {
+          setWebVersion(res.version);
+        }
+      });
+    }, WEB_UPDATE_DELAY_MS);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  /* Service Worker 装好新构建时同样只提示、不强制刷新：
+   * BP 进行中被刷新会丢掉整局进度，什么时候刷新交给用户。 */
+  useEffect(() => {
+    if (!IS_WEB) return;
+    if (isSwUpdateReady()) {
+      setSwReady(true);
+      return;
+    }
+    return onSwUpdateReady(() => setSwReady(true));
   }, []);
 
   /* ---------------- 矮视口进 BP：平滑跳过顶部地图卡 ----------------
@@ -422,13 +466,29 @@ export default function App() {
 
   /* ---------------- 版本更新 ---------------- */
 
-  /** 手动检查：结果交给设置页反馈，同时刷新红点与横幅 */
-  const handleCheckUpdate = async (): Promise<UpdateCheckResult> => {
+  /**
+   * 手动检查：原生壳问 GitHub 清单（APK 下载引导），网页端问线上 version.json。
+   * 两边都收敛成同一种结果，设置页不需要分叉。
+   */
+  const handleCheckUpdate = async (): Promise<UpdateCheckOutcome> => {
+    if (IS_WEB) {
+      const res = await checkWebUpdate();
+      if (res.status === 'update' && res.version && !isVersionIgnored(res.version)) {
+        setWebVersion(res.version);
+      }
+      return res;
+    }
+
     const res = await checkForUpdate();
     if (res.info?.qqGroupUrl) setQqGroupUrl(res.info.qqGroupUrl);
     if (res.status === 'update' && res.info) setUpdateInfo(res.info);
     else if (res.status === 'latest') setUpdateInfo(null);
-    return res;
+    return {
+      status: res.status,
+      current: res.current,
+      version: res.info?.version,
+      reason: res.reason,
+    };
   };
 
   const handleDownloadUpdate = () => {
@@ -456,19 +516,49 @@ export default function App() {
       />
     ) : null;
 
+  /**
+   * 网页端新版本提示条（仅 Web）。
+   *
+   * 两个来源合一：线上 version.json 版本更高，或 Service Worker 已装好新构建。
+   * 关掉不影响使用，只是本次会话不再提示；带版本号时顺手记进「忽略此版本」，
+   * 免得每次打开都弹同一条。
+   */
+  const webUpdateBanner =
+    IS_WEB && (webVersion !== null || swReady) ? (
+      <UpdateBanner
+        version={webVersion}
+        onUpdate={() => void applyWebUpdate()}
+        onDismiss={() => {
+          if (webVersion) ignoreVersion(webVersion);
+          setWebVersion(null);
+          setSwReady(false);
+        }}
+      />
+    ) : null;
+
   /* ---------------- 渲染：加载 / 错误 ---------------- */
 
   if (error) {
+    // 失败原因单独一行小字：超时 / 断网 / 状态码 / 文件损坏，方便用户描述问题
+    const failureReason = loadErrorMessage(error, t);
     return (
       <div className="flex h-dvh w-full justify-center bg-slate-900">
         <div className="flex h-dvh w-full max-w-[440px] flex-col items-center justify-center gap-3 bg-slate-950 px-6 text-center">
           <p className="text-[13px] font-semibold text-red-400">{t('app.loadError')}</p>
           <p className="text-[11px] leading-relaxed text-slate-500">{t('app.loadErrorHint')}</p>
+          {failureReason && (
+            <p className="text-[10.5px] leading-tight text-slate-600">
+              {t('app.loadErrorReason', { reason: failureReason })}
+            </p>
+          )}
           <button
             type="button"
             onClick={() => {
               setError(null);
-              void metaStore.init().then(setSnap);
+              void metaStore
+                .init()
+                .then(setSnap)
+                .catch(setError);
             }}
             className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-800 px-3 text-[12px] text-slate-200 active:bg-slate-700"
           >
@@ -556,8 +646,9 @@ export default function App() {
               ''
             : // 竖屏与桌面：大于 440px 时居中成紧凑面板，PC 上不会被横向拉伸
               'sm:max-w-[440px] sm:shadow-2xl sm:shadow-black/60 sm:ring-1 sm:ring-slate-800/70'
-        } ${navVisible ? 'has-bottom-nav' : ''}`}
+        } ${navVisible ? 'has-bottom-nav' : ''} ${webUpdateBanner ? 'has-update-banner' : ''}`}
       >
+        {webUpdateBanner}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{content}</div>
         {navVisible && (
           <BottomNav tab={tab} onChange={setTab} hasUpdate={updateInfo !== null} />

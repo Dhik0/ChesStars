@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { builtinMetaUrl, MetaStore, type PullResult } from './metaStore';
+import {
+  builtinMetaUrl,
+  BUILTIN_TIMEOUT_MS,
+  MetaLoadError,
+  MetaStore,
+  type PullResult,
+} from './metaStore';
 import type { MetaCacheAdapter, MetaCacheHit } from './metaCache';
 import { makeTestMeta } from './__testkit__/metaFixture';
 import { pullMessage } from '../i18n/format';
@@ -195,5 +201,70 @@ describe('MetaStore.pullNow', () => {
 
     expect(second.updated).toBe(false);
     expect(cache.write).not.toHaveBeenCalled();
+  });
+});
+
+describe('首屏加载失败的原因分类', () => {
+  /** 取 init 抛出的错误对象 */
+  const initError = async (store: MetaStore): Promise<unknown> =>
+    store.init().catch((e: unknown) => e);
+
+  it('内置文件返回 404 → http，并带上状态码', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => res(null, { ok: false, status: 404 })));
+    const err = await initError(new MetaStore(fakeCache(null)));
+
+    expect(err).toBeInstanceOf(MetaLoadError);
+    expect((err as MetaLoadError).kind).toBe('http');
+    expect((err as MetaLoadError).status).toBe(404);
+  });
+
+  it('断网（fetch 抛 TypeError）→ offline', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    const err = await initError(new MetaStore(fakeCache(null)));
+
+    expect((err as MetaLoadError).kind).toBe('offline');
+  });
+
+  it('超过内置超时 → timeout，且只请求一次（不重复下 8MB）', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      (_url: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const store = new MetaStore(fakeCache(null));
+    const pending = initError(store);
+    await vi.advanceTimersByTimeAsync(BUILTIN_TIMEOUT_MS + 10);
+    const err = await pending;
+    vi.useRealTimers();
+
+    expect((err as MetaLoadError).kind).toBe('timeout');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('失败后可以重试：第二次 init 会重新发起请求', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(res(null, { ok: false, status: 500 }))
+      .mockResolvedValueOnce(res(makeTestMeta()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const store = new MetaStore(fakeCache(null));
+    await expect(store.init()).rejects.toBeInstanceOf(MetaLoadError);
+    const snap = await store.init();
+
+    expect(snap.source).toBe('builtin');
+    // 只数内置文件的请求：成功后的静默检查打的是远端仓库，不算在内
+    const builtinCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('data/brawl_meta.json'),
+    );
+    expect(builtinCalls).toHaveLength(2);
   });
 });

@@ -20,6 +20,15 @@ export const GITHUB_REPO_URL = `https://github.com/${GITHUB_REPO}`;
 /** 仓库根目录的版本清单（不走 GitHub API，避免 60 次/小时限流） */
 export const VERSION_MANIFEST_PATH = 'version.json';
 
+/**
+ * 网页端版本清单地址：构建时由 vite.config.ts 写进产物根目录的 `version.json`，
+ * 与页面同源同目录（兼容 dev 的 `/` 与 Capacitor / 子目录部署的 `./`）。
+ */
+export function webVersionManifestUrl(): string {
+  const base = import.meta.env.BASE_URL || './';
+  return `${base}${base.endsWith('/') ? '' : '/'}${VERSION_MANIFEST_PATH}`;
+}
+
 /** 最新 Release 接口（未认证调用，60 次/小时/IP） */
 export const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 
