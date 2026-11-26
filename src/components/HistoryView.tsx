@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Crown, History as HistoryIcon, Pencil, Swords, Trash2 } from 'lucide-react';
+import { BarChart3, Crown, History as HistoryIcon, Pencil, Swords, Trash2 } from 'lucide-react';
 import { useTranslation } from '../i18n';
 import { summarizeHistory, type MatchRecord } from '../services/matchHistoryStore';
+import { unlockSfx } from '../services/reviewSfx';
 import type { Lang } from '../i18n';
 import Avatar from './Avatar';
 import ModeIcon from './ModeIcon';
@@ -12,6 +13,8 @@ interface HistoryViewProps {
   /** 英雄英文原名（译名按当前语言解析） */
   getBrawler: (id: number) => { name: string } | undefined;
   onEdit: (record: MatchRecord) => void;
+  /** 打开局后复盘（pending 对局由 App 改成打开编辑抽屉 + 提示） */
+  onReview: (record: MatchRecord) => void;
   onDelete: (id: string) => void;
   /** 空状态引导：切回 BP 助手 */
   onGoDraft: () => void;
@@ -59,11 +62,13 @@ function MatchCard({
   record,
   getBrawler,
   onEdit,
+  onReview,
   onDelete,
 }: {
   record: MatchRecord;
   getBrawler: HistoryViewProps['getBrawler'];
   onEdit: (record: MatchRecord) => void;
+  onReview: (record: MatchRecord) => void;
   onDelete: (id: string) => void;
 }) {
   const { t, lang, map: mapLabel, mode: modeLabel, brawler } = useTranslation();
@@ -89,8 +94,16 @@ function MatchCard({
     };
   };
 
-  /** 摘要优先「我」，其次「最佳」；两者都没标就不显示摘要行 */
-  const marked = record.allyStats.find((s) => s.isSelf) ?? record.allyStats.find((s) => s.isStarPlayer);
+  /**
+   * 摘要优先级：「我」→ 我方「最佳」→ 敌方「最佳」。
+   * 最佳只有一个人，勾在对面时也要能在卡片上看出来（用红色阵营标区分）。
+   */
+  const enemyStats = record.enemyStats ?? [];
+  const selfMarked = record.allyStats.find((s) => s.isSelf);
+  const allyMarked = selfMarked ?? record.allyStats.find((s) => s.isStarPlayer);
+  const enemyStar = allyMarked ? undefined : enemyStats.find((s) => s.isStarPlayer);
+  const marked = allyMarked ?? enemyStar;
+  const markedFromEnemy = allyMarked === undefined && enemyStar !== undefined;
   const markedHasData =
     marked !== undefined &&
     (marked.kills !== null || marked.deaths !== null || marked.damage !== null);
@@ -156,14 +169,27 @@ function MatchCard({
       {/* 已录入数据时，给标记为「我」或「最佳」的那个人一行 K/D/伤害摘要 */}
       {markedHasData && marked && markedHero && (
         <div className="mt-1.5 flex items-center gap-1 text-[10px] leading-none">
-          {marked.isSelf ? (
+          {selfMarked ? (
             <span className="shrink-0 rounded bg-sky-500/15 px-1 py-0.5 text-[9px] font-semibold text-sky-300">
               {t('history.selfTag')}
             </span>
           ) : (
-            <Crown size={10} className="shrink-0 text-amber-400" />
+            <>
+              <Crown size={10} className="shrink-0 text-amber-400" />
+              {markedFromEnemy && (
+                <span className="shrink-0 rounded bg-red-500/15 px-1 py-0.5 text-[9px] font-semibold text-red-300">
+                  {t('history.enemyTag')}
+                </span>
+              )}
+            </>
           )}
-          <span className="min-w-0 truncate font-medium text-slate-300">{markedHero.label}</span>
+          <span
+            className={`min-w-0 truncate font-medium ${
+              markedFromEnemy ? 'text-red-200/90' : 'text-slate-300'
+            }`}
+          >
+            {markedHero.label}
+          </span>
           <span className="shrink-0 tabular-nums text-slate-500">
             {t('history.statLine', {
               k: marked.kills ?? t('history.unknown'),
@@ -199,11 +225,23 @@ function MatchCard({
           </button>
         </div>
       ) : (
-        <div className="mt-2 grid grid-cols-2 gap-1.5">
+        <div className="mt-2 grid grid-cols-3 gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              // 音效上下文必须在用户点击里解锁，否则揭晓时第一声会被浏览器拦掉
+              unlockSfx();
+              onReview(record);
+            }}
+            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-sky-500/40 bg-sky-500/10 text-[11px] font-semibold text-sky-300 transition-colors active:bg-sky-500/20"
+          >
+            <BarChart3 size={11} />
+            {t('review.cta')}
+          </button>
           <button
             type="button"
             onClick={() => onEdit(record)}
-            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-800 text-[11.5px] font-medium text-slate-300 transition-colors active:bg-slate-800"
+            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-800 text-[11px] font-medium text-slate-300 transition-colors active:bg-slate-800"
           >
             <Pencil size={11} />
             {record.result === 'pending' ? t('history.record') : t('history.edit')}
@@ -211,7 +249,7 @@ function MatchCard({
           <button
             type="button"
             onClick={() => setConfirming(true)}
-            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-800 text-[11.5px] font-medium text-slate-500 transition-colors active:bg-slate-800"
+            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-800 text-[11px] font-medium text-slate-500 transition-colors active:bg-slate-800"
           >
             <Trash2 size={11} />
             {t('history.delete')}
@@ -232,6 +270,7 @@ export default function HistoryView({
   records,
   getBrawler,
   onEdit,
+  onReview,
   onDelete,
   onGoDraft,
 }: HistoryViewProps) {
@@ -303,6 +342,7 @@ export default function HistoryView({
                   record={record}
                   getBrawler={getBrawler}
                   onEdit={onEdit}
+                  onReview={onReview}
                   onDelete={onDelete}
                 />
               ))}

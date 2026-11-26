@@ -9,6 +9,7 @@ import BrawlerTile from './components/BrawlerTile';
 import DraftBar from './components/DraftBar';
 import HistoryView from './components/HistoryView';
 import MapPicker from './components/MapPicker';
+import MatchReviewSheet from './components/MatchReviewSheet';
 import MatchSaveSheet from './components/MatchSaveSheet';
 import MatchupSheet from './components/MatchupSheet';
 import SettingsView from './components/SettingsView';
@@ -160,6 +161,14 @@ export default function App() {
   const [savedMatch, setSavedMatch] = useState<{ signature: string; id: string } | null>(null);
   /** 保存 / 编辑抽屉（新建时记录来自当前 BP，编辑时来自库里那条） */
   const [matchSheet, setMatchSheet] = useState<{ record: MatchRecord; isNew: boolean } | null>(null);
+  /** 正在复盘的对局 ID（null = 未打开）；记录被删 / 改回待补录时自动失效 */
+  const [reviewId, setReviewId] = useState<string | null>(null);
+  /** 从复盘页点「编辑战绩」进来的：保存后回到复盘，数据改完立即重算 */
+  const [reviewAfterSave, setReviewAfterSave] = useState(false);
+
+  /** 当前复盘的那条记录；记录被删或改回待补录时视作未打开 */
+  const reviewRecord = reviewId === null ? null : matches.find((m) => m.id === reviewId) ?? null;
+  const reviewOpen = reviewRecord !== null && reviewRecord.result !== 'pending';
 
   /* ---------------- 侧滑返回 / 系统返回键 ---------------- */
 
@@ -178,6 +187,7 @@ export default function App() {
    * 更新弹窗 z-60 盖在详情 / 对位抽屉 z-50 之上，所以排在最后。
    */
   const layers: BackLayer[] = [];
+  if (reviewOpen) layers.push('review');
   if (matchSheet) layers.push('matchSheet');
   if (matchupId !== null) layers.push('matchup');
   if (blockedOpen) layers.push('blocked');
@@ -212,7 +222,11 @@ export default function App() {
         if (decision.action.layer === 'update') setUpdateOpen(false);
         else if (decision.action.layer === 'detail') setDetailId(null);
         else if (decision.action.layer === 'blocked') setBlockedOpen(false);
-        else if (decision.action.layer === 'matchSheet') setMatchSheet(null);
+        else if (decision.action.layer === 'matchSheet') {
+          setMatchSheet(null);
+          // 从复盘进来的编辑被返回键关掉时，别把「保存后回复盘」留给下一次保存
+          setReviewAfterSave(false);
+        } else if (decision.action.layer === 'review') setReviewId(null);
         else setMatchupId(null);
         break;
       case 'runGuard':
@@ -502,7 +516,17 @@ export default function App() {
     applyState(applyPick(draft, EMPTY_BAN));
   };
 
-  /* ---------------- 历史对局：保存 / 编辑 ---------------- */
+  /* ---------------- 历史对局：保存 / 编辑 / 复盘 ---------------- */
+
+  /** 打开保存抽屉；`returnToReview` 表示从复盘页进来的，保存后要回到复盘 */
+  const openMatchSheet = (
+    record: MatchRecord,
+    isNew: boolean,
+    returnToReview = false,
+  ) => {
+    setReviewAfterSave(returnToReview);
+    setMatchSheet({ record, isNew });
+  };
 
   /**
    * 打开保存抽屉。
@@ -511,31 +535,60 @@ export default function App() {
   const handleOpenSaveSheet = () => {
     if (!draft) return;
     if (savedRecord) {
-      setMatchSheet({ record: savedRecord, isNew: false });
+      openMatchSheet(savedRecord, false);
       return;
     }
-    setMatchSheet({ record: buildMatchFromDraft(draft), isNew: true });
+    openMatchSheet(buildMatchFromDraft(draft), true);
   };
 
-  /** 抽屉提交：新建走 add，编辑只覆盖比分与战绩，不动阵容快照 */
-  const handleSaveMatch = (record: MatchRecord) => {
+  /** 落库：新建走 add，编辑只覆盖比分与战绩，不动阵容快照 */
+  const persistMatch = (record: MatchRecord) => {
     if (matchSheet?.isNew) {
       addMatchRecord(record);
       setSavedMatch({ signature: draftSig, id: record.id });
-    } else {
-      updateMatchRecord(record.id, {
-        result: record.result,
-        score: record.score,
-        allyStats: record.allyStats,
-      });
+      return;
     }
-    setMatchSheet(null);
+    updateMatchRecord(record.id, {
+      result: record.result,
+      score: record.score,
+      allyStats: record.allyStats,
+      enemyStats: record.enemyStats,
+    });
   };
 
-  /** 删除对局：若删的正是当前 BP 存的那条，顺手清掉保存态 */
+  /** 抽屉提交：保存并关闭；从复盘进来时回到复盘（数据已改，进去立即重算） */
+  const handleSaveMatch = (record: MatchRecord) => {
+    persistMatch(record);
+    setMatchSheet(null);
+    if (reviewAfterSave) {
+      setReviewAfterSave(false);
+      if (record.result !== 'pending') setReviewId(record.id);
+    }
+  };
+
+  /** 「保存并复盘」：一步存完直接进评级 */
+  const handleSaveAndReview = (record: MatchRecord) => {
+    persistMatch(record);
+    setMatchSheet(null);
+    setReviewAfterSave(false);
+    if (record.result !== 'pending') setReviewId(record.id);
+  };
+
+  /** 战绩卡片上的「复盘」：待补录先补比分，不硬算一个假评级 */
+  const handleOpenReview = (record: MatchRecord) => {
+    if (record.result === 'pending') {
+      openMatchSheet(record, false);
+      showToast(t('review.pendingHint'));
+      return;
+    }
+    setReviewId(record.id);
+  };
+
+  /** 删除对局：若删的正是当前 BP 存的那条 / 正在复盘的那条，顺手清掉对应状态 */
   const handleDeleteMatch = (id: string) => {
     removeMatchRecord(id);
     if (savedMatch?.id === id) setSavedMatch(null);
+    if (reviewId === id) setReviewId(null);
   };
 
   /* ---------------- 版本更新 ---------------- */
@@ -661,13 +714,31 @@ export default function App() {
     <>
       {updateOverlay}
 
+      {reviewOpen && reviewRecord && (
+        <MatchReviewSheet
+          idx={snap.index}
+          record={reviewRecord}
+          getBrawler={getBrawler}
+          onEdit={() => {
+            // 先关复盘再开抽屉：改完保存会自动回到复盘并重新算分
+            setReviewId(null);
+            openMatchSheet(reviewRecord, false, true);
+          }}
+          onClose={() => setReviewId(null)}
+        />
+      )}
+
       {matchSheet && (
         <MatchSaveSheet
           record={matchSheet.record}
           isNew={matchSheet.isNew}
           getBrawler={getBrawler}
           onSave={handleSaveMatch}
-          onClose={() => setMatchSheet(null)}
+          onSaveAndReview={handleSaveAndReview}
+          onClose={() => {
+            setMatchSheet(null);
+            setReviewAfterSave(false);
+          }}
         />
       )}
 
@@ -740,7 +811,12 @@ export default function App() {
         {overlays}
         {toast && (
           <div
-            className="pointer-events-none fixed inset-x-0 bottom-0 z-[70] flex justify-center pb-[calc(env(safe-area-inset-bottom,0px)+84px)]"
+            className={`pointer-events-none fixed inset-x-0 z-[70] flex justify-center ${
+              // 抽屉 / 复盘浮层打开时改到顶部：底部会被浮层盖住，压在英雄行上很难看
+              matchSheet || reviewOpen
+                ? 'top-0 pt-[calc(env(safe-area-inset-top,0px)+14px)]'
+                : 'bottom-0 pb-[calc(env(safe-area-inset-bottom,0px)+84px)]'
+            }`}
             role="status"
             aria-live="polite"
           >
@@ -776,7 +852,8 @@ export default function App() {
       <HistoryView
         records={matches}
         getBrawler={getBrawler}
-        onEdit={(record) => setMatchSheet({ record, isNew: false })}
+        onEdit={(record) => openMatchSheet(record, false)}
+        onReview={handleOpenReview}
         onDelete={handleDeleteMatch}
         onGoDraft={() => setTab('draft')}
       />,

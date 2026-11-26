@@ -3,6 +3,7 @@ import type { CounterDetail, CounterLight, DraftState, MatchupCellView } from '.
 import { counterLight } from '../utils/draftEngine';
 import type { PickOrder } from '../types/meta';
 import type { Translator } from '../i18n/translate';
+import type { Lang } from '../i18n/langs';
 
 /**
  * 展示层共用的小映射：克制色条配色、顺位标签、基础分配色。
@@ -159,6 +160,21 @@ export function formatPickRate(rate: number): string {
   if (pct < 0.1) return '<0.1%';
   if (pct < 1) return `${pct.toFixed(1)}%`;
   return `${Math.round(pct)}%`;
+}
+
+/**
+ * 大数值展示（伤害 / 治疗 / 承伤 / 金库伤害）。
+ *
+ * 中文按「万」、英文按「k」——两个语言圈对同一量级的直觉单位不一样，
+ * 强行统一成一种反而要用户自己换算。1 位小数足够，读数时不会挤爆卡片。
+ */
+export function formatBigNumber(value: number | null, lang: Lang): string {
+  if (value === null || !Number.isFinite(value)) return '—';
+  const abs = Math.abs(value);
+  if (lang === 'en') {
+    return abs >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(Math.round(value));
+  }
+  return abs >= 10000 ? `${(value / 10000).toFixed(1)}万` : String(Math.round(value));
 }
 
 /**

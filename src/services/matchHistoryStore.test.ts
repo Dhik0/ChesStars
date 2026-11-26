@@ -9,9 +9,14 @@ import {
   createMatchRecord,
   deleteMatch,
   draftSignature,
+  formatWanInput,
   loadMatchHistory,
   normalizeMatchRecord,
+  objectiveIsWan,
+  objectiveKindOf,
   parseStatInput,
+  parseWanInput,
+  sanitizeWanTyping,
   summarizeHistory,
   updateMatch,
   writeMatchHistory,
@@ -110,6 +115,22 @@ describe('从 BP 状态建记录', () => {
     );
   });
 
+  it('敌方战绩默认补齐 3 条，且与 enemyPicks 一一对应', () => {
+    const record = baseRecord();
+    expect(record.enemyStats).toHaveLength(3);
+    expect(record.enemyStats.map((s) => s.brawlerId)).toEqual(
+      record.enemyPicks.map((p) => p.brawlerId),
+    );
+    for (const stat of record.enemyStats) {
+      expect(stat.kills).toBeNull();
+      expect(stat.deaths).toBeNull();
+      expect(stat.damage).toBeNull();
+      expect(stat.isStarPlayer).toBe(false);
+      // 敌方没有「我」
+      expect('isSelf' in stat).toBe(false);
+    }
+  });
+
   it('敌方先手时顺位镜像（我方 2/3/6）', () => {
     const base = createDraft('Hideout', 'gemGrab', 'enemy');
     let state: DraftState = {
@@ -157,9 +178,39 @@ describe('localStorage 持久化', () => {
       result: 'win',
       score: '2:0',
       allyStats: [
-        { brawlerId: '101', kills: 0, deaths: 0, damage: 0, isSelf: true, isStarPlayer: false },
-        { brawlerId: '102', kills: 7, deaths: null, damage: 12345, isSelf: false, isStarPlayer: true },
-        { brawlerId: '103', kills: null, deaths: null, damage: null, isSelf: false, isStarPlayer: false },
+        {
+          brawlerId: '101',
+          kills: 0,
+          deaths: 0,
+          damage: 0,
+          healing: 0,
+          damageTaken: 0,
+          objectiveValue: 0,
+          isSelf: true,
+          isStarPlayer: false,
+        },
+        {
+          brawlerId: '102',
+          kills: 7,
+          deaths: null,
+          damage: 12345,
+          healing: 8000,
+          damageTaken: 21000,
+          objectiveValue: 2,
+          isSelf: false,
+          isStarPlayer: true,
+        },
+        {
+          brawlerId: '103',
+          kills: null,
+          deaths: null,
+          damage: null,
+          healing: null,
+          damageTaken: null,
+          objectiveValue: null,
+          isSelf: false,
+          isStarPlayer: false,
+        },
       ],
     })[0]!;
 
@@ -170,12 +221,19 @@ describe('localStorage 持久化', () => {
       kills: 0,
       deaths: 0,
       damage: 0,
+      healing: 0,
+      damageTaken: 0,
+      objectiveValue: 0,
       isSelf: true,
       isStarPlayer: false,
     });
     expect(loaded!.allyStats[1]!.kills).toBe(7);
     expect(loaded!.allyStats[1]!.deaths).toBeNull();
+    expect(loaded!.allyStats[1]!.healing).toBe(8000);
+    expect(loaded!.allyStats[1]!.damageTaken).toBe(21000);
+    expect(loaded!.allyStats[1]!.objectiveValue).toBe(2);
     expect(loaded!.allyStats[2]!.kills).toBeNull();
+    expect(loaded!.allyStats[2]!.healing).toBeNull();
   });
 
   it('损坏的 JSON 读成空数组，不抛错', () => {
@@ -207,6 +265,46 @@ describe('localStorage 持久化', () => {
     expect(loaded.map((r) => r.id)).toEqual(['kept-2', good.id]);
   });
 
+  it('旧记录缺少 enemyStats：读取时补齐 3 条空数据，记录不丢', () => {
+    const legacy = { ...baseRecord() } as Record<string, unknown>;
+    delete legacy.enemyStats;
+
+    const data = installFakeStorage();
+    data.set(
+      MATCH_HISTORY_STORAGE_KEY,
+      JSON.stringify({ schemaVersion: MATCH_HISTORY_SCHEMA_VERSION, records: [legacy] }),
+    );
+
+    const loaded = loadMatchHistory();
+    expect(loaded).toHaveLength(1);
+    const record = loaded[0]!;
+    expect(record.id).toBe(legacy.id);
+    expect(record.allyStats).toHaveLength(3);
+    expect(record.enemyStats).toHaveLength(3);
+    expect(record.enemyStats.map((s) => s.brawlerId)).toEqual(
+      record.enemyPicks.map((p) => p.brawlerId),
+    );
+    for (const stat of record.enemyStats) {
+      expect(stat.kills).toBeNull();
+      expect(stat.deaths).toBeNull();
+      expect(stat.damage).toBeNull();
+      expect(stat.isStarPlayer).toBe(false);
+    }
+  });
+
+  it('写入时同样保证 6 人「最佳」互斥（脏数据落盘即被清洗）', () => {
+    const record = baseRecord();
+    const dirty: MatchRecord = {
+      ...record,
+      allyStats: record.allyStats.map((s) => ({ ...s, isStarPlayer: true })),
+      enemyStats: record.enemyStats.map((s) => ({ ...s, isStarPlayer: true })),
+    };
+    writeMatchHistory([dirty]);
+    const [loaded] = loadMatchHistory();
+    const stars = [...loaded!.allyStats, ...loaded!.enemyStats].filter((s) => s.isStarPlayer);
+    expect(stars).toHaveLength(1);
+  });
+
   it('没有 localStorage 时读写都安全降级', () => {
     vi.unstubAllGlobals();
     vi.stubGlobal('localStorage', undefined);
@@ -228,8 +326,7 @@ describe('增删改', () => {
     expect(addMatch(list, b)).toHaveLength(2);
   });
 
-  it('更新会刷新 updatedAt 并重新做自洽校验', () => {
-    const record = baseRecord();
+  it('更新会刷新 updatedAt 并重新做自洽校验', () => {    const record = baseRecord();
     const [updated] = updateMatch([record], record.id, {
       result: 'win',
       score: '2:0',
@@ -255,6 +352,30 @@ describe('增删改', () => {
     const [updated] = updateMatch([record], record.id, { result: 'loss' });
     expect(updated!.result).toBe('pending');
     expect(updated!.score).toBeNull();
+  });
+
+  it('可以单独更新敌方战绩，且不影响我方', () => {
+    const record = baseRecord();
+    const [updated] = updateMatch([record], record.id, {
+      result: 'loss',
+      score: '1:2',
+      enemyStats: record.enemyPicks.map((pick, i) => ({
+        brawlerId: pick.brawlerId,
+        kills: 6 + i,
+        deaths: 2,
+        damage: 20000,
+        healing: 4000,
+        damageTaken: 18000,
+        objectiveValue: 3,
+        isStarPlayer: i === 1,
+      })),
+    });
+    expect(updated!.result).toBe('loss');
+    expect(updated!.enemyStats.map((s) => s.kills)).toEqual([6, 7, 8]);
+    expect(updated!.enemyStats[0]!.healing).toBe(4000);
+    expect(updated!.enemyStats[0]!.objectiveValue).toBe(3);
+    expect(updated!.enemyStats[1]!.isStarPlayer).toBe(true);
+    expect(updated!.allyStats.every((s) => s.kills === null)).toBe(true);
   });
 
   it('删除只影响目标记录', () => {
@@ -346,6 +467,50 @@ describe('归一化', () => {
     expect(normalized.allyStats[1]!.kills).toBeNull();
     expect(normalized.allyStats[1]!.isSelf).toBe(false);
   });
+
+  it('敌方战绩按 enemyPicks 对齐（长度与 brawlerId 都以选人为准）', () => {
+    const record = baseRecord();
+    const normalized = normalizeMatchRecord({
+      ...record,
+      enemyStats: [{ brawlerId: '999999', kills: 4, deaths: 1, damage: 8000, isStarPlayer: false }],
+    })!;
+    expect(normalized.enemyStats).toHaveLength(3);
+    expect(normalized.enemyStats.map((s) => s.brawlerId)).toEqual(
+      record.enemyPicks.map((p) => p.brawlerId),
+    );
+    expect(normalized.enemyStats[0]!.kills).toBe(4);
+    expect(normalized.enemyStats[1]!.kills).toBeNull();
+  });
+
+  it('「最佳」跨双方互斥：我方已占用时，敌方的标记被清除', () => {
+    const record = baseRecord();
+    const normalized = normalizeMatchRecord({
+      ...record,
+      allyStats: record.allyStats.map((s, i) => ({ ...s, isStarPlayer: i === 0 })),
+      enemyStats: record.enemyStats.map((s, i) => ({ ...s, isStarPlayer: i === 1 })),
+    })!;
+
+    const stars = [...normalized.allyStats, ...normalized.enemyStats].filter(
+      (s) => s.isStarPlayer,
+    );
+    expect(stars).toHaveLength(1);
+    expect(stars[0]!.brawlerId).toBe(normalized.allyStats[0]!.brawlerId);
+  });
+
+  it('只有敌方标了「最佳」时正常保留', () => {
+    const record = baseRecord();
+    const normalized = normalizeMatchRecord({
+      ...record,
+      allyStats: record.allyStats.map((s) => ({ ...s, isStarPlayer: false })),
+      enemyStats: record.enemyStats.map((s, i) => ({ ...s, isStarPlayer: i === 2 })),
+    })!;
+
+    const stars = [...normalized.allyStats, ...normalized.enemyStats].filter(
+      (s) => s.isStarPlayer,
+    );
+    expect(stars).toHaveLength(1);
+    expect(stars[0]!.brawlerId).toBe(normalized.enemyStats[2]!.brawlerId);
+  });
 });
 
 /* ------------------------------------------------------------------ *
@@ -407,5 +572,117 @@ describe('战绩输入解析', () => {
   it('正常整数原样返回', () => {
     expect(parseStatInput('12')).toBe(12);
     expect(parseStatInput(' 9000 ')).toBe(9000);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 8. 「万」单位换算
+ * ------------------------------------------------------------------ */
+
+describe('万单位换算', () => {
+  it('原始整数 → 输入框文本：最多 2 位小数，去掉尾零', () => {
+    expect(formatWanInput(80200)).toBe('8.02');
+    expect(formatWanInput(80000)).toBe('8');
+    expect(formatWanInput(82000)).toBe('8.2');
+    expect(formatWanInput(0)).toBe('0');
+    expect(formatWanInput(9999)).toBe('1'); // 0.9999 万 → 1（四舍五入到 2 位）
+    expect(formatWanInput(null)).toBe('');
+  });
+
+  it('输入框文本 → 原始整数：空串 / 非法 / 负数都是 null', () => {
+    expect(parseWanInput('8.02')).toBe(80200);
+    expect(parseWanInput('8')).toBe(80000);
+    expect(parseWanInput('8.')).toBe(80000);
+    expect(parseWanInput('0')).toBe(0);
+    expect(parseWanInput('')).toBeNull();
+    expect(parseWanInput('   ')).toBeNull();
+    expect(parseWanInput('.')).toBeNull();
+    expect(parseWanInput('-1')).toBeNull();
+    expect(parseWanInput('8.02万')).toBeNull();
+  });
+
+  it('换算精度：两位小数足够，浮点误差被 Math.round 吃掉', () => {
+    expect(parseWanInput('8.02')).toBe(80200);
+    expect(parseWanInput('1.23')).toBe(12300);
+    expect(parseWanInput('0.01')).toBe(100);
+    // 1.15 * 10000 在浮点里是 11499.999...，必须四舍五入回 11500
+    expect(parseWanInput('1.15')).toBe(11500);
+  });
+
+  it('输入过程清洗：只留数字与一个小数点，小数最多 2 位', () => {
+    expect(sanitizeWanTyping('8.0234')).toBe('8.02');
+    expect(sanitizeWanTyping('8..2')).toBe('8.2');
+    expect(sanitizeWanTyping('a8b')).toBe('8');
+    expect(sanitizeWanTyping('8.')).toBe('8.');
+    expect(sanitizeWanTyping('')).toBe('');
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 9. 模式专属指标映射
+ * ------------------------------------------------------------------ */
+
+describe('模式专属指标', () => {
+  it('六种模式各对应一项；淘汰赛没有第 5 项', () => {
+    expect(objectiveKindOf('brawlBall')).toBe('goals');
+    expect(objectiveKindOf('hotZone')).toBe('zoneSeconds');
+    expect(objectiveKindOf('bounty')).toBe('stars');
+    expect(objectiveKindOf('heist')).toBe('safeDamage');
+    expect(objectiveKindOf('gemGrab')).toBe('gems');
+    expect(objectiveKindOf('knockout')).toBeNull();
+    expect(objectiveKindOf('unknownMode')).toBeNull();
+  });
+
+  it('只有金库伤害按「万」录入', () => {
+    expect(objectiveIsWan('safeDamage')).toBe(true);
+    expect(objectiveIsWan('goals')).toBe(false);
+    expect(objectiveIsWan('zoneSeconds')).toBe(false);
+    expect(objectiveIsWan('stars')).toBe(false);
+    expect(objectiveIsWan('gems')).toBe(false);
+    expect(objectiveIsWan(null)).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 10. V1 字段的旧数据迁移
+ * ------------------------------------------------------------------ */
+
+describe('V1 指标迁移', () => {
+  it('旧记录缺 healing / damageTaken / objectiveValue 时补 null，记录不丢', () => {
+    const legacy = JSON.parse(JSON.stringify(baseRecord())) as Record<string, unknown>;
+    const allyStats = (legacy.allyStats as Array<Record<string, unknown>>).map((stat) => {
+      const copy = { ...stat };
+      delete copy.healing;
+      delete copy.damageTaken;
+      delete copy.objectiveValue;
+      return copy;
+    });
+    const enemyStats = (legacy.enemyStats as Array<Record<string, unknown>>).map((stat) => {
+      const copy = { ...stat };
+      delete copy.healing;
+      delete copy.damageTaken;
+      delete copy.objectiveValue;
+      return copy;
+    });
+
+    const data = installFakeStorage();
+    data.set(
+      MATCH_HISTORY_STORAGE_KEY,
+      JSON.stringify({
+        schemaVersion: MATCH_HISTORY_SCHEMA_VERSION,
+        records: [{ ...legacy, allyStats, enemyStats }],
+      }),
+    );
+
+    const loaded = loadMatchHistory();
+    expect(loaded).toHaveLength(1);
+    const record = loaded[0]!;
+    expect(record.allyStats).toHaveLength(3);
+    expect(record.enemyStats).toHaveLength(3);
+    for (const stat of [...record.allyStats, ...record.enemyStats]) {
+      expect(stat.healing).toBeNull();
+      expect(stat.damageTaken).toBeNull();
+      expect(stat.objectiveValue).toBeNull();
+    }
   });
 });

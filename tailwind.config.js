@@ -31,10 +31,17 @@ export default {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },
         },
+        // 复盘评级角标揭晓：先弹大再回弹到位，配合 350ms 的逐个节奏
+        'grade-pop': {
+          '0%': { transform: 'scale(0.4) rotate(-10deg)', opacity: '0' },
+          '60%': { transform: 'scale(1.14) rotate(3deg)', opacity: '1' },
+          '100%': { transform: 'scale(1) rotate(0deg)', opacity: '1' },
+        },
       },
       animation: {
         'slide-up': 'slide-up 160ms ease-out',
         'fade-in': 'fade-in 120ms ease-out',
+        'grade-pop': 'grade-pop 340ms cubic-bezier(0.2, 0.9, 0.3, 1.35) both',
       },
     },
   },

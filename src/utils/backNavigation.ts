@@ -6,7 +6,7 @@
  * 这样每一层优先级都能被单元测试直接盯住，不需要渲染组件。
  *
  * 优先级（每次返回只走最上面一层）：
- *   1. 关闭最顶层模态层（更新说明 / 对位详情 / 长按对位）；
+ *   1. 关闭最顶层模态层（复盘报告 / 保存抽屉 / 更新说明 / 对位详情 / 长按对位）；
  *   2. 消费页面内临时状态（选图页搜索框有内容时先清空搜索）；
  *   3. 非「BP 助手」一级页面 → 切回「BP 助手」；
  *   4. BP 选人界面 → 回到地图选择页（保留当前 BP 进度）；
@@ -22,7 +22,7 @@
 export const EXIT_CONFIRM_WINDOW_MS = 2000;
 
 /** 可叠放的模态层。数组末尾 = 最顶层（z-index 更高） */
-export type BackLayer = 'matchSheet' | 'matchup' | 'blocked' | 'detail' | 'update';
+export type BackLayer = 'review' | 'matchSheet' | 'matchup' | 'blocked' | 'detail' | 'update';
 
 /** 一级页面 */
 export type BackTab = 'draft' | 'history' | 'settings';

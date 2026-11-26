@@ -353,6 +353,11 @@ export default function SettingsView({
             subtitle={`github.com/${GITHUB_REPO}`}
             onClick={() => openExternal(GITHUB_REPO_URL)}
           />
+
+          {/* 合规兜底：英雄头像与（可选的）Fan Kit 音效都属于 Supercell 的玩家内容 */}
+          <p className="mt-2 px-0.5 text-[9.5px] leading-relaxed text-slate-600">
+            {t('settings.disclaimer')}
+          </p>
         </div>
 
         <div className="mt-4">

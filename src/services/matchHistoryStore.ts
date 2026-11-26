@@ -20,6 +20,8 @@ import {
  *     0 杀和「没填」在复盘里是两个完全不同的信号，用 0 兜底会污染评分。
  *   - `score` 与 `result` 必须自洽（win ↔ 2:0/2:1，loss ↔ 1:2/0:2，pending ↔ null），
  *     任何不自洽的写入都会被归一化成 pending，避免出现「胜 0:2」这种脏数据。
+ *   - `allyStats` / `enemyStats` 各自与选人顺序一一对应；「最佳玩家」跨双方合计最多 1 人。
+ *     旧记录没有 `enemyStats` 时按选人补齐空数据，绝不因此丢掉整条记录。
  *
  * 容错策略：JSON 损坏、单条记录字段缺失、存储被禁用（隐私模式 / 配额满）全部
  * 降级为「读不到」或「跳过这一条」，绝不让历史数据把整个应用卡死。
@@ -49,12 +51,34 @@ export interface MatchPick {
 /** 我方单人战绩。数值为 null 表示「没填」，与 0 严格区分 */
 export interface MatchStat {
   brawlerId: string;
+  /** 击杀（整数） */
+  kills: number | null;
+  /** 死亡（整数） */
+  deaths: number | null;
+  /** 造成伤害（原始整数） */
+  damage: number | null;
+  /** 治疗量（原始整数） */
+  healing: number | null;
+  /** 承受伤害（原始整数） */
+  damageTaken: number | null;
+  /** 模式专属指标原始值（足球=进球、热区=秒、赏金=星星、金库=伤害、宝石=颗；淘汰赛恒为 null） */
+  objectiveValue: number | null;
+  /** 是否标记为「我」（最多 1 人，仅我方有） */
+  isSelf: boolean;
+  /** 是否标记为「最佳玩家」（全场最多 1 人，可全不选） */
+  isStarPlayer: boolean;
+}
+
+/** 敌方单人战绩：与我方同构，但没有「我」这个概念 */
+export interface EnemyStat {
+  brawlerId: string;
   kills: number | null;
   deaths: number | null;
   damage: number | null;
-  /** 是否标记为「我」（最多 1 人） */
-  isSelf: boolean;
-  /** 是否标记为「最佳玩家」（最多 1 人；全不选表示敌方拿了最佳） */
+  healing: number | null;
+  damageTaken: number | null;
+  objectiveValue: number | null;
+  /** 是否标记为「最佳玩家」（与 allyStats 合计最多 1 人） */
   isStarPlayer: boolean;
 }
 
@@ -75,6 +99,12 @@ export interface MatchRecord {
   score: MatchScore | null;
   /** 与 `allyPicks` 一一对应，长度恒等于 allyPicks 的长度 */
   allyStats: MatchStat[];
+  /**
+   * 与 `enemyPicks` 一一对应。
+   * 旧版本（第二阶段之前）的记录没有这个字段，读取时按 enemyPicks 补 3 条空数据，
+   * 老记录不会因为多了这一栏就被丢掉。
+   */
+  enemyStats: EnemyStat[];
 }
 
 /** 编辑时允许覆盖的字段（id / createdAt 由存储层自己维护） */
@@ -90,6 +120,7 @@ export type MatchPatch = Partial<
     | 'result'
     | 'score'
     | 'allyStats'
+    | 'enemyStats'
   >
 >;
 
@@ -121,6 +152,67 @@ export function parseStatInput(value: string): number | null {
 /** 回填输入框：null → 空串（不显示 0） */
 export function formatStatInput(value: number | null): string {
   return value === null ? '' : String(value);
+}
+
+/* ------------------------------------------------------------------ *
+ * 「万」单位录入（伤害 / 治疗 / 承伤 / 金库伤害）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 大数值统一按「万」录入：界面 `8.02` ↔ 存储 `80200`。
+ * 用万做单位是因为官方结算面板就是 8,0200 这种量级，手机上一个 5 位数键盘敲起来太慢。
+ */
+export const WAN = 10000;
+
+/** 原始整数 → 输入框文本（最多 2 位小数，去掉无意义的尾零） */
+export function formatWanInput(value: number | null): string {
+  if (value === null) return '';
+  const wan = Math.round((value / WAN) * 100) / 100;
+  const fixed = wan.toFixed(2);
+  // "8.00" → "8"，"8.20" → "8.2"；纯 0 要单独处理，否则会被正则吃成空串
+  return fixed.replace(/\.?0+$/, '') || '0';
+}
+
+/** 输入框文本 → 原始整数；空串 / 非法 / 负数 → null */
+export function parseWanInput(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '.' || !/^\d*\.?\d*$/.test(trimmed)) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * WAN);
+}
+
+/** 输入过程中的清洗：只留数字与一个小数点，小数最多 2 位 */
+export function sanitizeWanTyping(value: string): string {
+  const cleaned = value.replace(/[^\d.]/g, '');
+  const [head = '', ...rest] = cleaned.split('.');
+  if (rest.length === 0) return head;
+  return `${head}.${rest.join('').slice(0, 2)}`;
+}
+
+/* ------------------------------------------------------------------ *
+ * 模式专属指标
+ * ------------------------------------------------------------------ */
+
+/** 第五项指标的类型（淘汰赛没有） */
+export type ObjectiveKind = 'goals' | 'zoneSeconds' | 'stars' | 'safeDamage' | 'gems';
+
+const OBJECTIVE_BY_MODE: Record<string, ObjectiveKind> = {
+  brawlBall: 'goals', // 进球
+  hotZone: 'zoneSeconds', // 占领秒数
+  bounty: 'stars', // 获得星星
+  heist: 'safeDamage', // 金库伤害
+  gemGrab: 'gems', // 持有 / 收集宝石
+};
+
+/** 该模式的专属指标类型；淘汰赛（及未知模式）返回 null = 只有 4 项基础指标 */
+export function objectiveKindOf(mode: string): ObjectiveKind | null {
+  return OBJECTIVE_BY_MODE[mode] ?? null;
+}
+
+/** 金库伤害是唯一按「万」录入的模式指标 */
+export function objectiveIsWan(kind: ObjectiveKind | null): boolean {
+  return kind === 'safeDamage';
 }
 
 /** 记录 ID：时间戳（36 进制）+ 随机后缀，同毫秒连续保存也不会撞 */
@@ -210,15 +302,24 @@ function normalizeBans(raw: unknown): string[] {
   return out;
 }
 
-/** 战绩数组：按 `allyPicks` 对齐重排，保证一一对应；「我」「最佳」各最多 1 人 */
-function normalizeAllyStats(raw: unknown, picks: MatchPick[]): MatchStat[] {
+/**
+ * 战绩数组归一化：按选人顺序对齐重排，保证一一对应。
+ *
+ * 「我」只在我方生效且最多 1 人；「最佳玩家」跨双方合计最多 1 人——
+ * 因此这里把 `starTaken` 作为**跨阵营的占用标记**传进来，敌方接着我方的结果继续判。
+ */
+function normalizeStatRows(
+  raw: unknown,
+  picks: MatchPick[],
+  opts: { allowSelf: boolean; starTaken: boolean },
+): { rows: Array<MatchStat & { isSelf: boolean }>; starTaken: boolean } {
   const list = Array.isArray(raw) ? raw : [];
   let selfTaken = false;
-  let starTaken = false;
+  let starTaken = opts.starTaken;
 
-  return picks.map((pick, i) => {
+  const rows = picks.map((pick, i) => {
     const item = isObj(list[i]) ? list[i] : {};
-    const isSelf = item.isSelf === true && !selfTaken;
+    const isSelf = opts.allowSelf && item.isSelf === true && !selfTaken;
     if (isSelf) selfTaken = true;
     const isStarPlayer = item.isStarPlayer === true && !starTaken;
     if (isStarPlayer) starTaken = true;
@@ -228,10 +329,16 @@ function normalizeAllyStats(raw: unknown, picks: MatchPick[]): MatchStat[] {
       kills: toCount(item.kills),
       deaths: toCount(item.deaths),
       damage: toCount(item.damage),
+      // V1 新增：旧记录没有这三个字段，toCount(undefined) 自然是 null，不丢数据
+      healing: toCount(item.healing),
+      damageTaken: toCount(item.damageTaken),
+      objectiveValue: toCount(item.objectiveValue),
       isSelf,
       isStarPlayer,
     };
   });
+
+  return { rows, starTaken };
 }
 
 /** 胜负与比分自洽化：不自洽（胜 + 1:2 / 比分缺失）一律退回「待补录」 */
@@ -263,6 +370,16 @@ export function normalizeMatchRecord(raw: unknown): MatchRecord | null {
   const updatedAt = toTimestamp(raw.updatedAt) ?? createdAt;
   const outcome = normalizeOutcome(raw.result, raw.score);
 
+  // 「最佳玩家」跨双方互斥：先判我方，我方占了名额敌方就全部清掉
+  const ally = normalizeStatRows(raw.allyStats, allyPicks, {
+    allowSelf: true,
+    starTaken: false,
+  });
+  const enemy = normalizeStatRows(raw.enemyStats, enemyPicks, {
+    allowSelf: false,
+    starTaken: ally.starTaken,
+  });
+
   return {
     id,
     createdAt,
@@ -275,7 +392,20 @@ export function normalizeMatchRecord(raw: unknown): MatchRecord | null {
     enemyPicks,
     result: outcome.result,
     score: outcome.score,
-    allyStats: normalizeAllyStats(raw.allyStats, allyPicks),
+    allyStats: ally.rows,
+    // 敌方没有「我」这一栏，顺手剥掉
+    enemyStats: enemy.rows.map(
+      ({ brawlerId, kills, deaths, damage, healing, damageTaken, objectiveValue, isStarPlayer }) => ({
+        brawlerId,
+        kills,
+        deaths,
+        damage,
+        healing,
+        damageTaken,
+        objectiveValue,
+        isStarPlayer,
+      }),
+    ),
   };
 }
 
@@ -364,10 +494,11 @@ export interface NewMatchInput {
   now?: number;
 }
 
-/** 新建一条「待补录」记录：战绩全为 null，等待赛后填写 */
+/** 新建一条「待补录」记录：双方战绩全为 null，等待赛后填写 */
 export function createMatchRecord(input: NewMatchInput): MatchRecord {
   const now = input.now ?? Date.now();
   const allyPicks = normalizePicks(input.allyPicks);
+  const enemyPicks = normalizePicks(input.enemyPicks);
   return {
     id: createMatchId(now),
     createdAt: now,
@@ -377,7 +508,7 @@ export function createMatchRecord(input: NewMatchInput): MatchRecord {
     firstPick: input.firstPick === 'enemy' ? 'enemy' : 'ally',
     bans: normalizeBans(input.bans),
     allyPicks,
-    enemyPicks: normalizePicks(input.enemyPicks),
+    enemyPicks,
     result: 'pending',
     score: null,
     allyStats: allyPicks.map((p) => ({
@@ -385,7 +516,20 @@ export function createMatchRecord(input: NewMatchInput): MatchRecord {
       kills: null,
       deaths: null,
       damage: null,
+      healing: null,
+      damageTaken: null,
+      objectiveValue: null,
       isSelf: false,
+      isStarPlayer: false,
+    })),
+    enemyStats: enemyPicks.map((p) => ({
+      brawlerId: p.brawlerId,
+      kills: null,
+      deaths: null,
+      damage: null,
+      healing: null,
+      damageTaken: null,
+      objectiveValue: null,
       isStarPlayer: false,
     })),
   };
