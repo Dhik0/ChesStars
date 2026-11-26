@@ -1,8 +1,8 @@
 {
-  "version": "1.3.1",
-  "releaseUrl": "https://github.com/Dhik0/ChesStars/releases/tag/v1.3.1",
-  "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v1.3.1/ChesStars-v1.3.1.apk",
+  "version": "1.3.2",
+  "releaseUrl": "https://github.com/Dhik0/ChesStars/releases/tag/v1.3.2",
+  "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v1.3.2/ChesStars-v1.3.2.apk",
   "mirrorPrefixes": ["https://ghfast.top/", "https://gh-proxy.com/"],
   "qqGroupUrl": "https://qm.qq.com/q/yJm7ocJ5fO",
-  "notes": "- 出场率不再误显示为 0%\n- 英雄列表可按职业筛选\n- 提高稀有度分区辨识度\n- 移除算分公式说明文案\n- 移除阵容短板提示"
+  "notes": "- 地图选择按模式折叠\n- 选中地图自动展开所属模式\n- 新增屏蔽不喜欢的英雄\n- 屏蔽仅影响选人推荐"
 }

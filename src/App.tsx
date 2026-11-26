@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { App as NativeApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
-import { Ban as EmptyBanIcon, Flame, Loader2, RefreshCw, Swords } from 'lucide-react';
+import { Ban as EmptyBanIcon, EyeOff, Flame, Loader2, RefreshCw, Swords } from 'lucide-react';
 import BottomNav, { type MainTab } from './components/BottomNav';
+import BlockedBrawlersSheet from './components/BlockedBrawlersSheet';
 import BrawlerDetail from './components/BrawlerDetail';
 import BrawlerTile from './components/BrawlerTile';
 import DraftBar from './components/DraftBar';
@@ -42,8 +43,9 @@ import {
 import { recommendHeadOf, raritySectionStyle } from './utils/display';
 import { backGuardCount, runTopBackGuard } from './utils/backGuards';
 import { decideBack, type BackLayer, type BackState } from './utils/backNavigation';
+import { useBlockedBrawlers } from './utils/blockedBrawlers';
 import { openExternal } from './utils/openExternal';
-import { buildBrawlerPool, rankMap } from './utils/pool';
+import { TOP_PICK_COUNT, buildBrawlerPool, rankMap } from './utils/pool';
 import { useViewport } from './utils/useViewport';
 
 const LS_MAP = 'brawl.draft.map';
@@ -106,6 +108,11 @@ export default function App() {
   const [matchupId, setMatchupId] = useState<number | null>(null);
   /** 英雄池的职业筛选（'ALL' = 不筛选）；只影响列表展示，不参与任何算分 */
   const [classFilter, setClassFilter] = useState<BrawlerClass | 'ALL'>('ALL');
+  /** 个人「不喜欢 / 屏蔽」名单：只影响选人推荐栏的展示，Ban 推荐与全英雄池照旧 */
+  const { ids: blockedIds, blocked: blockedSet, toggle: toggleBlocked, clear: clearBlocked } =
+    useBlockedBrawlers();
+  /** 「已屏蔽」集中管理弹层 */
+  const [blockedOpen, setBlockedOpen] = useState(false);
   /** 发现的新版本（null = 没有更新或检查失败） */
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   /** 更新弹窗开关（启动自动检查命中且未被忽略时打开） */
@@ -135,6 +142,7 @@ export default function App() {
    */
   const layers: BackLayer[] = [];
   if (matchupId !== null) layers.push('matchup');
+  if (blockedOpen) layers.push('blocked');
   if (detailId !== null) layers.push('detail');
   if (updateOpen && updateInfo !== null) layers.push('update');
   backStateRef.current = { layers, tab, screen, hasDraft: draft !== null };
@@ -165,6 +173,7 @@ export default function App() {
       case 'closeLayer':
         if (decision.action.layer === 'update') setUpdateOpen(false);
         else if (decision.action.layer === 'detail') setDetailId(null);
+        else if (decision.action.layer === 'blocked') setBlockedOpen(false);
         else setMatchupId(null);
         break;
       case 'runGuard':
@@ -298,11 +307,14 @@ export default function App() {
   }, [snap, draft, t, brawler]);
 
   /**
-   * 英雄池 = Top 推荐 + 稀有度分区。
+   * 英雄池 = 稀有度分区（全英雄池）。
    *
    * 职业筛选在**建池之前**过滤候选，所以「高优先推荐」是这个职业内部的前 12 名，
    * 而不是把全局前 12 名再筛一遍（那样筛完常常只剩一两个，看着像漏数据）。
    * 角标名次仍然取全局 `ranks`，切到某个职业也能看出它在总榜的位置。
+   *
+   * 顶部推荐区不在这里取：它还要按个人屏蔽名单过滤 + 顺位补齐，
+   * 所以渲染时另算 `topPicks`，这里只用 `sections`。
    */
   const pool = useMemo(() => {
     const list =
@@ -485,8 +497,23 @@ export default function App() {
     <>
       {updateOverlay}
 
+      {blockedOpen && (
+        <BlockedBrawlersSheet
+          ids={blockedIds}
+          nameOf={(id) => snap.index.brawlerById.get(id)?.name}
+          onUnblock={toggleBlocked}
+          onClear={clearBlocked}
+          onClose={() => setBlockedOpen(false)}
+        />
+      )}
+
       {detailCandidate && (
-        <BrawlerDetail candidate={detailCandidate} onClose={() => setDetailId(null)} />
+        <BrawlerDetail
+          candidate={detailCandidate}
+          blocked={blockedSet.has(detailCandidate.id)}
+          onToggleBlock={() => toggleBlocked(detailCandidate.id)}
+          onClose={() => setDetailId(null)}
+        />
       )}
 
       {matchupId !== null && draft && (
@@ -495,6 +522,8 @@ export default function App() {
           mapName={draft.mapName}
           mode={draft.mode}
           brawlerId={matchupId}
+          blocked={blockedSet.has(matchupId)}
+          onToggleBlock={() => toggleBlocked(matchupId)}
           onClose={() => setMatchupId(null)}
           onOpenBreakdown={() => {
             setDetailId(matchupId);
@@ -604,6 +633,25 @@ export default function App() {
 
   /** Ban 阶段：当前激活的是哪个 Ban 位（决定推荐按哪一队算） */
   const banPhase = draft.active.kind === 'ban';
+
+  /**
+   * 己方选人阶段：只有这一阶段的推荐栏会过滤个人屏蔽。
+   * Ban 推荐不过滤（免得因为自己不玩而漏掉高威胁 Ban 位），
+   * 敌方「可能会选」也不过滤（那是要预判对面拿什么，跟个人口味无关）。
+   */
+  const allyPickPhase = draft.active.kind === 'ally';
+
+  /**
+   * 顶部推荐区候选：职业筛选 → 己方选人阶段剔除个人屏蔽 → 从后面的高分英雄
+   * **顺位补齐**原定数量（`candidates` 已按推荐分降序，直接截断即可）。
+   * 纯展示层过滤，算分引擎与排序一行未改。
+   */
+  const filterBase =
+    classFilter === 'ALL' ? candidates : candidates.filter((c) => c.cls === classFilter);
+  const topPicks = (
+    allyPickPhase ? filterBase.filter((c) => !blockedSet.has(c.id)) : filterBase
+  ).slice(0, TOP_PICK_COUNT);
+
   /**
    * 顶部区块标题 / 主题：敌方选角回合切成「敌方可能会选」+ 红色系，
    * 我方选角与 Ban 阶段保持「高优先推荐」+ 蓝色系。
@@ -653,8 +701,9 @@ export default function App() {
         </div>
       ) : (
         <>
-          {/* 第一区：高优先推荐 / 敌方可能会选（推荐分前 12 名；有职业筛选时是该职业内的前 12 名） */}
-          {pool.top.length > 0 && (
+          {/* 第一区：高优先推荐 / 敌方可能会选（推荐分前 12 名；有职业筛选时是该职业内的前 12 名；
+              己方选人阶段已剔除个人屏蔽的英雄并顺位补齐） */}
+          {topPicks.length > 0 && (
           <section
             ref={topSectionRef}
             className={`mx-1 mb-1.5 rounded-lg border px-1.5 pb-1.5 pt-1 ${
@@ -682,7 +731,7 @@ export default function App() {
                     head.enemy ? 'text-red-400/60' : 'text-sky-400/60'
                   }`}
                 >
-                  {pool.top.length}
+                  {topPicks.length}
                 </span>
               </span>
               <span className="shrink-0 text-[9px] text-slate-500">
@@ -691,12 +740,13 @@ export default function App() {
             </header>
             {/* Top 区比稀有度区更大：实战秒选更好点，也把稀有度分区推到折叠线附近 */}
             <div className={topGridCls} style={gridStyle}>
-              {pool.top.map((c) => (
+              {topPicks.map((c) => (
                 <BrawlerTile
                   key={`top-${c.id}`}
                   candidate={c}
                   rank={ranks.get(c.id) ?? 0}
                   bannedElsewhere={otherTeamBanned.has(c.id)}
+                  blocked={blockedSet.has(c.id)}
                   onPick={() => handlePick(c.id)}
                   onLongPress={() => setMatchupId(c.id)}
                 />
@@ -705,27 +755,43 @@ export default function App() {
           </section>
           )}
 
-          {/* 职业筛选：贴着「高优先推荐」下方，只横向滚动、不换行 */}
-          <div
-            className="no-scrollbar mx-1 mb-1.5 flex items-center gap-1 overflow-x-auto overscroll-x-contain"
-            role="group"
-            aria-label={t('pool.classFilter')}
-          >
-            <ClassChip
-              label={t('pool.classAll')}
-              active={classFilter === 'ALL'}
-              color="#38BDF8"
-              onClick={() => setClassFilter('ALL')}
-            />
-            {CLASS_ORDER.map((k) => (
+          {/* 职业筛选 + 「已屏蔽」入口：标签横向滚动、不换行；屏蔽胶囊钉在右侧始终可见 */}
+          <div className="mx-1 mb-1.5 flex items-center gap-1.5">
+            <div
+              className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain"
+              role="group"
+              aria-label={t('pool.classFilter')}
+            >
               <ClassChip
-                key={k}
-                label={t(`class.${k}`)}
-                active={classFilter === k}
-                color={CLASS_COLOR[k]}
-                onClick={() => setClassFilter(classFilter === k ? 'ALL' : k)}
+                label={t('pool.classAll')}
+                active={classFilter === 'ALL'}
+                color="#38BDF8"
+                onClick={() => setClassFilter('ALL')}
               />
-            ))}
+              {CLASS_ORDER.map((k) => (
+                <ClassChip
+                  key={k}
+                  label={t(`class.${k}`)}
+                  active={classFilter === k}
+                  color={CLASS_COLOR[k]}
+                  onClick={() => setClassFilter(classFilter === k ? 'ALL' : k)}
+                />
+              ))}
+            </div>
+            {/* 未屏蔽任何英雄时弱化显示：入口还在，但不抢视觉 */}
+            <button
+              type="button"
+              onClick={() => setBlockedOpen(true)}
+              className={`flex h-[var(--chip-h)] shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 text-[10.5px] font-medium transition-colors ${
+                blockedSet.size > 0
+                  ? 'border-amber-500/50 bg-amber-500/15 text-amber-300 active:bg-amber-500/25'
+                  : 'border-slate-800 bg-slate-900/60 text-slate-500 active:bg-slate-800'
+              }`}
+              aria-label={t('blocked.chip', { n: blockedSet.size })}
+            >
+              <EyeOff size={10} className="shrink-0" />
+              {t('blocked.chip', { n: blockedSet.size })}
+            </button>
           </div>
 
           {/* 下方全英雄池：按官方稀有度从低到高分栏，**不剔除**顶部已上榜的英雄 */}
@@ -761,6 +827,7 @@ export default function App() {
                     candidate={c}
                     rank={ranks.get(c.id) ?? 0}
                     bannedElsewhere={otherTeamBanned.has(c.id)}
+                    blocked={blockedSet.has(c.id)}
                     onPick={() => handlePick(c.id)}
                     onLongPress={() => setMatchupId(c.id)}
                   />

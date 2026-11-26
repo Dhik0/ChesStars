@@ -84,9 +84,21 @@
   "pool.filterEmpty": "该职业暂无可用英雄",
   "pool.banned": "已Ban",
 
+  "blocked.chip": "已屏蔽 {n}",
+  "blocked.title": "已屏蔽英雄",
+  "blocked.hint": "只影响选人推荐；Ban 推荐与全英雄池不受影响",
+  "blocked.empty": "还没有屏蔽任何英雄",
+  "blocked.action": "不喜欢 · 屏蔽推荐",
+  "blocked.undo": "取消屏蔽",
+  "blocked.badge": "已屏蔽",
+  "blocked.unblockOne": "解除",
+  "blocked.clearAll": "全部清空",
+
   "topbar.switchMap": "切换地图",
   "topbar.viewMap": "查看当前地图",
   "topbar.dataDate": "数据日期",
+  "topbar.fullscreen": "全屏横屏",
+  "topbar.exitFullscreen": "退出全屏",
 
   "draft.firstAlly": "蓝先",
   "draft.firstEnemy": "红先",

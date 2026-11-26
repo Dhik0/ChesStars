@@ -1,3 +1,4 @@
+import { EyeOff } from 'lucide-react';
 import type { Candidate } from '../utils/draftEngine';
 import { TEAM_SLOTS, counterLight } from '../utils/draftEngine';
 import {
@@ -19,6 +20,12 @@ interface BrawlerTileProps {
    * 打一枚小角标，避免用户以为是列表漏筛。
    */
   bannedElsewhere?: boolean;
+  /**
+   * 被本人标记为「不喜欢 / 屏蔽」。
+   * 只是视觉提示：卡片**依然可以正常点选**（敌方选人、手动录 Ban 都可能用到），
+   * 所以这里只降透明度 + 打小角标，不拦截点击。
+   */
+  blocked?: boolean;
   onPick: () => void;
   /** 长按 / 右键：打开该英雄在本图的详细对位 */
   onLongPress: () => void;
@@ -52,6 +59,7 @@ export default function BrawlerTile({
   candidate,
   rank,
   bannedElsewhere = false,
+  blocked = false,
   onPick,
   onLongPress,
 }: BrawlerTileProps) {
@@ -96,12 +104,23 @@ export default function BrawlerTile({
               name={c.name}
               fill
               rounded="rounded-md"
-              className={c.hasData ? '' : 'opacity-50'}
+              className={[c.hasData ? '' : 'opacity-50', blocked ? 'opacity-40' : '']
+                .filter(Boolean)
+                .join(' ')}
             />
             {/* 推荐排名角标 */}
             <span className="absolute left-0 top-0 rounded-br-[3px] bg-black/70 px-1 text-[8px] font-bold leading-[11px] tabular-nums text-slate-200">
               {rank}
             </span>
+            {/* 个人屏蔽：右上角小角标，只提示、不挡识别，也不影响点选 */}
+            {blocked && (
+              <span
+                className="absolute right-0 top-0 flex items-center rounded-bl-[3px] bg-slate-950/80 px-0.5 py-px text-slate-300"
+                title={t('blocked.badge')}
+              >
+                <EyeOff size={9} />
+              </span>
+            )}
             {/* 对方已 Ban：允许重复 Ban，但要让用户知道这手已经 Ban 过。
                 贴右下角是为了不跟左上角的排名角标抢位置（头像变窄后更容易撞上） */}
             {bannedElsewhere && (

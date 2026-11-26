@@ -84,9 +84,21 @@
   "pool.filterEmpty": "No brawlers of this class available",
   "pool.banned": "Banned",
 
+  "blocked.chip": "Blocked {n}",
+  "blocked.title": "Blocked brawlers",
+  "blocked.hint": "Pick suggestions only — ban suggestions and the full pool are unchanged",
+  "blocked.empty": "No blocked brawlers yet",
+  "blocked.action": "Not interested · block suggestion",
+  "blocked.undo": "Unblock",
+  "blocked.badge": "Blocked",
+  "blocked.unblockOne": "Remove",
+  "blocked.clearAll": "Clear all",
+
   "topbar.switchMap": "Change map",
   "topbar.viewMap": "View current map",
   "topbar.dataDate": "Data date",
+  "topbar.fullscreen": "Fullscreen landscape",
+  "topbar.exitFullscreen": "Exit fullscreen",
 
   "draft.firstAlly": "Blue first",
   "draft.firstEnemy": "Red first",

@@ -84,9 +84,21 @@
   "pool.filterEmpty": "該職業暫無可用英雄",
   "pool.banned": "已Ban",
 
+  "blocked.chip": "已封鎖 {n}",
+  "blocked.title": "已封鎖英雄",
+  "blocked.hint": "僅影響選人推薦；Ban 推薦與全英雄池不受影響",
+  "blocked.empty": "還沒有封鎖任何英雄",
+  "blocked.action": "不喜歡 · 封鎖推薦",
+  "blocked.undo": "取消封鎖",
+  "blocked.badge": "已封鎖",
+  "blocked.unblockOne": "解除",
+  "blocked.clearAll": "全部清空",
+
   "topbar.switchMap": "切換地圖",
   "topbar.viewMap": "檢視目前地圖",
   "topbar.dataDate": "資料日期",
+  "topbar.fullscreen": "全螢幕橫向",
+  "topbar.exitFullscreen": "退出全螢幕",
 
   "draft.firstAlly": "藍先",
   "draft.firstEnemy": "紅先",

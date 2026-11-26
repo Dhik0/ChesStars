@@ -7,12 +7,16 @@ import { orderTag } from '../utils/display';
 import type { PickOrder } from '../types/meta';
 import { useTranslation } from '../i18n';
 import Avatar from './Avatar';
+import BlockedToggle from './BlockedToggle';
 
 interface MatchupSheetProps {
   idx: MetaIndex;
   mapName: string;
   mode: string;
   brawlerId: number;
+  /** 该英雄是否已被本人屏蔽（只影响选人推荐栏的展示） */
+  blocked: boolean;
+  onToggleBlock: () => void;
   onClose: () => void;
   /** 顺带入口：打开该英雄的算分拆解 */
   onOpenBreakdown?: () => void;
@@ -78,6 +82,8 @@ export default function MatchupSheet({
   mapName,
   mode,
   brawlerId,
+  blocked,
+  onToggleBlock,
   onClose,
   onOpenBreakdown,
 }: MatchupSheetProps) {
@@ -185,13 +191,14 @@ export default function MatchupSheet({
           )}
         </div>
 
-        {/* 底部：数据来源提示（模式级兜底时才出现）+ 算分明细入口 */}
+        {/* 底部：数据来源提示（模式级兜底时才出现）+ 屏蔽开关 + 算分明细入口 */}
         <div className="shrink-0 border-t border-slate-800 px-3 py-2">
           {breakdown.source === 'mode' && (
             <p className="mb-1.5 text-[10px] leading-relaxed text-slate-600">
               {t('matchup.modeNote')}
             </p>
           )}
+          <BlockedToggle blocked={blocked} onToggle={onToggleBlock} />
           {onOpenBreakdown && (
             <button
               type="button"

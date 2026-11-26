@@ -4,9 +4,14 @@ import { CLASS_COLOR } from '../data/brawlerProfile';
 import { orderTag, baseScoreColor, formatPickRate } from '../utils/display';
 import { useTranslation } from '../i18n';
 import Avatar from './Avatar';
+import BlockedToggle from './BlockedToggle';
 
 interface BrawlerDetailProps {
   candidate: Candidate;
+  /** 该英雄是否已被本人屏蔽（只影响选人推荐栏的展示） */
+  blocked: boolean;
+  /** 切换屏蔽状态 */
+  onToggleBlock: () => void;
   onClose: () => void;
 }
 
@@ -54,7 +59,12 @@ function BreakdownRow({
 }
 
 /** 加减分拆解弹窗：拒绝黑盒，每一分都能追到来源 */
-export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps) {
+export default function BrawlerDetail({
+  candidate,
+  blocked,
+  onToggleBlock,
+  onClose,
+}: BrawlerDetailProps) {
   const { t, brawler } = useTranslation();
   const b = candidate.breakdown;
   const isBan = candidate.phase === 'ban';
@@ -126,6 +136,9 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
         </div>
 
         <div className="px-3 pt-3">
+          {/* 个人屏蔽开关：已屏蔽时按钮变成「取消屏蔽」，一行小字说明影响范围 */}
+          <BlockedToggle blocked={blocked} onToggle={onToggleBlock} withHint className="mb-2.5" />
+
           {isBan ? (
             <>
               <BreakdownRow

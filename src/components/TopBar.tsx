@@ -1,6 +1,7 @@
 import { ChevronDown, Map as MapIcon } from 'lucide-react';
 import { modeColor } from '../data/localization';
 import { useTranslation } from '../i18n';
+import FullscreenToggle from './FullscreenToggle';
 import MapThumb from './MapThumb';
 import ModeIcon from './ModeIcon';
 
@@ -48,32 +49,36 @@ export default function TopBar({
   if (variant === 'strip') {
     return (
       <div className="shrink-0 border-b border-slate-800/70 bg-slate-950/95 px-1.5 pb-1 pt-1 safe-top">
-        <button
-          type="button"
-          onClick={onOpenMap}
-          className="flex h-[38px] w-full min-w-0 items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 px-1 transition-colors active:bg-slate-800"
-          aria-label={t('topbar.switchMap')}
-        >
-          <MapThumb
-            mapName={mapName}
-            mode={mode}
-            variant="cover"
-            iconSize={13}
-            className="h-[30px] w-[30px] shrink-0 rounded"
-          />
-          <span className="min-w-0 flex-1 truncate text-[13px] font-bold leading-tight text-slate-50">
-            {mapLabel(mapName)}
-          </span>
-          <span className="h-3.5 w-px shrink-0 bg-slate-700" />
-          <ModeIcon mode={mode} size={13} />
-          <span
-            className="max-w-[68px] shrink-0 truncate text-[10.5px] font-semibold leading-tight"
-            style={{ color: accent }}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onOpenMap}
+            className="flex h-[38px] min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 px-1 transition-colors active:bg-slate-800"
+            aria-label={t('topbar.switchMap')}
           >
-            {modeLabel(mode)}
-          </span>
-          <ChevronDown size={12} className="shrink-0 text-slate-500" />
-        </button>
+            <MapThumb
+              mapName={mapName}
+              mode={mode}
+              variant="cover"
+              iconSize={13}
+              className="h-[30px] w-[30px] shrink-0 rounded"
+            />
+            <span className="min-w-0 flex-1 truncate text-[13px] font-bold leading-tight text-slate-50">
+              {mapLabel(mapName)}
+            </span>
+            <span className="h-3.5 w-px shrink-0 bg-slate-700" />
+            <ModeIcon mode={mode} size={13} />
+            <span
+              className="max-w-[68px] shrink-0 truncate text-[10.5px] font-semibold leading-tight"
+              style={{ color: accent }}
+            >
+              {modeLabel(mode)}
+            </span>
+            <ChevronDown size={12} className="shrink-0 text-slate-500" />
+          </button>
+          {/* 全屏横屏开关：贴在单行地图条右端，不占用地图条本身的宽度分配 */}
+          <FullscreenToggle />
+        </div>
       </div>
     );
   }
@@ -136,16 +141,19 @@ export default function TopBar({
           </span>
         </button>
 
-        {/* 换图入口：独立按钮，底色 + 描边 + 36px 热区，读秒时也能一眼看到 */}
-        <button
-          type="button"
-          onClick={onOpenMap}
-          className="absolute bottom-2 right-2 flex h-9 items-center gap-1.5 rounded-lg border border-sky-500/45 bg-sky-500/15 px-3 text-[12px] font-semibold text-sky-200 transition-colors active:border-sky-400 active:bg-sky-500/30 active:text-white"
-          aria-label={t('topbar.switchMap')}
-        >
-          <MapIcon size={14} />
-          {t('topbar.switchMap')}
-        </button>
+        {/* 右下角操作区：全屏横屏 + 换图。两者同为 36px 高，不挤占文字区的留白 */}
+        <div className="absolute bottom-2 right-2 flex items-center gap-1.5">
+          <FullscreenToggle />
+          <button
+            type="button"
+            onClick={onOpenMap}
+            className="flex h-9 items-center gap-1.5 rounded-lg border border-sky-500/45 bg-sky-500/15 px-3 text-[12px] font-semibold text-sky-200 transition-colors active:border-sky-400 active:bg-sky-500/30 active:text-white"
+            aria-label={t('topbar.switchMap')}
+          >
+            <MapIcon size={14} />
+            {t('topbar.switchMap')}
+          </button>
+        </div>
       </div>
     </div>
   );
