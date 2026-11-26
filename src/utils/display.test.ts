@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateMeta, type BrawlMeta } from '../types/meta';
 import { applyPick, createDraft, nextSlot, type DraftState, type Side } from './draftEngine';
-import { recommendHeadOf } from './display';
+import { recommendHeadOf, formatPickRate } from './display';
 import { translate } from '../i18n/translate';
 
 /** 标题文案由词库提供，这里按默认语言（简体中文）断言 */
@@ -87,5 +87,33 @@ describe('推荐区标题（我方选角 / 敌方选角）', () => {
     const peek: DraftState = { ...state, active: { kind: 'enemy', index: 1 } };
     expect(titleOf(peek)).toBe(ENEMY_TITLE);
     expect(recommendHeadOf(peek).enemy).toBe(true);
+  });
+});
+
+describe('出场率格式化', () => {
+  it('真没出场才显示 0%', () => {
+    expect(formatPickRate(0)).toBe('0%');
+    expect(formatPickRate(-0.2)).toBe('0%');
+    expect(formatPickRate(Number.NaN)).toBe('0%');
+  });
+
+  it('低于 0.1% 一律显示 <0.1%，不再被抹成 0%', () => {
+    expect(formatPickRate(0.0001)).toBe('<0.1%');
+    expect(formatPickRate(0.0009)).toBe('<0.1%');
+    // 0.0999% 仍然在阈值下
+    expect(formatPickRate(0.000999)).toBe('<0.1%');
+  });
+
+  it('0.1%~1% 保留一位小数，避免四舍五入成 0%', () => {
+    expect(formatPickRate(0.001)).toBe('0.1%');
+    expect(formatPickRate(0.0043)).toBe('0.4%');
+    expect(formatPickRate(0.0099)).toBe('1.0%');
+  });
+
+  it('1% 以上取整，与原来的显示口径一致', () => {
+    expect(formatPickRate(0.01)).toBe('1%');
+    expect(formatPickRate(0.124)).toBe('12%');
+    expect(formatPickRate(0.296)).toBe('30%');
+    expect(formatPickRate(1)).toBe('100%');
   });
 });

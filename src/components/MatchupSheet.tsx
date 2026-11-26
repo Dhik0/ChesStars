@@ -185,16 +185,13 @@ export default function MatchupSheet({
           )}
         </div>
 
-        {/* 底部说明 */}
+        {/* 底部：数据来源提示（模式级兜底时才出现）+ 算分明细入口 */}
         <div className="shrink-0 border-t border-slate-800 px-3 py-2">
-          <p className="text-[10px] leading-relaxed text-slate-600">
-            {t('matchup.footnotePre')}
-            <span className="text-strong">{t('matchup.footnotePos')}</span>
-            {t('matchup.footnoteSep')}
-            <span className="text-red-400">{t('matchup.footnoteNeg')}</span>
-            {t('matchup.footnotePost')}
-            {breakdown.source === 'mode' && t('matchup.modeNote')}
-          </p>
+          {breakdown.source === 'mode' && (
+            <p className="mb-1.5 text-[10px] leading-relaxed text-slate-600">
+              {t('matchup.modeNote')}
+            </p>
+          )}
           {onOpenBreakdown && (
             <button
               type="button"

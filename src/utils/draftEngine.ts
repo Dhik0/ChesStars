@@ -169,11 +169,6 @@ function statFor(
   return { stat: { id, name, ...NEUTRAL_STAT }, hasData: false };
 }
 
-export interface CompWarning {
-  key: 'noFrontline' | 'shortRange' | 'needAssassin' | 'noDamage' | 'tooManyMelee';
-  tone: 'warn' | 'tip';
-}
-
 /* ------------------------------------------------------------------ *
  * 常量
  * ------------------------------------------------------------------ */
@@ -589,27 +584,6 @@ function compProfileOf(idx: MetaIndex, ids: number[]): CompProfile {
   return p;
 }
 
-/** 阵容缺陷预警（我方视角）。只回结构化的 key，文案由界面按当前语言取 */
-export function detectCompWarnings(idx: MetaIndex, state: DraftState): CompWarning[] {
-  const mine = compProfileOf(idx, state.ally);
-  const theirs = compProfileOf(idx, state.enemy);
-  const out: CompWarning[] = [];
-
-  if (mine.damage >= 2 && mine.tanks === 0) {
-    out.push({ key: 'noFrontline', tone: 'warn' });
-  }
-  if (mine.melee >= 2) {
-    out.push({ key: 'shortRange', tone: 'warn' });
-  }
-  if (theirs.throwers > 0 && mine.assassins === 0) {
-    out.push({ key: 'needAssassin', tone: 'tip' });
-  }
-  if (state.ally.length >= 2 && mine.damage === 0 && mine.tanks >= 2) {
-    out.push({ key: 'noDamage', tone: 'tip' });
-  }
-  return out;
-}
-
 /**
  * 阵容结构分（针对某个候选英雄）：基准 50，命中补位需求加分，重复冗余扣分。
  */
@@ -617,13 +591,10 @@ function compScoreFor(
   idx: MetaIndex,
   state: DraftState,
   candId: number,
-  i18n: EngineI18n,
-): { score: number; reasons: Reason[] } {
-  const { t } = i18n;
+): { score: number } {
   const mine = compProfileOf(idx, state.ally);
   const theirs = compProfileOf(idx, state.enemy);
   const cls = getClass(idx, candId);
-  const reasons: Reason[] = [];
   let score = 50;
 
   const isTank = cls === 'TANK';
@@ -635,19 +606,16 @@ function compScoreFor(
   // 1) 双脆皮无前排 → 补坦克/半肉
   if (mine.damage >= 2 && mine.tanks === 0 && isTank) {
     score += 30;
-    reasons.push({ tone: 'good', text: t('reason.comp.needFrontline'), delta: 30 });
   }
 
   // 2) 双近战短手 → 补中远程控场/输出
   if (mine.melee >= 2 && (isControl || isDamage)) {
     score += 22;
-    reasons.push({ tone: 'good', text: t('reason.comp.needRange'), delta: 22 });
   }
 
   // 3) 敌方有投手且我方无刺客 → 补刺客切后排
   if (theirs.throwers > 0 && mine.assassins === 0 && isAssassin) {
     score += 25;
-    reasons.push({ tone: 'good', text: t('reason.comp.needAssassin'), delta: 25 });
   }
 
   // 4) 阵容同质化冗余
@@ -659,16 +627,14 @@ function compScoreFor(
     (isSupport ? mine.supports : 0);
   if (state.ally.length >= 2 && sameRoleCount >= 3) {
     score -= 14;
-    reasons.push({ tone: 'bad', text: t('reason.comp.redundant'), delta: -14 });
   }
 
   // 5) 缺输出时的补位
   if (state.ally.length >= 2 && mine.damage === 0 && isDamage) {
     score += 16;
-    reasons.push({ tone: 'good', text: t('reason.comp.needDamage'), delta: 16 });
   }
 
-  return { score: clamp(score, 0, 100), reasons };
+  return { score: clamp(score, 0, 100) };
 }
 
 /* ------------------------------------------------------------------ *
@@ -1067,7 +1033,7 @@ export function evaluatePick(
   const positionMult = COUNTER_POSITION_MULT[position];
   const counterWeight = W_PICK_COUNTER * revealRatio * positionMult * synergy;
 
-  const comp = compScoreFor(idx, state, stat.id, i18n);
+  const comp = compScoreFor(idx, state, stat.id);
   const order = orderAdjust(position, stat.pick_order, i18n);
 
   const totalWeight = W_PICK_SCORE + counterWeight + wrWeight + W_PICK_COMP;
@@ -1130,7 +1096,6 @@ export function evaluatePick(
     });
   }
 
-  reasons.push(...comp.reasons);
   reasons.push(...order.reasons);
 
   const tags =

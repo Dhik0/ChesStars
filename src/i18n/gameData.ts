@@ -282,7 +282,7 @@ const MAPS: Record<string, [zhCN: string, zhTW: string]> = {
   "Belle's Rock": ['摇滚贝尔', '搖滾貝爾'],
   'New Horizons': ['新地平线', '新地平綫'],
   'Flaring Phoenix': ['烈焰凤凰', '烈焰鳳凰'],
-  'Out in the Open': ['开阔荒野', '空曠荒野'],
+  'Out in the Open': ['空旷荒野', '空曠荒野'],
   Undermine: ['十面埋伏', '地下礦坑'],
   'Gem Fort': ['宝石要塞', '寶石要塞'],
   'Hard Rock Mine': ['硬石矿井', '堅石礦井'],

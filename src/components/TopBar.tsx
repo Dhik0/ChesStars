@@ -1,7 +1,6 @@
-import { AlertTriangle, ChevronDown, Lightbulb, Map as MapIcon } from 'lucide-react';
+import { ChevronDown, Map as MapIcon } from 'lucide-react';
 import { modeColor } from '../data/localization';
 import { useTranslation } from '../i18n';
-import type { CompWarning } from '../utils/draftEngine';
 import MapThumb from './MapThumb';
 import ModeIcon from './ModeIcon';
 
@@ -14,7 +13,6 @@ interface TopBarProps {
   tierLabel: string;
   /** 数据日期（YYYY-MM-DD），未知时为 null */
   dataDate?: string | null;
-  warnings: CompWarning[];
   /** 点击整块地图详情 → 返回「选择地图」页换图 */
   onOpenMap: () => void;
   /**
@@ -40,28 +38,11 @@ export default function TopBar({
   mapGames,
   tierLabel,
   dataDate = null,
-  warnings,
   onOpenMap,
   variant = 'card',
 }: TopBarProps) {
   const { t, map: mapLabel, mode: modeLabel, num } = useTranslation();
   const accent = modeColor(mode);
-
-  const warningsRow = warnings.length > 0 && (
-    <div className="no-scrollbar mt-1 flex items-center gap-1 overflow-x-auto whitespace-nowrap">
-      {warnings.map((w) => (
-        <span
-          key={w.key}
-          className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-            w.tone === 'warn' ? 'bg-amber-500/15 text-amber-300' : 'bg-sky-500/15 text-sky-300'
-          }`}
-        >
-          {w.tone === 'warn' ? <AlertTriangle size={10} /> : <Lightbulb size={10} />}
-          {t(`warn.${w.key}`)}
-        </span>
-      ))}
-    </div>
-  );
 
   /* ---------------- 横屏：单行紧凑地图条 ---------------- */
   if (variant === 'strip') {
@@ -93,7 +74,6 @@ export default function TopBar({
           </span>
           <ChevronDown size={12} className="shrink-0 text-slate-500" />
         </button>
-        {warningsRow}
       </div>
     );
   }
@@ -167,8 +147,6 @@ export default function TopBar({
           {t('topbar.switchMap')}
         </button>
       </div>
-
-      {warningsRow}
     </div>
   );
 }

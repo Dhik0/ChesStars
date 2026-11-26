@@ -23,7 +23,6 @@ import {
   counterLight,
   createDraft,
   currentPosition,
-  detectCompWarnings,
   evaluateBrawler,
   evaluatePick,
   firstEmptyBanSlot,
@@ -1207,38 +1206,10 @@ describe('后手克制提权', () => {
 });
 
 /* ------------------------------------------------------------------ *
- * 6. 阵容预警
+ * 6. 阵容结构评分
  * ------------------------------------------------------------------ */
 
-describe('阵容结构预警', () => {
-  it('双脆皮无坦克 → 缺少前排承伤', () => {
-    const state = draft({
-      ally: [idOf('PIPER'), idOf('BROCK')],
-      active: { kind: 'ally', index: 2 },
-    });
-    const warns = detectCompWarnings(IDX, state);
-    expect(warns.some((w) => w.key === 'noFrontline')).toBe(true);
-  });
-
-  it('双近战 → 手短易被风筝', () => {
-    const state = draft({
-      ally: [idOf('EL PRIMO'), idOf('BULL')],
-      active: { kind: 'ally', index: 2 },
-    });
-    const warns = detectCompWarnings(IDX, state);
-    expect(warns.some((w) => w.key === 'shortRange')).toBe(true);
-  });
-
-  it('敌方有投手且我方无刺客 → 建议补刺客', () => {
-    const state = draft({
-      ally: [idOf('PIPER')],
-      enemy: [idOf('BARLEY')],
-      active: { kind: 'ally', index: 1 },
-    });
-    const warns = detectCompWarnings(IDX, state);
-    expect(warns.some((w) => w.key === 'needAssassin')).toBe(true);
-  });
-
+describe('阵容结构评分', () => {
   it('缺前排时坦克候选的阵容分被上调', () => {
     const state = draft({
       ally: [idOf('PIPER'), idOf('BROCK')],
@@ -1248,7 +1219,6 @@ describe('阵容结构预警', () => {
     if (!primo) return; // 该图无此英雄则跳过
     const c = evaluatePick(IDX, state, primo, 'FIRST', 'ally');
     expect(c.breakdown.comp).toBeGreaterThan(50);
-    expect(c.breakdown.reasons.some((r) => r.text.includes('补前排'))).toBe(true);
   });
 });
 

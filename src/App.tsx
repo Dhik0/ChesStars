@@ -13,6 +13,7 @@ import TopBar from './components/TopBar';
 import UpdateDialog from './components/UpdateDialog';
 import { APP_VERSION } from './config/app';
 import { IS_NATIVE_APP } from './config/platform';
+import { CLASS_COLOR, CLASS_ORDER, type BrawlerClass } from './data/brawlerProfile';
 import { useTranslation } from './i18n';
 import { metaStore, type MetaSnapshot } from './services/metaStore';
 import {
@@ -28,7 +29,6 @@ import {
   bannedIds,
   clearSlot,
   createDraft,
-  detectCompWarnings,
   evaluateBrawler,
   nextSlot,
   recommend,
@@ -39,7 +39,7 @@ import {
   type DraftState,
   type Side,
 } from './utils/draftEngine';
-import { recommendHeadOf } from './utils/display';
+import { recommendHeadOf, raritySectionStyle } from './utils/display';
 import { backGuardCount, runTopBackGuard } from './utils/backGuards';
 import { decideBack, type BackLayer, type BackState } from './utils/backNavigation';
 import { openExternal } from './utils/openExternal';
@@ -50,6 +50,44 @@ const LS_MAP = 'brawl.draft.map';
 
 /** 「BP 助手」Tab 内的二级页面：首屏是「选择地图」，选完才进 BP 面板 */
 type Screen = 'select' | 'draft';
+
+/**
+ * 职业筛选标签。
+ *
+ * 窄屏（手机竖屏）下这排标签只横向滚动、绝不换行——一旦换行会把下面的
+ * 稀有度分区整体顶下去，英雄池在矮视口里就只剩一条缝。
+ */
+function ClassChip({
+  label,
+  active,
+  color,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  color: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`flex h-[var(--chip-h)] shrink-0 items-center whitespace-nowrap rounded-full border px-2 text-[10.5px] font-medium transition-colors ${
+        active
+          ? ''
+          : 'border-slate-700/80 bg-slate-900/70 text-slate-400 active:bg-slate-800'
+      }`}
+      style={
+        active
+          ? { backgroundColor: `${color}2E`, borderColor: `${color}99`, color }
+          : undefined
+      }
+    >
+      {label}
+    </button>
+  );
+}
 
 export default function App() {
   const { t, brawler, tier } = useTranslation();
@@ -66,6 +104,8 @@ export default function App() {
   const [detailId, setDetailId] = useState<number | null>(null);
   /** 长按弹窗：当前查看详细对位的英雄 */
   const [matchupId, setMatchupId] = useState<number | null>(null);
+  /** 英雄池的职业筛选（'ALL' = 不筛选）；只影响列表展示，不参与任何算分 */
+  const [classFilter, setClassFilter] = useState<BrawlerClass | 'ALL'>('ALL');
   /** 发现的新版本（null = 没有更新或检查失败） */
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   /** 更新弹窗开关（启动自动检查命中且未被忽略时打开） */
@@ -257,15 +297,20 @@ export default function App() {
     return recommend(snap.index, draft, 200, { t, brawler });
   }, [snap, draft, t, brawler]);
 
-  /** 英雄池 = Top 推荐 + 稀有度分区（搜索/筛选栏已移除） */
-  const pool = useMemo(() => buildBrawlerPool(candidates), [candidates]);
+  /**
+   * 英雄池 = Top 推荐 + 稀有度分区。
+   *
+   * 职业筛选在**建池之前**过滤候选，所以「高优先推荐」是这个职业内部的前 12 名，
+   * 而不是把全局前 12 名再筛一遍（那样筛完常常只剩一两个，看着像漏数据）。
+   * 角标名次仍然取全局 `ranks`，切到某个职业也能看出它在总榜的位置。
+   */
+  const pool = useMemo(() => {
+    const list =
+      classFilter === 'ALL' ? candidates : candidates.filter((c) => c.cls === classFilter);
+    return buildBrawlerPool(list);
+  }, [candidates, classFilter]);
   /** 推荐分排名表：卡片角标用全局名次，稀有度分区里也能看出它在总榜的位置 */
   const ranks = useMemo(() => rankMap(candidates), [candidates]);
-
-  const warnings = useMemo(
-    () => (snap && draft ? detectCompWarnings(snap.index, draft) : []),
-    [snap, draft],
-  );
 
   const detailCandidate = useMemo<Candidate | null>(() => {
     if (!snap || !draft || detailId === null) return null;
@@ -608,7 +653,8 @@ export default function App() {
         </div>
       ) : (
         <>
-          {/* 第一区：高优先推荐 / 敌方可能会选（推荐分前 12 名） */}
+          {/* 第一区：高优先推荐 / 敌方可能会选（推荐分前 12 名；有职业筛选时是该职业内的前 12 名） */}
+          {pool.top.length > 0 && (
           <section
             ref={topSectionRef}
             className={`mx-1 mb-1.5 rounded-lg border px-1.5 pb-1.5 pt-1 ${
@@ -657,13 +703,42 @@ export default function App() {
               ))}
             </div>
           </section>
+          )}
+
+          {/* 职业筛选：贴着「高优先推荐」下方，只横向滚动、不换行 */}
+          <div
+            className="no-scrollbar mx-1 mb-1.5 flex items-center gap-1 overflow-x-auto overscroll-x-contain"
+            role="group"
+            aria-label={t('pool.classFilter')}
+          >
+            <ClassChip
+              label={t('pool.classAll')}
+              active={classFilter === 'ALL'}
+              color="#38BDF8"
+              onClick={() => setClassFilter('ALL')}
+            />
+            {CLASS_ORDER.map((k) => (
+              <ClassChip
+                key={k}
+                label={t(`class.${k}`)}
+                active={classFilter === k}
+                color={CLASS_COLOR[k]}
+                onClick={() => setClassFilter(classFilter === k ? 'ALL' : k)}
+              />
+            ))}
+          </div>
 
           {/* 下方全英雄池：按官方稀有度从低到高分栏，**不剔除**顶部已上榜的英雄 */}
-          {pool.sections.map((sec) => (
+          {pool.sections.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-1 px-6 py-8 text-center">
+              <p className="text-[12px] text-slate-500">{t('pool.filterEmpty')}</p>
+            </div>
+          ) : (
+          pool.sections.map((sec) => (
             <section
               key={sec.key}
               className="mx-1 mb-1.5 rounded-lg border px-1.5 pb-1.5 pt-1"
-              style={{ backgroundColor: `${sec.color}1A`, borderColor: `${sec.color}33` }}
+              style={raritySectionStyle(sec.color)}
             >
               <header className="mb-1 flex items-baseline justify-between gap-2">
                 <span className="flex items-center gap-1">
@@ -692,7 +767,8 @@ export default function App() {
                 ))}
               </div>
             </section>
-          ))}
+          ))
+          )}
         </>
       )}
     </>
@@ -710,7 +786,6 @@ export default function App() {
             mapGames={mapGames}
             tierLabel={tierText}
             dataDate={snap.dataDate}
-            warnings={warnings}
             onOpenMap={() => setScreen('select')}
           />
           <DraftBar
@@ -753,7 +828,6 @@ export default function App() {
           mapGames={mapGames}
           tierLabel={tierText}
           dataDate={snap.dataDate}
-          warnings={warnings}
           onOpenMap={() => setScreen('select')}
         />
         {poolContent}

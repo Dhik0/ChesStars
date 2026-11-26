@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { CounterDetail, CounterLight, DraftState, MatchupCellView } from '../utils/draftEngine';
 import { counterLight } from '../utils/draftEngine';
 import type { PickOrder } from '../types/meta';
@@ -139,4 +140,37 @@ export interface RecommendHead {
 export function recommendHeadOf(state: DraftState): RecommendHead {
   const enemy = state.active.kind === 'enemy';
   return { key: enemy ? 'pool.head.enemy' : 'pool.head.ally', enemy };
+}
+
+/**
+ * 出场率展示：入参是 **0~1 的比例**（数据里的 `use_rate`），输出带百分号的字符串。
+ *
+ * 分档只解决一件事——别把「有人用但很少」说成「没人用」：
+ *   - 无样本（≤ 0 / 非有限数）→ `0%`，这是真的没出场；
+ *   - 0 < 出场率 < 0.1% → `<0.1%`，原来四舍五入成 `0%` 等于谎报数据缺失；
+ *   - 0.1% ≤ 出场率 < 1% → 保留一位小数（`0.4%`），否则同样会被抹成 `0%`；
+ *   - ≥ 1% → 取整，与原来的显示口径一致。
+ *
+ * 所有展示出场率的地方都必须走这里，不要各自 `Math.round(rate * 100)`。
+ */
+export function formatPickRate(rate: number): string {
+  if (!Number.isFinite(rate) || rate <= 0) return '0%';
+  const pct = rate * 100;
+  if (pct < 0.1) return '<0.1%';
+  if (pct < 1) return `${pct.toFixed(1)}%`;
+  return `${Math.round(pct)}%`;
+}
+
+/**
+ * 稀有度分区卡片的配色。
+ *
+ * 只做一件事：把档位色压成一层**平涂**底色 + 一圈同色描边。
+ * 原来的 10% 底色 + 20% 描边在 slate-950 上几乎分不出档位，这里各加一档到
+ * 14% / 30%，不叠渐变、不叠高光——保持全局的扁平卡片语言。
+ */
+export function raritySectionStyle(color: string): CSSProperties {
+  return {
+    backgroundColor: `${color}24`,
+    borderColor: `${color}4D`,
+  };
 }

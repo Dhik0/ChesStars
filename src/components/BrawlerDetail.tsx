@@ -1,7 +1,7 @@
 import { X } from 'lucide-react';
 import type { Candidate } from '../utils/draftEngine';
 import { CLASS_COLOR } from '../data/brawlerProfile';
-import { orderTag, baseScoreColor } from '../utils/display';
+import { orderTag, baseScoreColor, formatPickRate } from '../utils/display';
 import { useTranslation } from '../i18n';
 import Avatar from './Avatar';
 
@@ -99,7 +99,7 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
               {candidate.hasData
                 ? t('detail.winRateLine', {
                     wr: Math.round(candidate.baseWR * 100),
-                    use: Math.round(candidate.useRate * 100),
+                    use: formatPickRate(candidate.useRate),
                   })
                 : t('detail.noSample')}
             </p>
@@ -140,7 +140,7 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
                 value={b.counter}
                 weight={norm(b.counterWeight)}
                 contribution={b.counterContribution}
-                hint={t('detail.breakdownUseHint', { p: Math.round(candidate.useRate * 100) })}
+                hint={t('detail.breakdownUseHint', { p: formatPickRate(candidate.useRate) })}
               />
               <BreakdownRow
                 label={t('detail.breakdownFirst')}
@@ -158,9 +158,7 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
                 weight={norm(b.counterWeight)}
                 contribution={b.counterContribution}
                 hint={
-                  b.counterWeight === 0
-                    ? t('detail.breakdownCounterOff')
-                    : t('detail.breakdownCounterHint')
+                  b.counterWeight === 0 ? t('detail.breakdownCounterOff') : undefined
                 }
               />
               <BreakdownRow
@@ -182,7 +180,6 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
                 value={b.comp}
                 weight={norm(b.compWeight)}
                 contribution={b.compContribution}
-                hint={t('detail.breakdownCompHint')}
               />
               <div className="mb-2.5 flex items-baseline justify-between text-[11px]">
                 <span className="text-slate-400">{t('detail.orderAdj')}</span>
@@ -269,10 +266,6 @@ export default function BrawlerDetail({ candidate, onClose }: BrawlerDetailProps
                 })}
               </div>
             </>
-          )}
-
-          {candidate.counterDetails.length > 0 && (
-            <p className="mt-2 text-[10px] leading-relaxed text-slate-600">{t('detail.footnote')}</p>
           )}
         </div>
       </div>
