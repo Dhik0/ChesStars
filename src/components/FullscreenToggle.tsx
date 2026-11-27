@@ -25,7 +25,7 @@ export default function FullscreenToggle({ className = '' }: { className?: strin
       aria-label={label}
       aria-pressed={active}
       title={label}
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-900/80 text-slate-300 transition-colors active:bg-slate-800 active:text-slate-100 ${className}`}
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line-strong bg-surface/80 text-body transition-colors active:bg-press active:text-fg ${className}`}
     >
       {active ? <Minimize size={15} /> : <Maximize size={15} />}
     </button>

@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { Map as MapIcon } from 'lucide-react';
 import { modeColor } from '../data/localization';
 import { useTranslation } from '../i18n';
+import { themeAccent } from '../utils/display';
 import { mapImageUrl } from '../utils/mapImage';
+import { useTheme } from '../utils/useTheme';
 
 interface MapThumbProps {
   mapName: string;
@@ -33,6 +35,7 @@ export default function MapThumb({
   variant = 'cover',
 }: MapThumbProps) {
   const { t, map: mapLabel } = useTranslation();
+  const { resolved: theme } = useTheme();
   const [failed, setFailed] = useState(false);
 
   // 换图时重置，否则上一张的失败状态会传染给新地图
@@ -41,10 +44,10 @@ export default function MapThumb({
   const src = mapImageUrl(mapName);
 
   if (failed) {
-    const accent = modeColor(mode);
+    const accent = themeAccent(modeColor(mode), theme);
     return (
       <div
-        className={`relative flex items-center justify-center overflow-hidden bg-slate-800 ${className}`}
+        className={`relative flex items-center justify-center overflow-hidden bg-raised ${className}`}
         style={{ backgroundImage: `linear-gradient(145deg, ${accent}5C, #0B1220 76%)` }}
         aria-hidden
         title={t('picker.thumbMissing', { name: mapLabel(mapName) })}
@@ -82,7 +85,7 @@ export default function MapThumb({
     <img
       src={src}
       alt={mapLabel(mapName)}
-      className={`bg-slate-800 object-cover ${className}`}
+      className={`bg-raised object-cover ${className}`}
       loading="lazy"
       decoding="async"
       draggable={false}

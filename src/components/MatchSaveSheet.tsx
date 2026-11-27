@@ -1,4 +1,12 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Crown, User, X } from 'lucide-react';
 import { useTranslation } from '../i18n';
 import {
@@ -22,6 +30,12 @@ import type { MetricKey } from '../services/reviewEngine';
 import { unlockSfx } from '../services/reviewSfx';
 import Avatar from './Avatar';
 
+/** 抽屉对外暴露的关闭入口（供安卓返回键调用） */
+export interface MatchSaveSheetHandle {
+  /** 与点 × 完全同一条路径：脏了就存，没动过就直接关 */
+  requestClose: () => void;
+}
+
 interface MatchSaveSheetProps {
   /** 正在保存 / 编辑的记录；新建时由当前 BP 生成 */
   record: MatchRecord;
@@ -29,10 +43,14 @@ interface MatchSaveSheetProps {
   isNew: boolean;
   /** 英雄英文原名（译名由 Avatar / 本组件按当前语言解析） */
   getBrawler: (id: number) => { name: string } | undefined;
-  onSave: (record: MatchRecord) => void;
-  /** 保存后直接进复盘（只有选了胜负比分才出现） */
+  /** 唯一主操作：保存后直接进复盘（没选比分时只保存并关闭） */
   onSaveAndReview: (record: MatchRecord) => void;
-  onClose: () => void;
+  /**
+   * 关闭抽屉（× / 遮罩 / Esc / 安卓返回）。
+   * `record` 为 null 表示「什么都没改，不需要落库」——新建局完全没填时走这条，
+   * 避免往历史里塞一条空白记录。
+   */
+  onClose: (record: MatchRecord | null) => void;
 }
 
 /**
@@ -140,13 +158,13 @@ function StatRowEditor({
 
   return (
     <div
-      className={`rounded-lg border border-slate-800 border-l-2 bg-slate-950/60 p-1.5 ${
+      className={`rounded-lg border border-line border-l-2 bg-app p-1.5 ${
         ally ? 'border-l-ally/60' : 'border-l-enemy/60'
       }`}
     >
       <div className="flex items-center gap-2">
         <Avatar id={Number.isFinite(id) ? id : 0} name={fallbackName} size={28} rounded="rounded" />
-        <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-slate-200">
+        <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-body">
           {name}
         </span>
         <div className="flex shrink-0 items-center gap-1">
@@ -231,9 +249,12 @@ function StatRowEditor({
 /**
  * 保存 / 编辑一局的底部抽屉。
  *
- * 两条保存路径共用一个组件：
- *   1. 「先存阵容，打完再补录」——一键以 pending 落库，用户可以立刻切回游戏；
- *   2. 直接选比分 + 填战绩——只选胜负也允许保存，其余指标全部选填。
+ * 保存路径收敛成两条，都走「不丢数据」这条原则：
+ *   1. 「保存并复盘」——底部唯一主按钮，存完直接进评级面板；
+ *   2. 任何关闭手势（× / 遮罩 / Esc / 安卓返回）——脏数据自动落库再关，
+ *      新建局完全没填时直接关，不往历史里塞空白记录。
+ *
+ * 「先存阵容，打完再补录」保留在顶部卡片里：一键以 pending 落库，用户可以立刻切回游戏。
  *
  * 指标口径对齐官方结算面板：击杀 / 死亡 / 造成伤害 / 治疗 / 承受伤害 + 1 项模式专属。
  * 大数值（伤害 / 治疗 / 承伤 / 金库伤害）按「万」录入——手机上敲 5 位数太慢，
@@ -242,14 +263,10 @@ function StatRowEditor({
  * 数值输入框刻意不做「默认 0」：空串就是 null（没填），0 才是真的 0。
  * 用 0 兜底会让复盘引擎把「没记录」当成「零输出」。
  */
-export default function MatchSaveSheet({
-  record,
-  isNew,
-  getBrawler,
-  onSave,
-  onSaveAndReview,
-  onClose,
-}: MatchSaveSheetProps) {
+const MatchSaveSheet = forwardRef<MatchSaveSheetHandle, MatchSaveSheetProps>(function MatchSaveSheet(
+  { record, isNew, getBrawler, onSaveAndReview, onClose },
+  ref,
+) {
   const { t, map: mapLabel, mode: modeLabel, brawler } = useTranslation();
   const objectiveKind = objectiveKindOf(record.mode);
   const [score, setScore] = useState<MatchScore | null>(record.score);
@@ -377,12 +394,51 @@ export default function MatchSaveSheet({
     enemyStats: buildEnemyStats(),
   });
 
-  const submit = (nextScore: MatchScore | null) => onSave(withStats(nextScore));
+  /**
+   * 新建局是否被改动过：选了比分，或任意一行填了数值 / 勾了「我」「最佳」。
+   * 编辑已有对局一律视为「有内容要存」。
+   */
+  const isDirty = (): boolean => {
+    if (!isNew) return true;
+    if (score !== null) return true;
+    return [...allyStats, ...enemyStats].some(
+      (draft) =>
+        draft.isSelf ||
+        draft.isStarPlayer ||
+        [draft.kills, draft.deaths, draft.damage, draft.healing, draft.damageTaken, draft.objective].some(
+          (value) => value.trim() !== '',
+        ),
+    );
+  };
 
-  /** 一步直达复盘：音效上下文在这个点击里解锁，揭晓时才能立刻出声 */
-  const submitAndReview = (nextScore: MatchScore) => {
+  /**
+   * 关闭的唯一入口：× / 遮罩 / Esc / 安卓返回全部走这里。
+   * 脏数据先落库（不弹复盘），完全没动过的新建局直接关——不写空白条目。
+   */
+  const requestClose = () => {
+    onClose(isDirty() ? withStats(score) : null);
+  };
+
+  // 用 ref 转存最新实现，键盘监听与返回键句柄只注册一次，但永远读到当前表单状态
+  const closeRef = useRef(requestClose);
+  closeRef.current = requestClose;
+
+  useImperativeHandle(ref, () => ({ requestClose: () => closeRef.current() }), []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      closeRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  /** 底部唯一主操作：存完直接进复盘；没选比分时只保存并关闭（复盘需要比分才能算） */
+  const submitAndReview = () => {
     unlockSfx();
-    onSaveAndReview(withStats(nextScore));
+    onSaveAndReview(withStats(score));
   };
 
   const picks = team === 'ally' ? record.allyPicks : record.enemyPicks;
@@ -390,32 +446,32 @@ export default function MatchSaveSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end bg-black/60 animate-fade-in"
-      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-end scrim animate-fade-in"
+      onClick={requestClose}
       role="presentation"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label={isNew ? t('save.title') : t('save.editTitle')}
-        className="mx-auto flex max-h-dvh-88 w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border-t border-slate-700 bg-slate-900 animate-slide-up landscape:max-w-[720px] safe-bottom"
+        className="mx-auto flex max-h-dvh-88 w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border-t border-line-strong bg-surface shadow-card animate-slide-up landscape:max-w-[720px] safe-bottom"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部：这一局是哪张图、哪个模式 */}
-        <div className="flex shrink-0 items-center gap-2 border-b border-slate-800 px-3 py-2.5">
+        <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2.5">
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-[14px] font-semibold text-slate-100">
+            <h2 className="truncate text-[14px] font-semibold text-fg">
               {isNew ? t('save.title') : t('save.editTitle')}
             </h2>
-            <p className="mt-0.5 truncate text-[10px] text-slate-500">
+            <p className="mt-0.5 truncate text-[10px] text-subtle">
               {mapLabel(record.mapId)} · {modeLabel(record.mode)}
             </p>
           </div>
           <button
             type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 active:bg-slate-800"
-            aria-label={t('save.cancel')}
+            onClick={requestClose}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-subtle active:bg-press"
+            aria-label={t('save.close')}
           >
             <X size={16} />
           </button>
@@ -426,14 +482,14 @@ export default function MatchSaveSheet({
           {isNew && (
             <button
               type="button"
-              onClick={() => submit(null)}
+              onClick={() => onClose(withStats(null))}
               className="mb-3 flex w-full items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-2 text-left transition-colors active:bg-sky-500/20"
             >
               <span className="min-w-0 flex-1">
-                <span className="block text-[12.5px] font-semibold text-sky-200">
+                <span className="block text-[12.5px] font-semibold text-brand">
                   {t('save.quick')}
                 </span>
-                <span className="mt-0.5 block text-[10px] leading-snug text-sky-400/70">
+                <span className="mt-0.5 block text-[10px] leading-snug text-brand/70">
                   {t('save.quickHint')}
                 </span>
               </span>
@@ -443,8 +499,8 @@ export default function MatchSaveSheet({
           {/* 胜负与比分：4 枚胶囊，点中即选，再点取消 */}
           <section className="mb-3">
             <div className="mb-1.5 flex items-baseline justify-between gap-2">
-              <h3 className="text-[11px] font-semibold text-slate-300">{t('save.scoreTitle')}</h3>
-              <span className="shrink-0 text-[9px] text-slate-600">{t('save.scoreHint')}</span>
+              <h3 className="text-[11px] font-semibold text-body">{t('save.scoreTitle')}</h3>
+              <span className="shrink-0 text-[9px] text-faint">{t('save.scoreHint')}</span>
             </div>
             <div className="grid grid-cols-4 gap-1.5">
               {SCORE_OPTIONS.map((option) => {
@@ -460,8 +516,8 @@ export default function MatchSaveSheet({
                       active
                         ? win
                           ? 'border-strong/60 bg-strong/15 text-strong'
-                          : 'border-red-500/60 bg-red-500/15 text-red-400'
-                        : 'border-slate-800 bg-slate-950/60 text-slate-400 active:bg-slate-800'
+                          : 'border-red-500/60 bg-red-500/15 text-danger'
+                        : 'border-line bg-raised text-muted active:bg-press'
                     }`}
                   >
                     <span>{t(win ? 'result.win' : 'result.loss')}</span>
@@ -475,12 +531,12 @@ export default function MatchSaveSheet({
           {/* 双方战绩：Tab 切换，避免 6 行把页面拖长 */}
           <section>
             <div className="mb-1.5 flex items-baseline justify-between gap-2">
-              <h3 className="text-[11px] font-semibold text-slate-300">{t('save.statsTitle')}</h3>
-              <span className="shrink-0 text-[9px] text-slate-600">{t('save.statsHint')}</span>
+              <h3 className="text-[11px] font-semibold text-body">{t('save.statsTitle')}</h3>
+              <span className="shrink-0 text-[9px] text-faint">{t('save.statsHint')}</span>
             </div>
 
             <div
-              className="mb-2 grid grid-cols-2 gap-1 rounded-lg bg-slate-950/70 p-0.5"
+              className="mb-2 grid grid-cols-2 gap-1 rounded-lg bg-app/70 p-0.5"
               role="tablist"
               aria-label={t('save.statsTitle')}
             >
@@ -499,7 +555,7 @@ export default function MatchSaveSheet({
                         ? ally
                           ? 'bg-ally/15 text-ally ring-1 ring-ally/40'
                           : 'bg-enemy/15 text-enemy ring-1 ring-enemy/40'
-                        : 'text-slate-400 active:bg-slate-800'
+                        : 'text-muted active:bg-press'
                     }`}
                   >
                     <span
@@ -540,46 +596,20 @@ export default function MatchSaveSheet({
           </section>
         </div>
 
-        {/* 底部：取消 / 保存；选了比分再多一个「保存并复盘」 */}
-        <div
-          className={`grid shrink-0 gap-2 border-t border-slate-800 px-3 py-2 ${
-            score
-              ? 'grid-cols-[auto_minmax(0,0.8fr)_minmax(0,1.2fr)]'
-              : 'grid-cols-[auto_minmax(0,1fr)]'
-          }`}
-        >
+        {/* 底部：只有一个通栏主操作——保存并复盘 */}
+        <div className="shrink-0 border-t border-line px-3 py-2">
           <button
             type="button"
-            onClick={onClose}
-            className="flex h-10 items-center justify-center rounded-lg border border-slate-800 px-4 text-[12.5px] font-semibold text-slate-300 active:bg-slate-800"
+            onClick={submitAndReview}
+            className="flex h-10 w-full items-center justify-center rounded-lg bg-sky-600 text-[13px] font-semibold text-white transition-colors active:bg-sky-700"
           >
-            {t('save.cancel')}
+            {t('save.saveAndReview')}
           </button>
-          <button
-            type="button"
-            onClick={() => submit(score)}
-            className={`flex h-10 items-center justify-center rounded-lg text-[13px] font-semibold transition-colors ${
-              score
-                ? 'border border-slate-700 bg-slate-900/80 text-slate-300 active:bg-slate-800'
-                : 'bg-sky-600 text-white active:bg-sky-700'
-            }`}
-          >
-            {t('save.submit')}
-          </button>
-          {score && (
-            <button
-              type="button"
-              onClick={() => submitAndReview(score)}
-              className="flex h-10 items-center justify-center rounded-lg bg-sky-600 px-2 text-[13px] font-semibold text-white transition-colors active:bg-sky-700"
-            >
-              {t('save.saveAndReview')}
-            </button>
-          )}
         </div>
       </div>
     </div>
   );
-}
+});
 
 /** 「我 / 最佳」轻量切换标签 */
 function FlagChip({
@@ -597,15 +627,15 @@ function FlagChip({
 }) {
   const activeCls =
     tone === 'sky'
-      ? 'border-sky-500/60 bg-sky-500/15 text-sky-300'
-      : 'border-amber-500/60 bg-amber-500/15 text-amber-300';
+      ? 'border-sky-500/60 bg-sky-500/15 text-brand'
+      : 'border-gold/60 bg-amber-500/15 text-gold';
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
       className={`flex h-6 items-center gap-0.5 rounded-full border px-1.5 text-[10px] font-medium transition-colors ${
-        active ? activeCls : 'border-slate-800 bg-slate-900/60 text-slate-500 active:bg-slate-800'
+        active ? activeCls : 'border-line bg-surface/60 text-subtle active:bg-press'
       }`}
     >
       {children}
@@ -635,7 +665,7 @@ function StatFieldInput({
 }) {
   return (
     <label className="flex min-w-0 flex-col gap-0.5">
-      <span className={`truncate text-[9px] ${gold ? 'text-amber-300' : 'text-slate-500'}`}>
+      <span className={`truncate text-[9px] ${gold ? 'text-gold' : 'text-subtle'}`}>
         {label}
       </span>
       <span className="relative block">
@@ -645,18 +675,18 @@ function StatFieldInput({
           inputMode={unit ? 'decimal' : 'numeric'}
           pattern={unit ? '[0-9.]*' : '[0-9]*'}
           placeholder="—"
-          className={`h-8 w-full min-w-0 rounded-md border bg-slate-900 px-1 text-center text-[13px] tabular-nums focus:outline-none ${
+          className={`h-8 w-full min-w-0 rounded-md border bg-raised px-1 text-center text-[13px] tabular-nums focus:outline-none ${
             unit ? 'pr-4' : ''
           } ${
             gold
-              ? 'border-amber-400/70 bg-amber-400/[0.06] text-amber-200'
-              : 'border-slate-800 text-slate-100 focus:border-slate-600'
+              ? 'border-gold/70 bg-amber-400/[0.06] text-gold'
+              : 'border-line text-fg focus:border-line-strong'
           }`}
         />
         {unit && (
           <span
             className={`pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-[8px] ${
-              gold ? 'text-amber-300/80' : 'text-slate-500'
+              gold ? 'text-gold/80' : 'text-subtle'
             }`}
             aria-hidden
           >
@@ -667,3 +697,5 @@ function StatFieldInput({
     </label>
   );
 }
+
+export default MatchSaveSheet;

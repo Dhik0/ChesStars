@@ -186,6 +186,15 @@
 
   "settings.title": "设置",
   "settings.language": "语言",
+  "settings.sectionAppearance": "外观",
+  "settings.themeMode": "外观模式",
+  "settings.themeDark": "深色",
+  "settings.themeLight": "浅色",
+  "settings.themeSystem": "跟随系统",
+  "settings.darkPalette": "深色主题色",
+  "settings.paletteOled": "纯黑（OLED）",
+  "settings.paletteNavy": "经典深蓝",
+  "settings.paletteOnlyDark": "仅深色模式下生效",
   "settings.sectionData": "数据",
   "settings.sectionAbout": "关于",
   "settings.sectionCommunity": "社区",
@@ -284,6 +293,7 @@
   "save.damage": "伤害",
   "save.submit": "保存",
   "save.cancel": "取消",
+  "save.close": "关闭",
 
   "history.title": "战绩",
   "history.count": "已记录 {n} 场",

@@ -10,7 +10,8 @@ const config: CapacitorConfig = {
     androidScheme: 'https',
   },
   android: {
-    backgroundColor: '#020617',
+    // WebView 底色：与默认的纯黑主题一致，首帧不会闪出深蓝
+    backgroundColor: '#000000',
     // 允许在自由小窗 / 分屏模式下正常布局
     allowMixedContent: false,
   },

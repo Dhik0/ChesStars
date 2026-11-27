@@ -5,6 +5,8 @@ import { MODE_ORDER, modeColor } from '../data/localization';
 import { mapSearchNames } from '../i18n/gameData';
 import { useTranslation } from '../i18n';
 import { useBackGuard } from '../utils/backGuards';
+import { themeAccent } from '../utils/display';
+import { useTheme } from '../utils/useTheme';
 import MapThumb from './MapThumb';
 import ModeIcon from './ModeIcon';
 
@@ -26,7 +28,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
   return (
     <>
       {text.slice(0, at)}
-      <span className="text-sky-300">{text.slice(at, at + q.length)}</span>
+      <span className="text-brand">{text.slice(at, at + q.length)}</span>
       {text.slice(at + q.length)}
     </>
   );
@@ -51,6 +53,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
  */
 export default function MapPicker({ maps, current, onSelect, onClose }: MapPickerProps) {
   const { t, map: mapLabel, mode: modeLabel } = useTranslation();
+  const { resolved: theme } = useTheme();
   const [query, setQuery] = useState('');
 
   /** 搜索框有内容时，系统返回键先清空搜索，而不是直接离开选图页 */
@@ -112,25 +115,25 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-slate-950 animate-fade-in">
-      <div className="shrink-0 border-b border-slate-800 px-2 pb-2 pt-2 safe-top">
+    <div className="flex h-full min-h-0 flex-col bg-app animate-fade-in">
+      <div className="shrink-0 border-b border-line px-2 pb-2 pt-2 safe-top">
         {/* 竖屏：标题一行 + 搜索一行；横屏：标题 / 搜索 / 关闭 同一行，省出的高度全给地图列表 */}
         <div className="grid grid-flow-row-dense grid-cols-[minmax(0,1fr)_auto] items-center gap-2 landscape:grid-cols-[auto_minmax(0,1fr)_auto] landscape:gap-3">
           <div className="min-w-0 landscape:flex landscape:items-baseline landscape:gap-2">
-            <h2 className="text-[14px] font-semibold text-slate-100">{t('picker.title')}</h2>
-            <p className="truncate text-[10px] text-slate-500">
+            <h2 className="text-[14px] font-semibold text-fg">{t('picker.title')}</h2>
+            <p className="truncate text-[10px] text-subtle">
               {searching
                 ? t('picker.matched', { n: hitCount })
                 : t('picker.total', { n: maps.length })}
             </p>
           </div>
           <div className="relative col-span-2 landscape:col-span-1 landscape:col-start-2 landscape:row-start-1">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-subtle" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t('picker.search')}
-              className="h-9 w-full rounded-lg border border-slate-800 bg-slate-900 pl-8 pr-8 text-[13px] text-slate-100 placeholder:text-slate-600 focus:border-slate-600 focus:outline-none"
+              className="h-9 w-full rounded-lg border border-line bg-raised pl-8 pr-8 text-[13px] text-fg placeholder:text-faint focus:border-line-strong focus:outline-none"
               spellCheck={false}
               autoComplete="off"
             />
@@ -138,7 +141,7 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
               <button
                 type="button"
                 onClick={() => setQuery('')}
-                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-500 active:bg-slate-800"
+                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-subtle active:bg-press"
                 aria-label={t('picker.clear')}
               >
                 <X size={13} />
@@ -149,7 +152,7 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
             <button
               type="button"
               onClick={onClose}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 active:bg-slate-800 landscape:col-start-3 landscape:row-start-1"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted active:bg-press landscape:col-start-3 landscape:row-start-1"
               aria-label={t('picker.back')}
             >
               <X size={16} />
@@ -161,10 +164,10 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
       {/* 内容区独立滚动：折叠后列表可能仍然很长，横屏矮屏幕也只滚这一块 */}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2">
         {grouped.length === 0 && (
-          <p className="py-10 text-center text-[12px] text-slate-500">{t('picker.empty')}</p>
+          <p className="py-10 text-center text-[12px] text-subtle">{t('picker.empty')}</p>
         )}
         {grouped.map(({ mode, items }) => {
-          const accent = modeColor(mode);
+          const accent = themeAccent(modeColor(mode), theme);
           const open = openModes.has(mode);
           return (
             <section key={mode} className="mb-2.5">
@@ -174,7 +177,7 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
                 onClick={() => toggleMode(mode)}
                 aria-expanded={open}
                 aria-controls={`map-group-${mode}`}
-                className="flex w-full items-center gap-2 rounded-md border-l-[3px] px-2 py-1.5 text-left transition-colors active:bg-slate-800/60"
+                className="flex w-full items-center gap-2 rounded-md border-l-[3px] px-2 py-1.5 text-left transition-colors active:bg-press/60"
                 style={{ borderColor: accent, backgroundColor: `${accent}14` }}
               >
                 <ModeIcon mode={mode} size={26} />
@@ -184,12 +187,12 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
                 >
                   {modeLabel(mode)}
                 </h3>
-                <span className="ml-auto shrink-0 rounded bg-slate-950/50 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-slate-400">
+                <span className="ml-auto shrink-0 rounded bg-app/50 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-muted">
                   {items.length}
                 </span>
                 <ChevronDown
                   size={16}
-                  className={`shrink-0 text-slate-500 transition-transform duration-150 ${
+                  className={`shrink-0 text-subtle transition-transform duration-150 ${
                     open ? 'rotate-180' : ''
                   }`}
                 />
@@ -211,7 +214,7 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
                         className={`flex flex-col overflow-hidden rounded-lg border text-left transition-colors ${
                           active
                             ? 'border-sky-500/70 bg-sky-500/10'
-                            : 'border-slate-800 bg-slate-900/70 active:bg-slate-800'
+                            : 'border-line bg-surface/70 shadow-card active:bg-press'
                         }`}
                       >
                         {/* 上图：整张竖向地图按原比例完整显示，不裁切；横屏压矮一点少滚动 */}
@@ -225,16 +228,16 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
                         {/* 下文 */}
                         <div className="w-full px-1.5 pb-1.5 pt-1">
                           <span className="flex items-center gap-1">
-                            <span className="truncate text-[13px] font-semibold leading-tight text-slate-100">
+                            <span className="truncate text-[13px] font-semibold leading-tight text-fg">
                               <Highlight text={mapLabel(m.map_name)} query={query} />
                             </span>
-                            {active && <Check size={11} className="shrink-0 text-sky-400" />}
+                            {active && <Check size={11} className="shrink-0 text-brand" />}
                           </span>
                           <span className="mt-0.5 flex items-baseline justify-between gap-1">
-                            <span className="truncate text-[9.5px] leading-tight text-slate-500">
+                            <span className="truncate text-[9.5px] leading-tight text-subtle">
                               <Highlight text={m.map_name} query={query} />
                             </span>
-                            <span className="shrink-0 text-[9.5px] leading-tight text-slate-600">
+                            <span className="shrink-0 text-[9.5px] leading-tight text-faint">
                               {t('common.games', { n: m.total_games })}
                             </span>
                           </span>

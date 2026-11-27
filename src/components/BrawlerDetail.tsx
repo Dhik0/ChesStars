@@ -1,7 +1,8 @@
 import { X } from 'lucide-react';
 import type { Candidate } from '../utils/draftEngine';
 import { CLASS_COLOR } from '../data/brawlerProfile';
-import { orderTag, baseScoreColor, formatPickRate } from '../utils/display';
+import { orderTag, baseScoreColor, formatPickRate, themeAccent } from '../utils/display';
+import { useTheme } from '../utils/useTheme';
 import { useTranslation } from '../i18n';
 import Avatar from './Avatar';
 import BlockedToggle from './BlockedToggle';
@@ -38,22 +39,22 @@ function BreakdownRow({
   return (
     <div className="mb-2.5">
       <div className="flex items-baseline justify-between gap-2 text-[11px]">
-        <span className="shrink-0 text-slate-400">
+        <span className="shrink-0 text-muted">
           {label}
-          <span className="ml-1 text-[10px] text-slate-600">×{(weight * 100).toFixed(0)}%</span>
+          <span className="ml-1 text-[10px] text-faint">×{(weight * 100).toFixed(0)}%</span>
         </span>
-        <span className="shrink-0 tabular-nums text-slate-300">
+        <span className="shrink-0 tabular-nums text-body">
           {value.toFixed(0)}
-          <span className="ml-1.5 text-slate-500">→ {contribution.toFixed(1)}</span>
+          <span className="ml-1.5 text-subtle">→ {contribution.toFixed(1)}</span>
         </span>
       </div>
-      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-800">
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-raised">
         <div
           className="h-full rounded-full transition-all"
           style={{ width: `${Math.max(2, Math.min(100, value))}%`, backgroundColor: barColor(value) }}
         />
       </div>
-      {hint && <p className="mt-0.5 text-[10px] leading-tight text-slate-600">{hint}</p>}
+      {hint && <p className="mt-0.5 text-[10px] leading-tight text-faint">{hint}</p>}
     </div>
   );
 }
@@ -66,6 +67,8 @@ export default function BrawlerDetail({
   onClose,
 }: BrawlerDetailProps) {
   const { t, brawler } = useTranslation();
+  const { resolved: theme } = useTheme();
+  const classColor = themeAccent(CLASS_COLOR[candidate.cls], theme);
   const b = candidate.breakdown;
   const isBan = candidate.phase === 'ban';
   const isEnemyView = candidate.phase === 'enemyPick';
@@ -76,36 +79,33 @@ export default function BrawlerDetail({
   const norm = (w: number): number => (totalWeight > 0 ? w / totalWeight : 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-black/60 animate-fade-in" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end scrim animate-fade-in" onClick={onClose}>
       <div
-        className="max-h-dvh-86 w-full max-w-[440px] mx-auto overflow-y-auto overscroll-contain rounded-t-2xl border-t border-slate-700 bg-slate-900 pb-3 animate-slide-up safe-bottom"
+        className="max-h-dvh-86 w-full max-w-[440px] mx-auto overflow-y-auto overscroll-contain rounded-t-2xl border-t border-line-strong bg-surface pb-3 shadow-card animate-slide-up safe-bottom"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
-        <div className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-slate-800 bg-slate-900/95 px-3 py-2.5 backdrop-blur">
+        <div className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-line bg-surface/95 px-3 py-2.5 backdrop-blur">
           <Avatar id={candidate.id} name={candidate.name} size={44} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <h2 className="truncate text-[15px] font-bold text-white">
+              <h2 className="truncate text-[15px] font-bold text-fg">
                 {brawler(candidate.name)}
               </h2>
               {/* 一级：职业 */}
               <span
                 className="shrink-0 rounded px-1 py-px text-[9px] font-semibold"
-                style={{
-                  backgroundColor: `${CLASS_COLOR[candidate.cls]}26`,
-                  color: CLASS_COLOR[candidate.cls],
-                }}
+                style={{ backgroundColor: `${classColor}26`, color: classColor }}
               >
                 {t(`class.${candidate.cls}`)}
               </span>
               {tag && (
-                <span className="shrink-0 rounded bg-slate-800 px-1 py-px text-[9px] font-medium text-slate-400">
+                <span className="shrink-0 rounded bg-raised px-1 py-px text-[9px] font-medium text-muted">
                   {t(tag.key)}
                 </span>
               )}
             </div>
-            <p className="truncate text-[10px] text-slate-500">
+            <p className="truncate text-[10px] text-subtle">
               {candidate.hasData
                 ? t('detail.winRateLine', {
                     wr: Math.round(candidate.baseWR * 100),
@@ -121,14 +121,14 @@ export default function BrawlerDetail({
             >
               {candidate.score.toFixed(1)}
             </div>
-            <div className="text-[9px] text-slate-500">
+            <div className="text-[9px] text-subtle">
               {isBan ? t('detail.scoreBan') : t('detail.scoreDynamic')}
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 active:bg-slate-800"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-subtle active:bg-press"
             aria-label={t('common.close')}
           >
             <X size={16} />
@@ -195,10 +195,10 @@ export default function BrawlerDetail({
                 contribution={b.compContribution}
               />
               <div className="mb-2.5 flex items-baseline justify-between text-[11px]">
-                <span className="text-slate-400">{t('detail.orderAdj')}</span>
+                <span className="text-muted">{t('detail.orderAdj')}</span>
                 <span
                   className={
-                    b.orderAdj > 0 ? 'text-strong' : b.orderAdj < 0 ? 'text-red-400' : 'text-slate-500'
+                    b.orderAdj > 0 ? 'text-strong' : b.orderAdj < 0 ? 'text-danger' : 'text-subtle'
                   }
                 >
                   {b.orderAdj > 0 ? '+' : ''}
@@ -209,7 +209,7 @@ export default function BrawlerDetail({
           )}
 
           {/* 理由明细 */}
-          <h3 className="mb-1.5 mt-3 text-[11px] font-semibold text-slate-300">
+          <h3 className="mb-1.5 mt-3 text-[11px] font-semibold text-body">
             {t('detail.reasonsTitle')}
           </h3>
           <ul className="mb-3 space-y-1">
@@ -221,14 +221,14 @@ export default function BrawlerDetail({
                       ? 'bg-strong'
                       : r.tone === 'bad'
                         ? 'bg-red-500'
-                        : 'bg-slate-600'
+                        : 'bg-faint'
                   }`}
                 />
-                <span className="flex-1 text-slate-400">{r.text}</span>
+                <span className="flex-1 text-muted">{r.text}</span>
                 {r.delta !== undefined && (
                   <span
                     className={`shrink-0 tabular-nums ${
-                      r.delta > 0 ? 'text-strong' : r.delta < 0 ? 'text-red-400' : 'text-slate-500'
+                      r.delta > 0 ? 'text-strong' : r.delta < 0 ? 'text-danger' : 'text-subtle'
                     }`}
                   >
                     {r.delta > 0 ? '+' : ''}
@@ -242,34 +242,34 @@ export default function BrawlerDetail({
           {/* 对位明细 */}
           {candidate.counterDetails.length > 0 && (
             <>
-              <h3 className="mb-1.5 text-[11px] font-semibold text-slate-300">
+              <h3 className="mb-1.5 text-[11px] font-semibold text-body">
                 {t(isEnemyView ? 'detail.vsAlly' : 'detail.vsEnemy')}
               </h3>
-              <div className="mb-2 divide-y divide-slate-800 rounded-lg border border-slate-800 bg-slate-950/50">
+              <div className="mb-2 divide-y divide-line rounded-lg border border-line bg-app/50">
                 {candidate.counterDetails.map((d) => {
                   const good = d.delta > 0;
                   return (
                     <div key={d.opponentId} className="flex items-center gap-2 px-2 py-1.5">
                       <Avatar id={d.opponentId} name={d.opponentName} size={22} />
-                      <span className="flex-1 truncate text-[12px] text-slate-300">
+                      <span className="flex-1 truncate text-[12px] text-body">
                         {brawler(d.opponentName)}
                       </span>
                       {!d.hasSample && (
-                        <span className="shrink-0 rounded bg-slate-800 px-1 text-[9px] text-slate-500">
+                        <span className="shrink-0 rounded bg-raised px-1 text-[9px] text-subtle">
                           {t('detail.noMatchup')}
                         </span>
                       )}
                       {d.hasSample && d.predictedWr !== null && (
-                        <span className="shrink-0 text-[9px] tabular-nums text-slate-500">
+                        <span className="shrink-0 text-[9px] tabular-nums text-subtle">
                           {t('detail.expected', { p: Math.round(d.predictedWr * 100) })}
                         </span>
                       )}
-                      <span className="shrink-0 text-[9px] tabular-nums text-slate-600">
+                      <span className="shrink-0 text-[9px] tabular-nums text-faint">
                         {d.hasSample ? t('common.samples', { n: d.samples }) : ''}
                       </span>
                       <span
                         className={`shrink-0 text-[12px] font-semibold tabular-nums ${
-                          !d.hasSample ? 'text-slate-600' : good ? 'text-strong' : 'text-red-400'
+                          !d.hasSample ? 'text-faint' : good ? 'text-strong' : 'text-danger'
                         }`}
                       >
                         {d.hasSample ? `${d.delta > 0 ? '+' : ''}${d.delta.toFixed(1)}` : '—'}

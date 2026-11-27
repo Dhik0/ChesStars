@@ -3,8 +3,11 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import pkg from './package.json';
 
-/** 主题底色：与 index.css 的 body 背景一致，PWA 启动画面与状态栏都用它 */
-const THEME_BG = '#020617';
+/**
+ * 主题底色：与默认主题（纯黑 OLED）的 `--c-app` 一致。
+ * PWA 的启动画面 / 安装后的顶栏用它；运行期换主题走 `<meta name="theme-color">`。
+ */
+const THEME_BG = '#000000';
 
 /**
  * 构建产物里的版本清单：`dist/version.json`。

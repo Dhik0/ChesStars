@@ -20,11 +20,11 @@ export default function UpdateBanner({ version, onUpdate, onDismiss }: UpdateBan
   return (
     <div className="shrink-0 border-b border-sky-500/25 bg-sky-500/[0.08] safe-top-banner">
       <div className="flex items-center gap-2 px-3 py-1.5">
-        <Sparkles size={12} className="shrink-0 text-sky-400" />
+        <Sparkles size={12} className="shrink-0 text-brand" />
         <button
           type="button"
           onClick={onUpdate}
-          className="min-w-0 flex-1 truncate text-left text-[11.5px] font-medium text-sky-300 active:text-sky-200"
+          className="min-w-0 flex-1 truncate text-left text-[11.5px] font-medium text-brand active:text-brand"
         >
           {version ? t('update.banner', { v: version }) : t('update.bannerReady')}
         </button>
@@ -39,7 +39,7 @@ export default function UpdateBanner({ version, onUpdate, onDismiss }: UpdateBan
           type="button"
           onClick={onDismiss}
           aria-label={t('update.bannerDismiss')}
-          className="shrink-0 rounded p-0.5 text-slate-500 active:bg-slate-800 active:text-slate-300"
+          className="shrink-0 rounded p-0.5 text-subtle active:bg-press active:text-body"
         >
           <X size={12} />
         </button>

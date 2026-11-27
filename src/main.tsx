@@ -5,10 +5,23 @@ import { IS_WEB } from './config/platform';
 import { I18nProvider } from './i18n';
 import { metaStore } from './services/metaStore';
 import { markSwUpdateReady } from './services/swUpdate';
+import { themeStore } from './services/themeStore';
+import { syncNativeStatusBar } from './utils/nativeStatusBar';
 import './index.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('#root not found');
+
+/*
+ * 主题：index.html 的内联脚本已经把 `data-theme` 落好了（防首屏闪），
+ * 这里只负责挂上系统配色监听，并在脚本被 CSP 拦掉时补落一次。
+ * 必须在 React 渲染前执行，避免第一帧读到「跟随系统」的旧状态。
+ */
+themeStore.init();
+
+// 原生壳的状态栏不读 meta theme-color，需要插件同步一次（含后续每次切换）
+syncNativeStatusBar(themeStore.getState().resolved);
+themeStore.subscribe((state) => syncNativeStatusBar(state.resolved));
 
 ReactDOM.createRoot(root).render(
   <React.StrictMode>

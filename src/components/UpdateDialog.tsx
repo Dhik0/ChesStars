@@ -52,12 +52,12 @@ export default function UpdateDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4 animate-fade-in"
+      className="fixed inset-0 z-[60] flex items-center justify-center scrim-strong px-4 animate-fade-in"
       onClick={onClose}
       role="presentation"
     >
       <div
-        className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl animate-slide-up"
+        className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-2xl animate-slide-up"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -65,14 +65,14 @@ export default function UpdateDialog({
       >
         <div className="flex items-start justify-between gap-2 px-3.5 pb-2 pt-3.5">
           <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/15 text-sky-400">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/15 text-brand">
               <Sparkles size={16} />
             </span>
             <div className="leading-tight">
-              <h2 id="update-dialog-title" className="text-[14px] font-semibold text-slate-100">
+              <h2 id="update-dialog-title" className="text-[14px] font-semibold text-fg">
                 {t('update.title')}
               </h2>
-              <p className="text-[10px] text-slate-500">
+              <p className="text-[10px] text-subtle">
                 {t('update.current', { v: current })}
                 {published && (
                   <span className="ml-1.5">{t('update.published', { d: published })}</span>
@@ -83,7 +83,7 @@ export default function UpdateDialog({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-500 active:bg-slate-800"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-subtle active:bg-press"
             aria-label={t('common.close')}
           >
             <X size={15} />
@@ -91,14 +91,14 @@ export default function UpdateDialog({
         </div>
 
         <div className="px-3.5">
-          <p className="mb-2 text-[15px] font-bold text-sky-300">v{info.version}</p>
+          <p className="mb-2 text-[15px] font-bold text-brand">v{info.version}</p>
 
           {info.notes ? (
-            <div className="max-h-[36vh] overflow-y-auto overscroll-contain whitespace-pre-line rounded-lg border border-slate-800 bg-slate-950/70 p-2 text-[11px] leading-relaxed text-slate-400">
+            <div className="max-h-[36vh] overflow-y-auto overscroll-contain whitespace-pre-line rounded-lg border border-line bg-app/70 p-2 text-[11px] leading-relaxed text-muted">
               {info.notes}
             </div>
           ) : (
-            <p className="rounded-lg border border-slate-800 bg-slate-950/70 p-2 text-[11px] leading-relaxed text-slate-500">
+            <p className="rounded-lg border border-line bg-app/70 p-2 text-[11px] leading-relaxed text-subtle">
               {t('update.noNotes')}
             </p>
           )}
@@ -120,7 +120,7 @@ export default function UpdateDialog({
               <button
                 type="button"
                 onClick={() => openExternal(mirrorUrl)}
-                className="text-[10.5px] text-slate-400 underline decoration-slate-600 underline-offset-2 active:text-slate-200"
+                className="text-[10.5px] text-muted underline decoration-slate-600 underline-offset-2 active:text-fg"
               >
                 {t('update.mirror')}
               </button>
@@ -131,14 +131,14 @@ export default function UpdateDialog({
             <button
               type="button"
               onClick={onClose}
-              className="h-9 flex-1 rounded-lg border border-slate-800 text-[12px] text-slate-400 active:bg-slate-800"
+              className="h-9 flex-1 rounded-lg border border-line text-[12px] text-muted active:bg-press"
             >
               {t('update.later')}
             </button>
             <button
               type="button"
               onClick={onIgnore}
-              className="h-9 shrink-0 rounded-lg px-2.5 text-[11px] text-slate-600 active:bg-slate-800"
+              className="h-9 shrink-0 rounded-lg px-2.5 text-[11px] text-faint active:bg-press"
             >
               {t('update.ignore')}
             </button>

@@ -38,34 +38,37 @@ const BANNER_LIFE_MS = 2000;
 /**
  * 评级配色（对齐 Chess.com 的记谱习惯）：
  * `!!` 青蓝 / `!` 蓝 / `★` 亮绿 / `✓` 淡绿 / `📖` 棕 / `?!` 黄 / `?` 橙 / `×` 浅红 / `??` 深红
+ *
+ * 具体色值写在 index.css 的 `.grade-*` 里，浅色主题有一套压深的覆盖值——
+ * 这里的 300/400 系亮色直接放到近白底上会看不清，所以不能继续写死在这。
  */
 const GRADE_TONE: Record<ReviewGrade, string> = {
-  brilliant: 'border-cyan-400/70 bg-cyan-400/15 text-cyan-300',
-  great: 'border-blue-400/70 bg-blue-400/15 text-blue-300',
-  best: 'border-green-500/70 bg-green-500/15 text-green-400',
-  good: 'border-green-300/60 bg-green-300/10 text-green-200',
-  book: 'border-amber-700/70 bg-amber-800/25 text-amber-500',
-  inaccuracy: 'border-yellow-400/70 bg-yellow-400/15 text-yellow-300',
-  mistake: 'border-orange-400/70 bg-orange-400/15 text-orange-300',
-  miss: 'border-rose-400/60 bg-rose-500/10 text-rose-300',
-  blunder: 'border-red-500/70 bg-red-500/15 text-red-400',
+  brilliant: 'grade-brilliant',
+  great: 'grade-great',
+  best: 'grade-best',
+  good: 'grade-good',
+  book: 'grade-book',
+  inaccuracy: 'grade-inaccuracy',
+  mistake: 'grade-mistake',
+  miss: 'grade-miss',
+  blunder: 'grade-blunder',
 };
 
 /** BP 难度标签配色：逆风偏暖、优势偏冷，均势保持中性 */
 const CONTEXT_TONE: Record<BpContext, string> = {
-  disadvantaged: 'bg-red-500/10 text-red-300 ring-1 ring-red-500/25',
-  neutral: 'bg-slate-700/40 text-slate-400 ring-1 ring-slate-600/40',
-  advantaged: 'bg-sky-500/10 text-sky-300 ring-1 ring-sky-500/25',
+  disadvantaged: 'bg-red-500/10 text-danger ring-1 ring-red-500/25',
+  neutral: 'bg-press/40 text-muted ring-1 ring-line-strong/40',
+  advantaged: 'bg-sky-500/10 text-brand ring-1 ring-sky-500/25',
 };
 
 /** 整局标签配色 */
 const TAG_TONE: Record<string, string> = {
-  comeback: 'bg-cyan-400/10 text-cyan-300 ring-1 ring-cyan-400/30',
-  throw: 'bg-red-500/10 text-red-300 ring-1 ring-red-500/30',
-  allOnline: 'bg-green-500/10 text-green-300 ring-1 ring-green-500/30',
-  carry: 'bg-amber-400/10 text-amber-300 ring-1 ring-amber-400/30',
-  shaky: 'bg-orange-400/10 text-orange-300 ring-1 ring-orange-400/30',
-  incomplete: 'bg-slate-700/40 text-slate-400 ring-1 ring-slate-600/40',
+  comeback: 'bg-cyan-400/10 text-brilliant ring-1 ring-cyan-400/30',
+  throw: 'bg-red-500/10 text-danger ring-1 ring-red-500/30',
+  allOnline: 'bg-green-500/10 text-strong ring-1 ring-green-500/30',
+  carry: 'bg-amber-400/10 text-gold ring-1 ring-amber-400/30',
+  shaky: 'bg-orange-400/10 tone-orange ring-1 ring-orange-400/30',
+  incomplete: 'bg-press/40 text-muted ring-1 ring-line-strong/40',
 };
 
 /** 卡片的稳定标识（同一英雄在同一侧不会重复） */
@@ -100,15 +103,15 @@ function StatCell({
   return (
     <div
       className={`flex min-w-0 flex-col items-center gap-0.5 rounded-md border px-1 py-1 ${
-        gold ? 'border-amber-400/60 bg-amber-400/[0.07]' : 'border-transparent bg-slate-900/60'
+        gold ? 'border-gold/60 bg-amber-400/[0.07]' : 'border-transparent bg-surface/60'
       }`}
     >
-      <span className={`truncate text-[8.5px] ${gold ? 'text-amber-300' : 'text-slate-500'}`}>
+      <span className={`truncate text-[8.5px] ${gold ? 'text-gold' : 'text-subtle'}`}>
         {label}
       </span>
       <span
         className={`text-[12px] font-semibold leading-none tabular-nums ${
-          gold ? 'text-amber-200' : 'text-slate-200'
+          gold ? 'text-gold' : 'text-body'
         }`}
       >
         {value}
@@ -130,8 +133,8 @@ function TeamHeader({ side, count }: { side: ReviewSide; count: number }) {
       <h3 className={`text-[11px] font-bold tracking-wide ${ally ? 'text-ally' : 'text-enemy'}`}>
         {t(ally ? 'review.allyTeam' : 'review.enemyTeam')}
       </h3>
-      <span className="text-[9px] tabular-nums text-slate-600">{count}</span>
-      <span className="h-px flex-1 bg-slate-800" />
+      <span className="text-[9px] tabular-nums text-faint">{count}</span>
+      <span className="h-px flex-1 bg-line" />
     </div>
   );
 }
@@ -261,9 +264,9 @@ function ReviewCard({
     <article
       data-card-key={cardKeyOf(player)}
       data-fx={fxNonce}
-      className={`relative overflow-hidden rounded-lg border border-slate-800 border-l-2 bg-slate-950/60 p-2 transition-shadow duration-300 ${
+      className={`relative overflow-hidden rounded-lg border border-line border-l-2 bg-app p-2 transition-shadow duration-300 ${
         ally ? 'border-l-ally/70' : 'border-l-enemy/70'
-      } ${glowing ? 'shadow-[0_0_22px_-8px_rgba(34,211,238,0.75)] ring-1 ring-cyan-400/60' : ''}`}
+      } ${glowing ? 'brilliant-glow' : ''}`}
     >
       {/* 常驻青蓝氛围：顶部一层很淡的渐变，和普通卡片拉开层次 */}
       {glowing && (
@@ -291,16 +294,16 @@ function ReviewCard({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
-            <span className="truncate text-[13px] font-semibold text-slate-100">
+            <span className="truncate text-[13px] font-semibold text-fg">
               {displayName}
             </span>
             {player.isSelf && (
-              <span className="shrink-0 rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-sky-300">
+              <span className="shrink-0 rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-brand">
                 {t('history.selfTag')}
               </span>
             )}
             {player.isStarPlayer && (
-              <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-amber-300">
+              <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-gold">
                 <Crown size={8} />
                 {t('history.starTag')}
               </span>
@@ -315,7 +318,7 @@ function ReviewCard({
               {t(`review.context.${player.bpContext}`)}
             </span>
             {player.score !== null && (
-              <span className="shrink-0 text-[9.5px] tabular-nums text-slate-500">
+              <span className="shrink-0 text-[9.5px] tabular-nums text-subtle">
                 {t('review.scoreLabel')} {player.score}
               </span>
             )}
@@ -330,7 +333,7 @@ function ReviewCard({
             onReplay={onReplay}
           />
         ) : (
-          <span className="shrink-0 rounded-lg border border-dashed border-slate-700 px-2 py-1.5 text-[9.5px] leading-tight text-slate-500">
+          <span className="shrink-0 rounded-lg border border-dashed border-line-strong px-2 py-1.5 text-[9.5px] leading-tight text-subtle">
             {t('review.noData')}
           </span>
         )}
@@ -373,18 +376,18 @@ function ReviewCard({
           )}
 
           {player.metrics.damageShare !== null && player.metrics.killShare !== null && (
-            <div className="relative mt-1 flex items-center gap-2 text-[9.5px] tabular-nums text-slate-500">
+            <div className="relative mt-1 flex items-center gap-2 text-[9.5px] tabular-nums text-subtle">
               <span>
                 {t('review.dmgShare')} {Math.round(player.metrics.damageShare * 100)}%
               </span>
-              <span className="text-slate-700">·</span>
+              <span className="text-faint">·</span>
               <span>
                 {t('review.killShare')} {Math.round(player.metrics.killShare * 100)}%
               </span>
             </div>
           )}
 
-          <p className="relative mt-1.5 text-[10.5px] leading-relaxed text-slate-400">
+          <p className="relative mt-1.5 text-[10.5px] leading-relaxed text-muted">
             {t(player.comment.key, player.comment.params)}
           </p>
 
@@ -393,7 +396,7 @@ function ReviewCard({
               {player.notes.map((note) => (
                 <span
                   key={note.key}
-                  className="rounded bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-semibold text-amber-300"
+                  className="rounded bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-semibold text-gold"
                 >
                   {t(note.key, note.params)}
                 </span>
@@ -402,7 +405,7 @@ function ReviewCard({
           )}
         </>
       ) : (
-        <p className="relative mt-1.5 text-[10.5px] leading-relaxed text-slate-600">
+        <p className="relative mt-1.5 text-[10.5px] leading-relaxed text-faint">
           {t('review.noDataHint')}
         </p>
       )}
@@ -538,7 +541,7 @@ export default function MatchReviewSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end bg-black/60 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-end scrim animate-fade-in"
       onClick={onClose}
       role="presentation"
     >
@@ -546,18 +549,18 @@ export default function MatchReviewSheet({
         role="dialog"
         aria-modal="true"
         aria-label={t('review.title')}
-        className="mx-auto flex max-h-dvh-88 w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border-t border-slate-700 bg-slate-900 animate-slide-up landscape:max-w-[760px] safe-bottom"
+        className="mx-auto flex max-h-dvh-88 w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border-t border-line-strong bg-surface shadow-card animate-slide-up landscape:max-w-[760px] safe-bottom"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 顶部：地图 / 模式 / 比分 / 音效开关 */}
-        <div className="shrink-0 border-b border-slate-800 px-3 py-2.5">
+        <div className="shrink-0 border-b border-line px-3 py-2.5">
           <div className="flex items-center gap-2">
             <ModeIcon mode={record.mode} size={16} />
             <div className="min-w-0 flex-1">
-              <h2 className="truncate text-[14px] font-semibold text-slate-100">
+              <h2 className="truncate text-[14px] font-semibold text-fg">
                 {mapLabel(record.mapId)}
               </h2>
-              <p className="mt-0.5 truncate text-[10px] text-slate-500">
+              <p className="mt-0.5 truncate text-[10px] text-subtle">
                 {modeLabel(record.mode)} · {t('review.title')}
               </p>
             </div>
@@ -567,7 +570,7 @@ export default function MatchReviewSheet({
                 className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-bold leading-none tabular-nums ring-1 ${
                   win
                     ? 'bg-strong/15 text-strong ring-strong/30'
-                    : 'bg-red-500/15 text-red-400 ring-red-500/30'
+                    : 'bg-red-500/15 text-danger ring-red-500/30'
                 }`}
               >
                 {record.score}
@@ -577,7 +580,7 @@ export default function MatchReviewSheet({
             <button
               type="button"
               onClick={toggle}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 active:bg-slate-800"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted active:bg-press"
               aria-label={muted ? t('review.soundOff') : t('review.soundOn')}
               aria-pressed={!muted}
             >
@@ -587,7 +590,7 @@ export default function MatchReviewSheet({
             <button
               type="button"
               onClick={onClose}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 active:bg-slate-800"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-subtle active:bg-press"
               aria-label={t('common.close')}
             >
               <X size={16} />
@@ -595,7 +598,7 @@ export default function MatchReviewSheet({
           </div>
 
           {/* 对局总览：双色均分方块 + 标签 + 评级符号汇总 */}
-          <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/50 p-1.5">
+          <div className="mt-2 rounded-lg border border-line bg-app/50 p-1.5">
             <div className="flex items-stretch gap-1.5">
               <div className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-md border border-ally/40 bg-ally/10 py-1">
                 <span className="text-[9px] leading-none text-ally/80">
@@ -608,7 +611,7 @@ export default function MatchReviewSheet({
 
               {hasCompare && (
                 <>
-                  <span className="self-center text-[9px] font-semibold text-slate-600">
+                  <span className="self-center text-[9px] font-semibold text-faint">
                     {t('review.vs')}
                   </span>
                   <div className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-md border border-enemy/40 bg-enemy/10 py-1">
@@ -671,7 +674,7 @@ export default function MatchReviewSheet({
                 type="button"
                 onClick={() => focusPlayer(banner.player)}
                 aria-label={t('review.brilliantBannerAria', { name: bannerName })}
-                className="pointer-events-auto flex w-full items-center gap-1.5 rounded-full border border-cyan-400/50 bg-slate-900/95 px-2 py-1 text-left shadow-lg shadow-cyan-500/10 animate-banner-life motion-reduce:animate-none active:bg-slate-800"
+                className="pointer-events-auto flex w-full items-center gap-1.5 rounded-full border border-cyan-400/50 bg-surface/95 px-2 py-1 text-left shadow-lg shadow-cyan-500/10 animate-banner-life motion-reduce:animate-none active:bg-press"
               >
                 <Avatar
                   id={Number(banner.player.brawlerId) || 0}
@@ -679,10 +682,10 @@ export default function MatchReviewSheet({
                   size={18}
                   rounded="rounded-full"
                 />
-                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-cyan-100">
+                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-brilliant">
                   {bannerName}
                 </span>
-                <span className="shrink-0 rounded-full bg-cyan-400/15 px-1.5 py-0.5 text-[9px] font-bold leading-none text-cyan-300">
+                <span className="shrink-0 rounded-full bg-cyan-400/15 px-1.5 py-0.5 text-[9px] font-bold leading-none text-brilliant">
                   {GRADE_SYMBOL.brilliant} {t('review.grade.brilliant')}
                 </span>
               </button>
@@ -708,7 +711,7 @@ export default function MatchReviewSheet({
                   <div className="flex flex-col gap-1.5">{review.enemyReviews.map(cardOf)}</div>
                 ) : (
                   // 敌方完全没录：收起成一行的提示，别留一大片空白
-                  <p className="rounded-lg border border-dashed border-slate-800 px-2.5 py-2 text-[10px] leading-relaxed text-slate-500">
+                  <p className="rounded-lg border border-dashed border-line px-2.5 py-2 text-[10px] leading-relaxed text-subtle">
                     {t('review.enemyEmpty')}
                   </p>
                 )}
@@ -718,11 +721,11 @@ export default function MatchReviewSheet({
         </div>
 
         {/* 底部：改完数据回到这里会立即重算 */}
-        <div className="shrink-0 border-t border-slate-800 px-3 py-2">
+        <div className="shrink-0 border-t border-line px-3 py-2">
           <button
             type="button"
             onClick={onEdit}
-            className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 text-[12.5px] font-semibold text-slate-300 transition-colors active:bg-slate-800"
+            className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-line bg-surface/80 text-[12.5px] font-semibold text-body transition-colors active:bg-press"
           >
             <Pencil size={13} />
             {t('review.edit')}

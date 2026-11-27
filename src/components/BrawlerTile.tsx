@@ -109,13 +109,13 @@ export default function BrawlerTile({
                 .join(' ')}
             />
             {/* 推荐排名角标 */}
-            <span className="absolute left-0 top-0 rounded-br-[3px] bg-black/70 px-1 text-[8px] font-bold leading-[11px] tabular-nums text-slate-200">
+            <span className="absolute left-0 top-0 rounded-br-[3px] bg-black/70 px-1 text-[8px] font-bold leading-[11px] tabular-nums text-white">
               {rank}
             </span>
             {/* 个人屏蔽：右上角小角标，只提示、不挡识别，也不影响点选 */}
             {blocked && (
               <span
-                className="absolute right-0 top-0 flex items-center rounded-bl-[3px] bg-slate-950/80 px-0.5 py-px text-slate-300"
+                className="absolute right-0 top-0 flex items-center rounded-bl-[3px] bg-app/80 px-0.5 py-px text-body"
                 title={t('blocked.badge')}
               >
                 <EyeOff size={9} />
@@ -132,13 +132,13 @@ export default function BrawlerTile({
         </div>
       </div>
 
-      <div className="mt-0.5 w-full truncate text-center text-[9px] leading-tight text-slate-300">
+      <div className="mt-0.5 w-full truncate text-center text-[9px] leading-tight text-body">
         {brawler(c.name)}
       </div>
       <div className="flex w-full items-center justify-center gap-0.5">
         <span
           className={`text-[10.5px] font-bold leading-tight tabular-nums ${
-            c.hasData ? baseScoreColor(c.mapScore) : 'text-slate-600'
+            c.hasData ? baseScoreColor(c.mapScore) : 'text-faint'
           }`}
         >
           {c.hasData ? c.mapScore.toFixed(1) : '—'}

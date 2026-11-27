@@ -44,24 +44,24 @@ function MatchupItem({ row, positive }: { row: MatchupRow; positive: boolean }) 
       <Avatar id={row.opponentId} name={row.opponentName} size={26} rounded="rounded" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1">
-          <span className="truncate text-[12.5px] font-medium leading-tight text-slate-200">
+          <span className="truncate text-[12.5px] font-medium leading-tight text-body">
             {brawler(row.opponentName)}
           </span>
           {row.opponentPickOrder && <OrderTag order={row.opponentPickOrder} />}
         </div>
-        <div className="mt-0.5 flex items-center gap-1 text-[10px] leading-tight text-slate-500">
+        <div className="mt-0.5 flex items-center gap-1 text-[10px] leading-tight text-subtle">
           <span className="tabular-nums">
             {row.opponentScore !== null
               ? t('matchup.score', { n: row.opponentScore.toFixed(0) })
               : t('matchup.noMapData')}
           </span>
-          <span className="text-slate-700">·</span>
+          <span className="text-faint">·</span>
           <span className="tabular-nums">{t('common.samples', { n: row.samples })}</span>
         </div>
       </div>
       <span
         className={`shrink-0 text-[13px] font-bold tabular-nums ${
-          positive ? 'text-strong' : 'text-red-400'
+          positive ? 'text-strong' : 'text-danger'
         }`}
       >
         {row.delta > 0 ? '+' : ''}
@@ -106,36 +106,36 @@ export default function MatchupSheet({
   const strongCount = breakdown.strong.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-black/60 animate-fade-in" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end scrim animate-fade-in" onClick={onClose}>
       <div
-        className="flex max-h-dvh-86 w-full max-w-[440px] mx-auto flex-col overflow-hidden rounded-t-2xl border-t border-slate-700 bg-slate-900 animate-slide-up safe-bottom"
+        className="flex max-h-dvh-86 w-full max-w-[440px] mx-auto flex-col overflow-hidden rounded-t-2xl border-t border-line-strong bg-surface shadow-card animate-slide-up safe-bottom"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 顶部：英雄 + 本图评分 + 顺位 */}
-        <div className="shrink-0 border-b border-slate-800 bg-slate-900/95 px-3 py-2.5 backdrop-blur">
+        <div className="shrink-0 border-b border-line bg-surface/95 px-3 py-2.5 backdrop-blur">
           <div className="flex items-center gap-2.5">
             <Avatar id={brawlerId} name={ref.name} size={44} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
-                <h2 className="truncate text-[15px] font-bold text-white">
+                <h2 className="truncate text-[15px] font-bold text-fg">
                   {brawler(ref.name)}
                 </h2>
                 {pickOrder && <OrderTag order={pickOrder} />}
               </div>
-              <p className="mt-0.5 truncate text-[10px] text-slate-500">
+              <p className="mt-0.5 truncate text-[10px] text-subtle">
                 {mapLabel(mapName)} · {modeLabel(mode)}
               </p>
             </div>
             <div className="shrink-0 text-right">
-              <div className="text-[22px] font-bold leading-none tabular-nums text-sky-400">
+              <div className="text-[22px] font-bold leading-none tabular-nums text-brand">
                 {score !== null ? score.toFixed(0) : '—'}
               </div>
-              <div className="text-[9px] text-slate-500">{t('matchup.mapScore')}</div>
+              <div className="text-[9px] text-subtle">{t('matchup.mapScore')}</div>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 active:bg-slate-800"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-subtle active:bg-press"
               aria-label={t('common.close')}
             >
               <X size={16} />
@@ -143,12 +143,12 @@ export default function MatchupSheet({
           </div>
 
           {/* Tab 切换 */}
-          <div className="mt-2 flex gap-1 rounded-lg bg-slate-950/60 p-0.5">
+          <div className="mt-2 flex gap-1 rounded-lg bg-app p-0.5">
             <button
               type="button"
               onClick={() => setTab('weak')}
               className={`flex h-8 flex-1 items-center justify-center gap-1 rounded-md text-[11.5px] font-semibold transition-colors ${
-                tab === 'weak' ? 'bg-red-500/15 text-red-300' : 'text-slate-400 active:bg-slate-800'
+                tab === 'weak' ? 'bg-red-500/15 text-danger' : 'text-muted active:bg-press'
               }`}
             >
               <ShieldAlert size={13} />
@@ -160,8 +160,8 @@ export default function MatchupSheet({
               onClick={() => setTab('strong')}
               className={`flex h-8 flex-1 items-center justify-center gap-1 rounded-md text-[11.5px] font-semibold transition-colors ${
                 tab === 'strong'
-                  ? 'bg-green-500/15 text-green-300'
-                  : 'text-slate-400 active:bg-slate-800'
+                  ? 'bg-green-500/15 text-strong'
+                  : 'text-muted active:bg-press'
               }`}
             >
               <Swords size={13} />
@@ -175,15 +175,15 @@ export default function MatchupSheet({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {rows.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-1 px-6 py-10 text-center">
-              <p className="text-[12px] text-slate-400">
+              <p className="text-[12px] text-muted">
                 {t(tab === 'weak' ? 'matchup.weakEmpty' : 'matchup.strongEmpty')}
               </p>
-              <p className="text-[10px] text-slate-600">
+              <p className="text-[10px] text-faint">
                 {t(breakdown.source === 'none' ? 'matchup.noRecords' : 'matchup.allEven')}
               </p>
             </div>
           ) : (
-            <ul className="divide-y divide-slate-800/70">
+            <ul className="divide-y divide-line/70">
               {rows.map((row) => (
                 <MatchupItem key={row.opponentId} row={row} positive={tab === 'strong'} />
               ))}
@@ -192,9 +192,9 @@ export default function MatchupSheet({
         </div>
 
         {/* 底部：数据来源提示（模式级兜底时才出现）+ 屏蔽开关 + 算分明细入口 */}
-        <div className="shrink-0 border-t border-slate-800 px-3 py-2">
+        <div className="shrink-0 border-t border-line px-3 py-2">
           {breakdown.source === 'mode' && (
-            <p className="mb-1.5 text-[10px] leading-relaxed text-slate-600">
+            <p className="mb-1.5 text-[10px] leading-relaxed text-faint">
               {t('matchup.modeNote')}
             </p>
           )}
@@ -203,7 +203,7 @@ export default function MatchupSheet({
             <button
               type="button"
               onClick={onOpenBreakdown}
-              className="mt-1.5 flex w-full items-center justify-center gap-1 rounded-lg bg-slate-800/80 py-2 text-[11.5px] font-medium text-slate-300 active:bg-slate-700"
+              className="mt-1.5 flex w-full items-center justify-center gap-1 rounded-lg bg-raised/80 py-2 text-[11.5px] font-medium text-body active:bg-press"
             >
               {t('matchup.openBreakdown')}
               <ChevronRight size={13} />

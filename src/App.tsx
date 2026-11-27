@@ -10,7 +10,7 @@ import DraftBar from './components/DraftBar';
 import HistoryView from './components/HistoryView';
 import MapPicker from './components/MapPicker';
 import MatchReviewSheet from './components/MatchReviewSheet';
-import MatchSaveSheet from './components/MatchSaveSheet';
+import MatchSaveSheet, { type MatchSaveSheetHandle } from './components/MatchSaveSheet';
 import MatchupSheet from './components/MatchupSheet';
 import SettingsView from './components/SettingsView';
 import TopBar from './components/TopBar';
@@ -52,12 +52,13 @@ import {
   type DraftState,
   type Side,
 } from './utils/draftEngine';
-import { recommendHeadOf, raritySectionStyle } from './utils/display';
+import { raritySectionStyle, recommendHeadOf, themeAccent } from './utils/display';
 import { backGuardCount, runTopBackGuard } from './utils/backGuards';
 import { decideBack, type BackLayer, type BackState } from './utils/backNavigation';
 import { useBlockedBrawlers } from './utils/blockedBrawlers';
 import { openExternal } from './utils/openExternal';
 import { TOP_PICK_COUNT, buildBrawlerPool, rankMap } from './utils/pool';
+import { useTheme } from './utils/useTheme';
 import { useViewport } from './utils/useViewport';
 
 const LS_MAP = 'brawl.draft.map';
@@ -93,7 +94,7 @@ function ClassChip({
       className={`flex h-[var(--chip-h)] shrink-0 items-center whitespace-nowrap rounded-full border px-2 text-[10.5px] font-medium transition-colors ${
         active
           ? ''
-          : 'border-slate-700/80 bg-slate-900/70 text-slate-400 active:bg-slate-800'
+          : 'border-line-strong/80 bg-surface/70 text-muted active:bg-press'
       }`}
       style={
         active
@@ -108,6 +109,8 @@ function ClassChip({
 
 export default function App() {
   const { t, brawler, tier } = useTranslation();
+  /** 生效主题：稀有度色块在浅色主题下要按深一档的色相渲染 */
+  const { resolved: theme } = useTheme();
   const [snap, setSnap] = useState<MetaSnapshot | null>(metaStore.getSnapshot());
   /** 首屏加载失败的原因对象（含「超时 / 断网 / 状态码」分类），null = 正常 */
   const [error, setError] = useState<unknown>(null);
@@ -161,10 +164,10 @@ export default function App() {
   const [savedMatch, setSavedMatch] = useState<{ signature: string; id: string } | null>(null);
   /** 保存 / 编辑抽屉（新建时记录来自当前 BP，编辑时来自库里那条） */
   const [matchSheet, setMatchSheet] = useState<{ record: MatchRecord; isNew: boolean } | null>(null);
+  /** 抽屉的「存后关」入口：安卓返回键要复用组件内的脏检查，不能直接 setMatchSheet(null) */
+  const matchSheetRef = useRef<MatchSaveSheetHandle | null>(null);
   /** 正在复盘的对局 ID（null = 未打开）；记录被删 / 改回待补录时自动失效 */
   const [reviewId, setReviewId] = useState<string | null>(null);
-  /** 从复盘页点「编辑战绩」进来的：保存后回到复盘，数据改完立即重算 */
-  const [reviewAfterSave, setReviewAfterSave] = useState(false);
 
   /** 当前复盘的那条记录；记录被删或改回待补录时视作未打开 */
   const reviewRecord = reviewId === null ? null : matches.find((m) => m.id === reviewId) ?? null;
@@ -223,9 +226,9 @@ export default function App() {
         else if (decision.action.layer === 'detail') setDetailId(null);
         else if (decision.action.layer === 'blocked') setBlockedOpen(false);
         else if (decision.action.layer === 'matchSheet') {
-          setMatchSheet(null);
-          // 从复盘进来的编辑被返回键关掉时，别把「保存后回复盘」留给下一次保存
-          setReviewAfterSave(false);
+          // 与点 × 完全同一条路径：脏数据先落库再关
+          if (matchSheetRef.current) matchSheetRef.current.requestClose();
+          else setMatchSheet(null);
         } else if (decision.action.layer === 'review') setReviewId(null);
         else setMatchupId(null);
         break;
@@ -518,13 +521,8 @@ export default function App() {
 
   /* ---------------- 历史对局：保存 / 编辑 / 复盘 ---------------- */
 
-  /** 打开保存抽屉；`returnToReview` 表示从复盘页进来的，保存后要回到复盘 */
-  const openMatchSheet = (
-    record: MatchRecord,
-    isNew: boolean,
-    returnToReview = false,
-  ) => {
-    setReviewAfterSave(returnToReview);
+  /** 打开保存 / 编辑抽屉 */
+  const openMatchSheet = (record: MatchRecord, isNew: boolean) => {
     setMatchSheet({ record, isNew });
   };
 
@@ -556,22 +554,25 @@ export default function App() {
     });
   };
 
-  /** 抽屉提交：保存并关闭；从复盘进来时回到复盘（数据已改，进去立即重算） */
-  const handleSaveMatch = (record: MatchRecord) => {
-    persistMatch(record);
+  /**
+   * 关闭抽屉：× / 遮罩 / Esc / 安卓返回都走这里。
+   * `record` 非空就先落库再关（不弹复盘）；为空表示新建局什么都没填，直接关。
+   */
+  const handleCloseMatchSheet = (record: MatchRecord | null) => {
+    if (record) persistMatch(record);
     setMatchSheet(null);
-    if (reviewAfterSave) {
-      setReviewAfterSave(false);
-      if (record.result !== 'pending') setReviewId(record.id);
-    }
   };
 
   /** 「保存并复盘」：一步存完直接进评级 */
   const handleSaveAndReview = (record: MatchRecord) => {
     persistMatch(record);
     setMatchSheet(null);
-    setReviewAfterSave(false);
-    if (record.result !== 'pending') setReviewId(record.id);
+    // 没选比分就没有可复盘的内容：存完直接关，并说明为什么没进复盘
+    if (record.result === 'pending') {
+      showToast(t('review.pendingHint'));
+      return;
+    }
+    setReviewId(record.id);
   };
 
   /** 战绩卡片上的「复盘」：待补录先补比分，不硬算一个假评级 */
@@ -669,12 +670,12 @@ export default function App() {
     // 失败原因单独一行小字：超时 / 断网 / 状态码 / 文件损坏，方便用户描述问题
     const failureReason = loadErrorMessage(error, t);
     return (
-      <div className="flex h-dvh w-full justify-center bg-slate-900">
-        <div className="flex h-dvh w-full max-w-[440px] flex-col items-center justify-center gap-3 bg-slate-950 px-6 text-center">
-          <p className="text-[13px] font-semibold text-red-400">{t('app.loadError')}</p>
-          <p className="text-[11px] leading-relaxed text-slate-500">{t('app.loadErrorHint')}</p>
+      <div className="app-frame flex h-dvh w-full justify-center">
+        <div className="flex h-dvh w-full max-w-[440px] flex-col items-center justify-center gap-3 bg-app px-6 text-center">
+          <p className="text-[13px] font-semibold text-danger">{t('app.loadError')}</p>
+          <p className="text-[11px] leading-relaxed text-subtle">{t('app.loadErrorHint')}</p>
           {failureReason && (
-            <p className="text-[10.5px] leading-tight text-slate-600">
+            <p className="text-[10.5px] leading-tight text-faint">
               {t('app.loadErrorReason', { reason: failureReason })}
             </p>
           )}
@@ -687,7 +688,7 @@ export default function App() {
                 .then(setSnap)
                 .catch(setError);
             }}
-            className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-800 px-3 text-[12px] text-slate-200 active:bg-slate-700"
+            className="flex h-9 items-center gap-1.5 rounded-lg bg-raised px-3 text-[12px] text-body active:bg-press"
           >
             <RefreshCw size={13} />
             {t('app.retry')}
@@ -699,10 +700,10 @@ export default function App() {
 
   if (!snap) {
     return (
-      <div className="flex h-dvh w-full justify-center bg-slate-900">
-        <div className="flex h-dvh w-full max-w-[440px] flex-col items-center justify-center gap-2 bg-slate-950">
-          <Loader2 size={20} className="animate-spin text-sky-500" />
-          <p className="text-[11px] text-slate-500">{t('app.loading')}</p>
+      <div className="app-frame flex h-dvh w-full justify-center">
+        <div className="flex h-dvh w-full max-w-[440px] flex-col items-center justify-center gap-2 bg-app">
+          <Loader2 size={20} className="animate-spin text-brand" />
+          <p className="text-[11px] text-subtle">{t('app.loading')}</p>
         </div>
       </div>
     );
@@ -722,7 +723,7 @@ export default function App() {
           onEdit={() => {
             // 先关复盘再开抽屉：改完保存会自动回到复盘并重新算分
             setReviewId(null);
-            openMatchSheet(reviewRecord, false, true);
+            openMatchSheet(reviewRecord, false);
           }}
           onClose={() => setReviewId(null)}
         />
@@ -730,15 +731,12 @@ export default function App() {
 
       {matchSheet && (
         <MatchSaveSheet
+          ref={matchSheetRef}
           record={matchSheet.record}
           isNew={matchSheet.isNew}
           getBrawler={getBrawler}
-          onSave={handleSaveMatch}
           onSaveAndReview={handleSaveAndReview}
-          onClose={() => {
-            setMatchSheet(null);
-            setReviewAfterSave(false);
-          }}
+          onClose={handleCloseMatchSheet}
         />
       )}
 
@@ -793,14 +791,14 @@ export default function App() {
    *     ——此时回设置要走顶部地图卡回到选图页，BP 进度不会因此丢失。
    */
   const shell = (content: ReactNode, navVisible: boolean) => (
-    <div className="flex h-dvh w-full justify-center bg-slate-900">
+    <div className="app-frame flex h-dvh w-full justify-center">
       <div
-        className={`relative flex h-dvh w-full flex-col overflow-hidden bg-slate-950 text-slate-200 ${
+        className={`relative flex h-dvh w-full flex-col overflow-hidden bg-app text-body ${
           landscape
             ? // 手机 / 安卓 WebView 横屏：左右双栏要占满整屏，不做限宽
               ''
             : // 竖屏与桌面：大于 440px 时居中成紧凑面板，PC 上不会被横向拉伸
-              'sm:max-w-[440px] sm:shadow-2xl sm:shadow-black/60 sm:ring-1 sm:ring-slate-800/70'
+              'sm:max-w-[440px] sm:shadow-2xl sm:shadow-black/60 sm:ring-1 sm:ring-line/70'
         } ${navVisible ? 'has-bottom-nav' : ''} ${webUpdateBanner ? 'has-update-banner' : ''}`}
       >
         {webUpdateBanner}
@@ -820,7 +818,7 @@ export default function App() {
             role="status"
             aria-live="polite"
           >
-            <span className="rounded-full bg-slate-800/95 px-3.5 py-1.5 text-[12px] font-medium text-slate-100 shadow-lg shadow-black/50 ring-1 ring-white/10 animate-fade-in">
+            <span className="rounded-full bg-raised/95 px-3.5 py-1.5 text-[12px] font-medium text-fg shadow-lg shadow-black/30 ring-1 ring-line animate-fade-in">
               {toast}
             </span>
           </div>
@@ -938,26 +936,26 @@ export default function App() {
     <button
       type="button"
       onClick={handleEmptyBan}
-      className="mx-1 mb-1.5 flex items-center gap-2 rounded-lg border border-dashed border-slate-600/70 bg-slate-900/60 px-2 py-1.5 text-left transition-colors active:bg-slate-800"
+      className="mx-1 mb-1.5 flex items-center gap-2 rounded-lg border border-dashed border-line-strong/70 bg-surface/60 px-2 py-1.5 text-left transition-colors active:bg-press"
       aria-label={t('pool.emptyBanDesc')}
     >
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-600/80 bg-slate-950/70 text-slate-400">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-line-strong/80 bg-app/70 text-muted">
         <EmptyBanIcon size={14} />
       </span>
       <span className="min-w-0 flex-1 leading-tight">
-        <span className="block text-[12px] font-semibold text-slate-200">
+        <span className="block text-[12px] font-semibold text-body">
           {t('pool.emptyBanTitle')}
         </span>
-        <span className="block text-[10px] text-slate-500">{t('pool.emptyBanDesc')}</span>
+        <span className="block text-[10px] text-subtle">{t('pool.emptyBanDesc')}</span>
       </span>
-      <span className="shrink-0 text-[10px] text-slate-500">{t('pool.emptyBanSkip')}</span>
+      <span className="shrink-0 text-[10px] text-subtle">{t('pool.emptyBanSkip')}</span>
     </button>
   ) : null;
 
   const poolContent = isComplete ? (
     <div className="flex h-full flex-col items-center justify-center gap-1.5 px-6 text-center">
-      <p className="text-[13px] font-semibold text-slate-300">{t('pool.completeTitle')}</p>
-      <p className="text-[11px] leading-relaxed text-slate-500">{t('pool.completeDesc')}</p>
+      <p className="text-[13px] font-semibold text-body">{t('pool.completeTitle')}</p>
+      <p className="text-[11px] leading-relaxed text-subtle">{t('pool.completeDesc')}</p>
       {/*
         6 手选完的落点：把这一局存进历史战绩。
         已经存过的同一局不再重复建记录，按钮切成「已保存 · 查看/编辑战绩」；
@@ -968,7 +966,7 @@ export default function App() {
         onClick={handleOpenSaveSheet}
         className={`mt-1.5 flex h-10 w-full max-w-[260px] items-center justify-center gap-1.5 rounded-lg px-3 text-[12.5px] font-semibold transition-colors ${
           savedRecord
-            ? 'border border-slate-700 bg-slate-900/80 text-slate-300 active:bg-slate-800'
+            ? 'border border-line-strong bg-surface/80 text-body active:bg-press'
             : 'bg-sky-600 text-white active:bg-sky-700'
         }`}
       >
@@ -981,7 +979,7 @@ export default function App() {
       {emptyBanEntry}
       {candidates.length === 0 ? (
         <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
-          <p className="text-[12px] text-slate-500">{t('pool.noCandidates')}</p>
+          <p className="text-[12px] text-subtle">{t('pool.noCandidates')}</p>
         </div>
       ) : (
         <>
@@ -1001,24 +999,24 @@ export default function App() {
                 {head.enemy ? (
                   <Swords size={11} className="shrink-0 text-enemy" />
                 ) : (
-                  <Flame size={11} className="shrink-0 text-sky-400" />
+                  <Flame size={11} className="shrink-0 text-brand" />
                 )}
                 <h3
                   className={`text-[11px] font-bold tracking-wide ${
-                    head.enemy ? 'text-red-400' : 'text-sky-300'
+                    head.enemy ? 'text-danger' : 'text-brand'
                   }`}
                 >
                   {t(head.key)}
                 </h3>
                 <span
                   className={`text-[9px] tabular-nums ${
-                    head.enemy ? 'text-red-400/60' : 'text-sky-400/60'
+                    head.enemy ? 'text-danger/60' : 'text-brand/60'
                   }`}
                 >
                   {topPicks.length}
                 </span>
               </span>
-              <span className="shrink-0 text-[9px] text-slate-500">
+              <span className="shrink-0 text-[9px] text-subtle">
                 {draft.firstPick ? t('pool.hintPick') : t('pool.hintLongPress')}
               </span>
             </header>
@@ -1049,7 +1047,7 @@ export default function App() {
               <ClassChip
                 label={t('pool.classAll')}
                 active={classFilter === 'ALL'}
-                color="#38BDF8"
+                color={themeAccent('#38BDF8', theme)}
                 onClick={() => setClassFilter('ALL')}
               />
               {CLASS_ORDER.map((k) => (
@@ -1057,7 +1055,7 @@ export default function App() {
                   key={k}
                   label={t(`class.${k}`)}
                   active={classFilter === k}
-                  color={CLASS_COLOR[k]}
+                  color={themeAccent(CLASS_COLOR[k], theme)}
                   onClick={() => setClassFilter(classFilter === k ? 'ALL' : k)}
                 />
               ))}
@@ -1068,8 +1066,8 @@ export default function App() {
               onClick={() => setBlockedOpen(true)}
               className={`flex h-[var(--chip-h)] shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 text-[10.5px] font-medium transition-colors ${
                 blockedSet.size > 0
-                  ? 'border-amber-500/50 bg-amber-500/15 text-amber-300 active:bg-amber-500/25'
-                  : 'border-slate-800 bg-slate-900/60 text-slate-500 active:bg-slate-800'
+                  ? 'border-gold/50 bg-amber-500/15 text-gold active:bg-amber-500/25'
+                  : 'border-line bg-surface/60 text-subtle active:bg-press'
               }`}
               aria-label={t('blocked.chip', { n: blockedSet.size })}
             >
@@ -1081,25 +1079,28 @@ export default function App() {
           {/* 下方全英雄池：按官方稀有度从低到高分栏，**不剔除**顶部已上榜的英雄 */}
           {pool.sections.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-1 px-6 py-8 text-center">
-              <p className="text-[12px] text-slate-500">{t('pool.filterEmpty')}</p>
+              <p className="text-[12px] text-subtle">{t('pool.filterEmpty')}</p>
             </div>
           ) : (
           pool.sections.map((sec) => (
             <section
               key={sec.key}
               className="mx-1 mb-1.5 rounded-lg border px-1.5 pb-1.5 pt-1"
-              style={raritySectionStyle(sec.color)}
+              style={raritySectionStyle(sec.color, theme)}
             >
               <header className="mb-1 flex items-baseline justify-between gap-2">
                 <span className="flex items-center gap-1">
                   <span
                     className="h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: sec.color }}
+                    style={{ backgroundColor: themeAccent(sec.color, theme) }}
                   />
-                  <h3 className="text-[11px] font-bold tracking-wide" style={{ color: sec.color }}>
+                  <h3
+                    className="text-[11px] font-bold tracking-wide"
+                    style={{ color: themeAccent(sec.color, theme) }}
+                  >
                     {t(`rarity.section.${sec.key}`)}
                   </h3>
-                  <span className="text-[9px] tabular-nums text-slate-500">
+                  <span className="text-[9px] tabular-nums text-subtle">
                     {sec.items.length}
                   </span>
                 </span>
@@ -1129,7 +1130,7 @@ export default function App() {
   if (landscape) {
     return shell(
       <div className="flex h-full flex-row overflow-hidden">
-        <aside className="flex w-[43%] min-w-[220px] max-w-[350px] shrink-0 flex-col border-r border-slate-800/80 bg-slate-950">
+        <aside className="flex w-[43%] min-w-[220px] max-w-[350px] shrink-0 flex-col border-r border-line/80 bg-app">
           <TopBar
             variant="strip"
             mapName={draft.mapName}

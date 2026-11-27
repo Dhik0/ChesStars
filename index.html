@@ -6,8 +6,40 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#020617" />
+    <meta name="theme-color" content="#000000" />
     <meta name="color-scheme" content="dark" />
+    <!--
+      首屏防闪（Anti-FOUC）：在 React 挂载、CSS 生效前就把主题定下来。
+
+      这段脚本必须是同步内联的，不能抽成模块——任何异步加载都会先渲染出一帧
+      默认配色再跳变。键名与取值必须和 src/services/themeStore.ts 保持一致：
+        brawl.draft.themeMode   dark | light | system   （默认 dark）
+        brawl.draft.darkPalette oled | navy             （默认 oled）
+      生效规则也一致：浅色 / 跟随系统且系统是浅色 → light，否则按 darkPalette。
+    -->
+    <script>
+      (function () {
+        var THEME_COLORS = { oled: '#000000', navy: '#020617', light: '#f8fafc' };
+        var theme = 'oled';
+        try {
+          var mode = localStorage.getItem('brawl.draft.themeMode') || 'dark';
+          var palette = localStorage.getItem('brawl.draft.darkPalette') || 'oled';
+          var systemLight =
+            typeof window.matchMedia === 'function' &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches === false;
+          var light = mode === 'light' || (mode === 'system' && systemLight);
+          theme = light ? 'light' : palette === 'navy' ? 'navy' : 'oled';
+        } catch (e) {
+          /* 存储被禁用：直接按默认纯黑深色渲染 */
+        }
+        var root = document.documentElement;
+        root.setAttribute('data-theme', theme);
+        var metaTheme = document.querySelector('meta[name="theme-color"]');
+        if (metaTheme) metaTheme.setAttribute('content', THEME_COLORS[theme]);
+        var metaScheme = document.querySelector('meta[name="color-scheme"]');
+        if (metaScheme) metaScheme.setAttribute('content', theme === 'light' ? 'light' : 'dark');
+      })();
+    </script>
     <meta
       name="description"
       content="ChesStars —— 荒野乱斗 BP 助手：选人推荐、对位分析与离线数据。"
@@ -21,7 +53,7 @@
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <title>ChesStars</title>
   </head>
-  <body class="bg-slate-950">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

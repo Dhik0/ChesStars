@@ -325,15 +325,15 @@ describe('综合分配色分档', () => {
   });
 
   it('常规主力（55~65）不落进低分暗色，65 是头部主力的分界', () => {
-    expect(baseScoreColor(55)).toBe('text-sky-400');
-    expect(baseScoreColor(64.9)).toBe('text-sky-400');
+    expect(baseScoreColor(55)).toBe('text-brand');
+    expect(baseScoreColor(64.9)).toBe('text-brand');
     expect(baseScoreColor(65)).toBe('text-strong');
     expect(baseScoreColor(90)).toBe('text-strong');
   });
 
   it('50 分以下不报警（中位数本来就在 27 附近），只是弱化', () => {
-    expect(baseScoreColor(49)).toBe('text-slate-200');
-    expect(baseScoreColor(27)).toBe('text-slate-500');
-    expect(baseScoreColor(0)).toBe('text-slate-500');
+    expect(baseScoreColor(49)).toBe('text-body');
+    expect(baseScoreColor(27)).toBe('text-subtle');
+    expect(baseScoreColor(0)).toBe('text-subtle');
   });
 });

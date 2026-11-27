@@ -2,9 +2,65 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * ------------------------------------------------------------------ *
+ * 主题色板
+ * ------------------------------------------------------------------ *
+ *
+ * 三套主题共用一个语义变量表，组件只写 `bg-surface` / `text-muted` 这类语义类，
+ * 不再出现写死的 slate 色阶。变量值是**空格分隔的 RGB 通道**，
+ * 这样 Tailwind 侧的 `rgb(var(--c-x) / <alpha-value>)` 才能支持 `/60` 这类透明度。
+ *
+ *   --c-app          页面底色
+ *   --c-surface      一级卡片 / 浮层（底部抽屉、设置卡片）
+ *   --c-raised       二级表面（输入框、胶囊、按得下去的按钮）
+ *   --c-press        按压态 / 比 raised 再亮一档
+ *   --c-line         分割线与常规描边
+ *   --c-line-strong  需要更清楚的描边（浮层顶边、选中态）
+ *   --c-fg           主文字
+ *   --c-body         正文
+ *   --c-muted        次要文字
+ *   --c-subtle       三级文字（标签、单位）
+ *   --c-faint        弱化文字（占位、脚注）
+ *   --c-brand        品牌蓝（可点 / 强调）
+ *   --c-strong       正向绿（胜、优势）
+ *   --c-danger       负向红（败、劣势）
+ *   --c-gold         金标 / 待补录提醒
+ *   --c-brilliant    妙手青蓝（`!!`）
+ *   --c-mark         顺位紫（后手）
+ *   --c-ally / --c-enemy  阵营色（浅色主题下会压深，保证对比度）
+ *   --shadow-card    卡片阴影：深色下没有，浅色下给一层克制的微阴影
+ */
 @layer base {
-  :root {
+  /* 默认 = 纯黑（OLED）：即使 data-theme 还没写上也直接是纯黑，不闪深蓝 */
+  :root,
+  [data-theme='oled'] {
     color-scheme: dark;
+
+    --c-app: 0 0 0;
+    --c-surface: 10 10 10;
+    --c-raised: 20 20 20;
+    --c-press: 31 31 31;
+    --c-line: 34 34 34;
+    --c-line-strong: 46 46 46;
+
+    --c-fg: 245 245 245;
+    --c-body: 212 212 212;
+    --c-muted: 163 163 163;
+    --c-subtle: 138 138 138;
+    --c-faint: 107 107 107;
+
+    --c-brand: 56 189 248;
+    --c-strong: 34 197 94;
+    --c-danger: 248 113 113;
+    --c-gold: 252 211 77;
+    --c-brilliant: 34 211 238;
+    --c-mark: 196 181 253;
+
+    --c-ally: 59 130 246;
+    --c-enemy: 239 68 68;
+
+    --shadow-card: none;
 
     /* 触控尺寸：小窗下统一按「手指点得到」来定 */
     --tap-sm: 34px; /* 次要按钮 / 图标按钮 / 搜索框 */
@@ -22,6 +78,66 @@
     --draft-pt: 6px; /* BP 区上内边距 */
     --draft-pb: max(8px, env(safe-area-inset-bottom, 0px)); /* BP 区下内边距 */
     --draft-gap: 6px; /* BP 区内部行间距 */
+  }
+
+  /* 经典深蓝：与改造前的 slate 色阶一一对应，切过来视觉零变化 */
+  [data-theme='navy'] {
+    color-scheme: dark;
+
+    --c-app: 2 6 23;
+    --c-surface: 15 23 42;
+    --c-raised: 30 41 59;
+    --c-press: 51 65 85;
+    --c-line: 30 41 59;
+    --c-line-strong: 51 65 85;
+
+    --c-fg: 241 245 249;
+    --c-body: 203 213 225;
+    --c-muted: 148 163 184;
+    --c-subtle: 100 116 139;
+    --c-faint: 71 85 105;
+
+    --c-brand: 56 189 248;
+    --c-strong: 34 197 94;
+    --c-danger: 248 113 113;
+    --c-gold: 252 211 77;
+    --c-brilliant: 34 211 238;
+    --c-mark: 196 181 253;
+
+    --c-ally: 59 130 246;
+    --c-enemy: 239 68 68;
+
+    --shadow-card: none;
+  }
+
+  /* 浅色：底色略灰、卡片纯白，靠一层微阴影分出层级 */
+  [data-theme='light'] {
+    color-scheme: light;
+
+    --c-app: 244 246 249;
+    --c-surface: 255 255 255;
+    --c-raised: 238 242 246;
+    --c-press: 226 232 240;
+    --c-line: 219 226 234;
+    --c-line-strong: 195 204 216;
+
+    --c-fg: 15 23 42;
+    --c-body: 51 65 85;
+    --c-muted: 71 85 105;
+    --c-subtle: 100 116 139;
+    --c-faint: 148 163 184;
+
+    --c-brand: 3 105 161;
+    --c-strong: 21 128 61;
+    --c-danger: 185 28 28;
+    --c-gold: 180 83 9;
+    --c-brilliant: 14 116 144;
+    --c-mark: 109 40 217;
+
+    --c-ally: 37 99 235;
+    --c-enemy: 220 38 38;
+
+    --shadow-card: 0 1px 2px rgb(15 23 42 / 0.06), 0 2px 6px -2px rgb(15 23 42 / 0.08);
   }
 
   /*
@@ -56,8 +172,8 @@
   #root {
     height: 100%;
     margin: 0;
-    background-color: #020617;
-    color: #e2e8f0;
+    background-color: rgb(var(--c-app));
+    color: rgb(var(--c-body));
   }
 
   body {
@@ -76,6 +192,141 @@
 
   input {
     font-size: 16px; /* 防止 iOS/Android WebView 聚焦时自动放大 */
+  }
+}
+
+/*
+ * 复盘评级角标配色（对齐 Chess.com 的记谱习惯）。
+ *
+ * 深色两套沿用原来的 300/400 系高饱和色；浅色主题下同色系直接压到 600/700，
+ * 否则浅底 + 亮字（比如绿 400 / 黄 400）几乎看不见。
+ */
+@layer components {
+  .grade-brilliant {
+    border-color: rgb(34 211 238 / 0.7);
+    background-color: rgb(34 211 238 / 0.15);
+    color: rgb(103 232 249);
+  }
+  .grade-great {
+    border-color: rgb(96 165 250 / 0.7);
+    background-color: rgb(96 165 250 / 0.15);
+    color: rgb(147 197 253);
+  }
+  .grade-best {
+    border-color: rgb(34 197 94 / 0.7);
+    background-color: rgb(34 197 94 / 0.15);
+    color: rgb(74 222 128);
+  }
+  .grade-good {
+    border-color: rgb(134 239 172 / 0.6);
+    background-color: rgb(134 239 172 / 0.1);
+    color: rgb(187 247 208);
+  }
+  .grade-book {
+    border-color: rgb(180 83 9 / 0.7);
+    background-color: rgb(146 64 14 / 0.25);
+    color: rgb(245 158 11);
+  }
+  .grade-inaccuracy {
+    border-color: rgb(250 204 21 / 0.7);
+    background-color: rgb(250 204 21 / 0.15);
+    color: rgb(253 224 71);
+  }
+  .grade-mistake {
+    border-color: rgb(251 146 60 / 0.7);
+    background-color: rgb(251 146 60 / 0.15);
+    color: rgb(253 186 116);
+  }
+  .grade-miss {
+    border-color: rgb(251 113 133 / 0.6);
+    background-color: rgb(244 63 94 / 0.1);
+    color: rgb(253 164 175);
+  }
+  .grade-blunder {
+    border-color: rgb(239 68 68 / 0.7);
+    background-color: rgb(239 68 68 / 0.15);
+    color: rgb(248 113 113);
+  }
+
+  /* 浅色：同色系压深，角标在近白底上仍然一眼能分档 */
+  [data-theme='light'] .grade-brilliant {
+    border-color: rgb(14 116 144 / 0.5);
+    background-color: rgb(14 116 144 / 0.1);
+    color: rgb(21 94 117);
+  }
+  [data-theme='light'] .grade-great {
+    border-color: rgb(29 78 216 / 0.5);
+    background-color: rgb(29 78 216 / 0.1);
+    color: rgb(30 64 175);
+  }
+  [data-theme='light'] .grade-best {
+    border-color: rgb(21 128 61 / 0.5);
+    background-color: rgb(21 128 61 / 0.1);
+    color: rgb(21 128 61);
+  }
+  [data-theme='light'] .grade-good {
+    border-color: rgb(5 150 105 / 0.45);
+    background-color: rgb(5 150 105 / 0.08);
+    color: rgb(4 120 87);
+  }
+  [data-theme='light'] .grade-book {
+    border-color: rgb(180 83 9 / 0.45);
+    background-color: rgb(180 83 9 / 0.1);
+    color: rgb(146 64 14);
+  }
+  [data-theme='light'] .grade-inaccuracy {
+    border-color: rgb(202 138 4 / 0.5);
+    background-color: rgb(202 138 4 / 0.12);
+    color: rgb(133 77 14);
+  }
+  [data-theme='light'] .grade-mistake {
+    border-color: rgb(194 65 12 / 0.5);
+    background-color: rgb(194 65 12 / 0.1);
+    color: rgb(154 52 18);
+  }
+  [data-theme='light'] .grade-miss {
+    border-color: rgb(225 29 72 / 0.45);
+    background-color: rgb(225 29 72 / 0.08);
+    color: rgb(190 18 60);
+  }
+  [data-theme='light'] .grade-blunder {
+    border-color: rgb(185 28 28 / 0.5);
+    background-color: rgb(185 28 28 / 0.1);
+    color: rgb(185 28 28);
+  }
+
+  /*
+   * `!!` 卡片常驻微光。
+   * 深色下是一圈青蓝外发光；浅色下外发光会糊成一团亮斑，
+   * 换成「细描边 + 一点点扩散阴影」，既保住高亮感又不刺眼。
+   */
+  .brilliant-glow {
+    box-shadow: 0 0 22px -8px rgb(34 211 238 / 0.75);
+    outline: 1px solid rgb(34 211 238 / 0.6);
+    outline-offset: -1px;
+  }
+  [data-theme='light'] .brilliant-glow {
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 4px 12px -6px rgb(14 116 144 / 0.45);
+    outline: 1.5px solid rgb(14 116 144 / 0.45);
+  }
+
+  /* 橙色系强调（「手感不佳」标签）：浅色下压到橙 800，避免亮橙贴白底发飘 */
+  .tone-orange {
+    color: rgb(253 186 116);
+  }
+  [data-theme='light'] .tone-orange {
+    color: rgb(154 52 18);
+  }
+
+  /*
+   * 当前激活 Ban 格的白色微光：深色底上是一圈「灯亮了」的感觉，
+   * 浅色底上白光等于没有，换成深色描边阴影，选中态才不会丢。
+   */
+  .ban-active-glow {
+    box-shadow: 0 0 8px rgb(255 255 255 / 0.35);
+  }
+  [data-theme='light'] .ban-active-glow {
+    box-shadow: 0 1px 3px rgb(15 23 42 / 0.25);
   }
 }
 
@@ -116,6 +367,39 @@
   .max-h-dvh-88 {
     max-height: 88vh;
     max-height: 88dvh;
+  }
+  /*
+   * 卡片微阴影：深色两套为 none（扁平语言，不叠阴影），
+   * 浅色下才亮起来，用来把白卡片从 #f4f6f9 底上分出来。
+   */
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+  /*
+   * 桌面端「手机面板」外面的底：深色下比面板亮一档，浅色下比面板暗一档，
+   * 两种主题都能看出「这是一块居中的面板」。
+   */
+  .app-frame {
+    background-color: rgb(var(--c-surface));
+  }
+  [data-theme='light'] .app-frame {
+    background-color: rgb(var(--c-press));
+  }
+  /*
+   * 浮层遮罩：深色下压得重（0.6 纯黑），浅色下同样重会把底下的白卡片糊成灰块，
+   * 这里换成偏蓝的低透明度，层次还在但没那么闷。
+   */
+  .scrim {
+    background-color: rgb(0 0 0 / 0.6);
+  }
+  [data-theme='light'] .scrim {
+    background-color: rgb(15 23 42 / 0.35);
+  }
+  .scrim-strong {
+    background-color: rgb(0 0 0 / 0.7);
+  }
+  [data-theme='light'] .scrim-strong {
+    background-color: rgb(15 23 42 / 0.45);
   }
 }
 

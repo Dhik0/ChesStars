@@ -302,16 +302,47 @@ function normalizeBans(raw: unknown): string[] {
   return out;
 }
 
+/** 取第一个「有值」的别名键：历史版本可能把扩展字段写成过别名 */
+function firstPresent(item: Record<string, unknown>, keys: readonly string[]): unknown {
+  for (const key of keys) {
+    const value = item[key];
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+  return undefined;
+}
+
+/**
+ * 「万」单位字段的解析。
+ *
+ * 除了常规整数，还要兼容一种历史脏数据：早期版本可能把输入框原文（如 `"6.2"`）
+ * 直接落盘。原始统计不可能是小数，出现小数只可能来自「万」输入框，
+ * 所以按 ×10000 还原（`"6.2"` → 62000），而不是像整数解析那样判成 null。
+ */
+function toWanCount(v: unknown): number | null {
+  if (typeof v === 'string') {
+    const trimmed = v.trim();
+    if (/^\d+\.\d+$/.test(trimmed)) {
+      const n = Number(trimmed);
+      return Number.isFinite(n) && n >= 0 ? Math.round(n * WAN) : null;
+    }
+  }
+  return toCount(v);
+}
+
 /**
  * 战绩数组归一化：按选人顺序对齐重排，保证一一对应。
  *
  * 「我」只在我方生效且最多 1 人；「最佳玩家」跨双方合计最多 1 人——
  * 因此这里把 `starTaken` 作为**跨阵营的占用标记**传进来，敌方接着我方的结果继续判。
+ *
+ * 扩展字段（治疗 / 承伤 / 模式指标）额外做两件事：
+ *   1. 接受历史别名（`heal` / `tanking` / `objective` 等），旧数据不会因为键名不同被清空；
+ *   2. 万单位字段容忍小数文本，见 `toWanCount`。
  */
 function normalizeStatRows(
   raw: unknown,
   picks: MatchPick[],
-  opts: { allowSelf: boolean; starTaken: boolean },
+  opts: { allowSelf: boolean; starTaken: boolean; objectiveWan: boolean },
 ): { rows: Array<MatchStat & { isSelf: boolean }>; starTaken: boolean } {
   const list = Array.isArray(raw) ? raw : [];
   let selfTaken = false;
@@ -324,15 +355,24 @@ function normalizeStatRows(
     const isStarPlayer = item.isStarPlayer === true && !starTaken;
     if (isStarPlayer) starTaken = true;
 
+    const objectiveRaw = firstPresent(item, [
+      'objectiveValue',
+      'objective_value',
+      'objective',
+      'objectiveMetric',
+    ]);
+
     return {
       brawlerId: pick.brawlerId,
       kills: toCount(item.kills),
       deaths: toCount(item.deaths),
-      damage: toCount(item.damage),
-      // V1 新增：旧记录没有这三个字段，toCount(undefined) 自然是 null，不丢数据
-      healing: toCount(item.healing),
-      damageTaken: toCount(item.damageTaken),
-      objectiveValue: toCount(item.objectiveValue),
+      damage: toWanCount(item.damage),
+      // V1 新增：旧记录没有这三个字段时自然是 null，不丢数据
+      healing: toWanCount(firstPresent(item, ['healing', 'heal', 'healingDone'])),
+      damageTaken: toWanCount(
+        firstPresent(item, ['damageTaken', 'damage_taken', 'taken', 'tanking']),
+      ),
+      objectiveValue: opts.objectiveWan ? toWanCount(objectiveRaw) : toCount(objectiveRaw),
       isSelf,
       isStarPlayer,
     };
@@ -369,15 +409,20 @@ export function normalizeMatchRecord(raw: unknown): MatchRecord | null {
   const createdAt = toTimestamp(raw.createdAt) ?? 0;
   const updatedAt = toTimestamp(raw.updatedAt) ?? createdAt;
   const outcome = normalizeOutcome(raw.result, raw.score);
+  const mode = typeof raw.mode === 'string' ? raw.mode : '';
+  // 金库的金库伤害按「万」录入，其它模式的第 5 项是个/秒/颗的整数
+  const objectiveWan = objectiveIsWan(objectiveKindOf(mode));
 
   // 「最佳玩家」跨双方互斥：先判我方，我方占了名额敌方就全部清掉
   const ally = normalizeStatRows(raw.allyStats, allyPicks, {
     allowSelf: true,
     starTaken: false,
+    objectiveWan,
   });
   const enemy = normalizeStatRows(raw.enemyStats, enemyPicks, {
     allowSelf: false,
     starTaken: ally.starTaken,
+    objectiveWan,
   });
 
   return {
@@ -385,7 +430,7 @@ export function normalizeMatchRecord(raw: unknown): MatchRecord | null {
     createdAt,
     updatedAt,
     mapId,
-    mode: typeof raw.mode === 'string' ? raw.mode : '',
+    mode,
     firstPick: raw.firstPick === 'enemy' ? 'enemy' : 'ally',
     bans: normalizeBans(raw.bans),
     allyPicks,

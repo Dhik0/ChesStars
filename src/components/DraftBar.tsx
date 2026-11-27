@@ -159,7 +159,7 @@ function SlotCell({
       ) : (
         <span
           className={`flex h-full items-center justify-center text-[15px] font-semibold tabular-nums ${
-            active ? (isAlly ? 'text-ally/80' : 'text-enemy/80') : 'text-slate-600'
+            active ? (isAlly ? 'text-ally/80' : 'text-enemy/80') : 'text-faint'
           }`}
         >
           {pickNo}
@@ -168,7 +168,7 @@ function SlotCell({
       {/* 顺位角标：已选槽位也标出它是全局第几手 */}
       {info && id !== undefined && (
         <span
-          className={`absolute top-0 rounded-[2px] bg-black/70 px-1 text-[8px] font-bold leading-[11px] tabular-nums text-slate-200 ${
+          className={`absolute top-0 rounded-[2px] bg-black/70 px-1 text-[8px] font-bold leading-[11px] tabular-nums text-white ${
             isAlly ? 'left-0' : 'right-0'
           }`}
         >
@@ -182,7 +182,7 @@ function SlotCell({
     <span className="flex flex-col items-end leading-none">
       <span
         className={`text-[13px] font-bold tabular-nums ${
-          base.hasData ? baseScoreColor(base.score) : 'text-slate-600'
+          base.hasData ? baseScoreColor(base.score) : 'text-faint'
         }`}
       >
         {base.hasData ? base.score.toFixed(1) : '—'}
@@ -327,10 +327,10 @@ function BanCell({ index, value, active, getBrawler, onActivate, onClear }: BanC
       onClick={() => (filled ? onClear() : onActivate())}
       className={`relative flex aspect-square min-w-0 max-w-[var(--ban-max)] flex-1 items-center justify-center overflow-hidden rounded border transition-all ${
         active
-          ? 'border-slate-400 bg-slate-800 ring-2 ring-slate-200/80 shadow-[0_0_8px_rgba(255,255,255,0.35)]'
+          ? 'border-body bg-raised ring-2 ring-fg/80 ban-active-glow'
           : blank
-            ? 'border-dashed border-slate-500/80 bg-slate-900'
-            : 'border-slate-700/80 bg-slate-900'
+            ? 'border-dashed border-line-strong/80 bg-raised'
+            : 'border-line-strong/80 bg-raised'
       }`}
       aria-label={`${t('draft.banAria', { side: sideLabel, index: teamIndex, n: index + 1 })}${
         info
@@ -356,7 +356,7 @@ function BanCell({ index, value, active, getBrawler, onActivate, onClear }: BanC
           </span>
         </>
       ) : blank ? (
-        <span className="text-[13px] font-bold leading-none text-slate-400" aria-hidden>
+        <span className="text-[13px] font-bold leading-none text-muted" aria-hidden>
           Ø
         </span>
       ) : (
@@ -426,8 +426,8 @@ export default function DraftBar({
   const landscape = variant === 'landscape';
 
   const shell = landscape
-    ? `flex min-h-0 flex-1 flex-col bg-slate-950/95 px-1.5 pb-1.5 pt-1 ${className}`
-    : `shrink-0 border-t border-slate-800 bg-slate-950/95 px-2 pb-[var(--draft-pb)] pt-[var(--draft-pt)] ${className}`;
+    ? `flex min-h-0 flex-1 flex-col bg-app/95 px-1.5 pb-1.5 pt-1 ${className}`
+    : `shrink-0 border-t border-line bg-app/95 px-2 pb-[var(--draft-pb)] pt-[var(--draft-pt)] ${className}`;
 
   const actionRow = (
     <div className={`grid shrink-0 grid-cols-2 gap-2 ${landscape ? 'mt-1' : 'mt-[var(--draft-gap)]'}`}>
@@ -435,7 +435,7 @@ export default function DraftBar({
         type="button"
         onClick={onUndo}
         disabled={!canUndo}
-        className="flex h-[var(--act-h)] items-center justify-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 text-[12px] font-semibold text-slate-300 transition-colors active:bg-slate-800 active:text-slate-100 disabled:opacity-35 disabled:active:bg-slate-900/80"
+        className="flex h-[var(--act-h)] items-center justify-center gap-1.5 rounded-lg border border-line bg-surface/80 text-[12px] font-semibold text-body transition-colors active:bg-press active:text-fg disabled:opacity-35 disabled:active:bg-press/80"
         aria-label={t('draft.undo')}
       >
         <Undo2 size={14} />
@@ -445,7 +445,7 @@ export default function DraftBar({
         type="button"
         onClick={onReset}
         disabled={!banCount(state) && !state.ally.length && !state.enemy.length}
-        className="flex h-[var(--act-h)] items-center justify-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 text-[12px] font-semibold text-slate-300 transition-colors active:bg-slate-800 active:text-slate-100 disabled:opacity-35 disabled:active:bg-slate-900/80"
+        className="flex h-[var(--act-h)] items-center justify-center gap-1.5 rounded-lg border border-line bg-surface/80 text-[12px] font-semibold text-body transition-colors active:bg-press active:text-fg disabled:opacity-35 disabled:active:bg-press/80"
         aria-label={t('draft.reset')}
       >
         <RotateCcw size={14} />
@@ -459,8 +459,8 @@ export default function DraftBar({
     return (
       <footer className={shell}>
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-slate-300">{t('draft.chooseFirst')}</span>
-          <span className="text-[10px] text-slate-600">{t('draft.chooseFirstHint')}</span>
+          <span className="text-[11px] font-semibold text-body">{t('draft.chooseFirst')}</span>
+          <span className="text-[10px] text-faint">{t('draft.chooseFirstHint')}</span>
         </div>
         <div className={`grid grid-cols-2 gap-2 ${landscape ? 'min-h-0 flex-1' : ''}`}>
           <FirstPickButton side="ally" fill={landscape} onPick={onChooseFirst} />
@@ -489,13 +489,13 @@ export default function DraftBar({
       <div className="flex shrink-0 items-center gap-1.5">
         <span className={`shrink-0 leading-tight ${landscape ? 'w-9' : 'w-11'}`}>
           <span
-            className={`block text-[9px] ${banPhase ? 'text-ban' : 'text-slate-500'}`}
+            className={`block text-[9px] ${banPhase ? 'text-ban' : 'text-subtle'}`}
           >
             {phaseTop}
           </span>
           <span
             className={`block text-[10px] font-semibold ${
-              banPhase ? 'text-ban' : 'text-slate-400'
+              banPhase ? 'text-ban' : 'text-muted'
             }`}
           >
             {phaseBottom}
@@ -506,7 +506,7 @@ export default function DraftBar({
           {[0, BAN_SLOTS_PER_TEAM].map((start, group) => (
             <Fragment key={start}>
               {/* 队内 3 位之间细缝、两队之间一道竖线：不占宽度也能看出分组 */}
-              {group > 0 && <span className="h-5 w-px shrink-0 bg-slate-700/80" aria-hidden />}
+              {group > 0 && <span className="h-5 w-px shrink-0 bg-press/80" aria-hidden />}
               <div className="flex min-w-0 flex-1 items-center gap-1">
                 {Array.from({ length: BAN_SLOTS_PER_TEAM }, (_, k) => {
                   const i = start + k;

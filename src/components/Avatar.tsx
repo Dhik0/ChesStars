@@ -82,7 +82,7 @@ export default function Avatar({
       decoding="async"
       draggable={false}
       onError={() => setStage((s) => (s === 'local' ? 'cdn' : 'failed'))}
-      className={`shrink-0 select-none bg-slate-800/60 ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${rounded} ${fillClass} ${className}`}
+      className={`shrink-0 select-none bg-raised/60 ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${rounded} ${fillClass} ${className}`}
       style={dimension}
     />
   );

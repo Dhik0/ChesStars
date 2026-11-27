@@ -33,15 +33,15 @@ export default function BlockedToggle({
         aria-pressed={blocked}
         className={`flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border text-[12px] font-semibold transition-colors ${
           blocked
-            ? 'border-slate-700 bg-slate-800/60 text-slate-300 active:bg-slate-800'
-            : 'border-amber-500/50 bg-amber-500/10 text-amber-200 active:bg-amber-500/20'
+            ? 'border-line-strong bg-raised/60 text-body active:bg-press'
+            : 'border-gold/50 bg-amber-500/10 text-gold active:bg-amber-500/20'
         }`}
       >
         {blocked ? <Eye size={13} /> : <EyeOff size={13} />}
         {blocked ? t('blocked.undo') : t('blocked.action')}
       </button>
       {withHint && (
-        <p className="mt-1 text-[10px] leading-relaxed text-slate-500">{t('blocked.hint')}</p>
+        <p className="mt-1 text-[10px] leading-relaxed text-subtle">{t('blocked.hint')}</p>
       )}
     </div>
   );

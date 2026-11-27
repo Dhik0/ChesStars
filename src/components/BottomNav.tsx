@@ -30,7 +30,7 @@ function TabButton({ active, label, dot = false, ariaLabel, onClick, children }:
       aria-label={ariaLabel}
       aria-current={active ? 'page' : undefined}
       className={`relative flex h-[54px] select-none flex-col items-center justify-center gap-1 transition-colors ${
-        active ? 'text-sky-300' : 'text-slate-500 active:bg-slate-900/70'
+        active ? 'text-brand' : 'text-subtle active:bg-press/70'
       }`}
     >
       {/* 选中指示：图标上沿一小段主题色横条 */}
@@ -41,7 +41,7 @@ function TabButton({ active, label, dot = false, ariaLabel, onClick, children }:
         {children}
         {dot && (
           <span
-            className="pointer-events-none absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-sky-400 ring-2 ring-slate-950"
+            className="pointer-events-none absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-sky-400 ring-2 ring-app"
             aria-hidden
           />
         )}
@@ -65,7 +65,7 @@ export default function BottomNav({ tab, onChange, hasUpdate = false }: BottomNa
   const { t } = useTranslation();
   return (
     <nav
-      className="relative z-30 shrink-0 border-t border-slate-800 bg-slate-950/95 backdrop-blur"
+      className="relative z-30 shrink-0 border-t border-line bg-app/95 backdrop-blur"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       aria-label={t('nav.main')}
     >

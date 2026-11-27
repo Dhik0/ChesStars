@@ -22,22 +22,22 @@ export default function LanguageAccordion() {
   };
 
   return (
-    <div className="mb-3 overflow-hidden rounded-lg border border-slate-700 bg-slate-900/70">
+    <div className="mb-3 overflow-hidden rounded-lg border border-line-strong bg-surface/70 shadow-card">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-controls="language-options"
-        className="flex w-full items-center gap-2 px-2.5 py-2.5 text-left transition-colors active:bg-slate-800/70"
+        className="flex w-full items-center gap-2 px-2.5 py-2.5 text-left transition-colors active:bg-press/70"
       >
-        <Languages size={14} className="shrink-0 text-sky-400" />
-        <span className="min-w-0 flex-1 text-[12px] font-semibold text-slate-200">
+        <Languages size={14} className="shrink-0 text-brand" />
+        <span className="min-w-0 flex-1 text-[12px] font-semibold text-body">
           {t('settings.language')}
         </span>
-        <span className="shrink-0 text-[11px] text-slate-400">{LANG_LABEL[lang]}</span>
+        <span className="shrink-0 text-[11px] text-muted">{LANG_LABEL[lang]}</span>
         <ChevronDown
           size={14}
-          className={`shrink-0 text-slate-500 transition-transform duration-200 ${
+          className={`shrink-0 text-subtle transition-transform duration-200 ${
             open ? 'rotate-180' : ''
           }`}
         />
@@ -52,7 +52,7 @@ export default function LanguageAccordion() {
         }`}
       >
         <div className="overflow-hidden">
-          <div className="space-y-1 border-t border-slate-800 p-1.5">
+          <div className="space-y-1 border-t border-line p-1.5">
             {LANGS.map((code) => {
               const active = code === lang;
               return (
@@ -65,12 +65,12 @@ export default function LanguageAccordion() {
                   aria-pressed={active}
                   className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[12px] transition-colors ${
                     active
-                      ? 'bg-sky-500/15 font-semibold text-sky-200'
-                      : 'text-slate-400 active:bg-slate-800'
+                      ? 'bg-sky-500/15 font-semibold text-brand'
+                      : 'text-muted active:bg-press'
                   }`}
                 >
                   <span className="min-w-0 flex-1 truncate">{LANG_LABEL[code]}</span>
-                  {active && <Check size={14} className="shrink-0 text-sky-400" />}
+                  {active && <Check size={14} className="shrink-0 text-brand" />}
                 </button>
               );
             })}

@@ -21,7 +21,9 @@ import type { MetaSnapshot, PullResult } from '../services/metaStore';
 import type { UpdateInfo } from '../services/updateChecker';
 import { mirrorDownloadUrl } from '../services/updateChecker';
 import type { UpdateCheckOutcome } from '../services/webUpdate';
+import type { DarkPalette, ThemeMode } from '../services/themeStore';
 import { openExternal } from '../utils/openExternal';
+import { useTheme } from '../utils/useTheme';
 
 interface SettingsViewProps {
   snapshot: MetaSnapshot;
@@ -43,10 +45,26 @@ const SOURCE_KEY: Record<MetaSnapshot['source'], string> = {
 };
 
 const SOURCE_STYLE: Record<MetaSnapshot['source'], string> = {
-  builtin: 'bg-slate-700/60 text-slate-300',
-  cache: 'bg-sky-500/20 text-sky-300',
+  builtin: 'bg-press/60 text-body',
+  cache: 'bg-sky-500/20 text-brand',
   remote: 'bg-strong/20 text-strong',
 };
+
+/**
+ * 外观模式的三段式选择：深色 / 浅色 / 跟随系统。
+ * 顺序固定——「深色」是默认值，放第一位，用户不用滑到后面找。
+ */
+const THEME_MODES: ReadonlyArray<{ key: ThemeMode; labelKey: string }> = [
+  { key: 'dark', labelKey: 'settings.themeDark' },
+  { key: 'light', labelKey: 'settings.themeLight' },
+  { key: 'system', labelKey: 'settings.themeSystem' },
+];
+
+/** 深色主题色：色标颜色与 index.css 里各主题的 `--c-app` 一致 */
+const DARK_PALETTES: ReadonlyArray<{ key: DarkPalette; labelKey: string; swatch: string }> = [
+  { key: 'oled', labelKey: 'settings.paletteOled', swatch: '#000000' },
+  { key: 'navy', labelKey: 'settings.paletteNavy', swatch: '#020617' },
+];
 
 interface CheckMessage {
   tone: 'ok' | 'warn' | 'error';
@@ -55,16 +73,16 @@ interface CheckMessage {
 
 const CHECK_TONE: Record<CheckMessage['tone'], string> = {
   ok: 'bg-strong/10 text-strong',
-  warn: 'bg-sky-500/10 text-sky-300',
-  error: 'bg-red-500/10 text-red-400',
+  warn: 'bg-sky-500/10 text-brand',
+  error: 'bg-red-500/10 text-danger',
 };
 
 /** 小节标题：一条细线 + 标签，把「数据」与「关于」两块分开 */
 function SectionLabel({ children }: { children: string }) {
   return (
     <div className="mb-2 flex items-center gap-2">
-      <span className="text-[10px] font-semibold tracking-wide text-slate-500">{children}</span>
-      <span className="h-px flex-1 bg-slate-800" />
+      <span className="text-[10px] font-semibold tracking-wide text-subtle">{children}</span>
+      <span className="h-px flex-1 bg-line" />
     </div>
   );
 }
@@ -85,14 +103,14 @@ function LinkRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-2 text-left transition-colors active:bg-slate-800"
+      className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2 text-left shadow-card transition-colors active:bg-press"
     >
-      <span className="shrink-0 text-slate-300">{icon}</span>
+      <span className="shrink-0 text-body">{icon}</span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[12px] font-medium text-slate-200">{title}</span>
-        <span className="block truncate text-[10px] text-slate-500">{subtitle}</span>
+        <span className="block text-[12px] font-medium text-body">{title}</span>
+        <span className="block truncate text-[10px] text-subtle">{subtitle}</span>
       </span>
-      <ExternalLink size={13} className="shrink-0 text-slate-500" />
+      <ExternalLink size={13} className="shrink-0 text-subtle" />
     </button>
   );
 }
@@ -112,6 +130,7 @@ export default function SettingsView({
   onShowUpdate,
 }: SettingsViewProps) {
   const { t, lang, num, tier } = useTranslation();
+  const { mode, darkPalette, setMode, setDarkPalette } = useTheme();
   const [pulling, setPulling] = useState(false);
   const [checking, setChecking] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -185,20 +204,102 @@ export default function SettingsView({
   const showQq = lang === 'zh-CN';
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-slate-950">
+    <div className="flex h-full min-h-0 flex-col bg-app">
       {/* 页头：与选图页同款细边框 + 安全区留白 */}
-      <header className="shrink-0 border-b border-slate-800 px-3 pb-2 pt-2 safe-top">
-        <h1 className="flex items-center gap-1.5 text-[14px] font-semibold text-slate-100">
-          <Settings size={15} className="text-sky-400" />
+      <header className="shrink-0 border-b border-line px-3 pb-2 pt-2 safe-top">
+        <h1 className="flex items-center gap-1.5 text-[14px] font-semibold text-fg">
+          <Settings size={15} className="text-brand" />
           {t('settings.title')}
         </h1>
-        <p className="mt-0.5 text-[10px] leading-tight text-slate-500">
+        <p className="mt-0.5 text-[10px] leading-tight text-subtle">
           {APP_NAME} v{APP_VERSION}
         </p>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-5 pt-3">
-        {/* 语言：放在最顶部，切换后立即全局生效并记住选择 */}
+        {/*
+          外观与主题：放在最顶部——它是「整页长什么样」的开关，
+          比数据与版本信息更常被翻。
+          深色主题色只影响两套深色；浅色模式下列表整体置灰并给出原因。
+        */}
+        <SectionLabel>{t('settings.sectionAppearance')}</SectionLabel>
+
+        <div className="mb-3 rounded-lg border border-line bg-surface p-2.5 shadow-card">
+          <span className="block text-[11.5px] font-semibold text-fg">
+            {t('settings.themeMode')}
+          </span>
+
+          <div
+            className="mt-1.5 grid grid-cols-3 gap-1 rounded-lg bg-app/70 p-0.5"
+            role="radiogroup"
+            aria-label={t('settings.themeMode')}
+          >
+            {THEME_MODES.map(({ key, labelKey }) => {
+              const active = mode === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setMode(key)}
+                  className={`flex h-8 items-center justify-center rounded-md text-[11.5px] transition-colors ${
+                    active
+                      ? 'bg-raised font-semibold text-fg'
+                      : 'text-muted active:bg-press'
+                  }`}
+                >
+                  {t(labelKey)}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-2.5 flex items-baseline justify-between gap-2">
+            <span className="text-[11.5px] font-semibold text-fg">
+              {t('settings.darkPalette')}
+            </span>
+            {mode === 'light' && (
+              <span className="text-[9.5px] leading-none text-subtle">
+                {t('settings.paletteOnlyDark')}
+              </span>
+            )}
+          </div>
+
+          <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+            {DARK_PALETTES.map(({ key, labelKey, swatch }) => {
+              const active = darkPalette === key;
+              const disabled = mode === 'light';
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={active}
+                  aria-label={t(labelKey)}
+                  disabled={disabled}
+                  onClick={() => setDarkPalette(key)}
+                  className={`flex h-9 items-center gap-1.5 rounded-lg border px-2 text-[11px] transition-colors ${
+                    active && !disabled
+                      ? 'border-brand/60 bg-brand/10 font-semibold text-fg'
+                      : 'border-line bg-app/50 text-muted active:bg-press'
+                  } ${disabled ? 'cursor-not-allowed' : ''}`}
+                >
+                  {/* 色标始终满色：它本身就是「这个主题长什么样」的样本，不跟着置灰 */}
+                  <span
+                    className="h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-line-strong"
+                    style={{ backgroundColor: swatch }}
+                    aria-hidden
+                  />
+                  <span className={`min-w-0 truncate ${disabled ? 'opacity-50' : ''}`}>
+                    {t(labelKey)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 语言：切换后立即全局生效并记住选择 */}
         <LanguageAccordion />
 
         {/*
@@ -209,19 +310,19 @@ export default function SettingsView({
         {IS_NATIVE_APP && updateInfo && (
           <div className="mb-3 rounded-lg border border-sky-500/30 bg-sky-500/[0.09] px-2.5 py-2">
             <div className="flex items-start gap-2">
-              <Sparkles size={14} className="mt-0.5 shrink-0 text-sky-400" />
+              <Sparkles size={14} className="mt-0.5 shrink-0 text-brand" />
               <div className="min-w-0 flex-1 leading-tight">
-                <p className="truncate text-[11.5px] font-semibold text-sky-300">
+                <p className="truncate text-[11.5px] font-semibold text-brand">
                   {t('settings.newVersion', { v: updateInfo.version })}
                 </p>
-                <p className="text-[10px] text-sky-400/70">
+                <p className="text-[10px] text-brand/70">
                   {t('update.current', { v: APP_VERSION })}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={onShowUpdate}
-                className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-sky-400/80 active:bg-sky-500/15"
+                className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-brand/80 active:bg-sky-500/15"
               >
                 {t('settings.updateNotes')}
                 <ChevronRight size={12} />
@@ -242,7 +343,7 @@ export default function SettingsView({
                 <button
                   type="button"
                   onClick={() => openExternal(mirrorUrl)}
-                  className="text-[10px] text-slate-400 underline decoration-slate-600 underline-offset-2 active:text-slate-200"
+                  className="text-[10px] text-muted underline decoration-line-strong underline-offset-2 active:text-fg"
                 >
                   {t('update.mirror')}
                 </button>
@@ -254,38 +355,38 @@ export default function SettingsView({
         <SectionLabel>{t('settings.sectionData')}</SectionLabel>
 
         {/* 当前数据状态 */}
-        <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950/60 p-2.5">
+        <div className="mb-3 rounded-lg border border-line bg-surface p-2.5 shadow-card">
           <div className="mb-1.5 flex items-center gap-1.5">
             <span
               className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${SOURCE_STYLE[snapshot.source]}`}
             >
               {t(SOURCE_KEY[snapshot.source])}
             </span>
-            <span className="text-[10px] text-slate-500">
+            <span className="text-[10px] text-subtle">
               {t('settings.updatedAt', { time: formatTime(snapshot.updatedAt) })}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
-            <span className="text-slate-500">
+            <span className="text-subtle">
               {t('settings.dataDate')}{' '}
-              <span className="tabular-nums text-slate-300">
+              <span className="tabular-nums text-body">
                 {snapshot.dataDate ?? t('settings.unknown')}
               </span>
             </span>
-            <span className="text-slate-500">
+            <span className="text-subtle">
               {t('settings.totalBattles')}{' '}
-              <span className="tabular-nums text-slate-300">{num(snapshot.totalBattles)}</span>
+              <span className="tabular-nums text-body">{num(snapshot.totalBattles)}</span>
             </span>
-            <span className="text-slate-500">
-              {t('settings.minTier')} <span className="text-slate-300">{tierText}</span>
+            <span className="text-subtle">
+              {t('settings.minTier')} <span className="text-body">{tierText}</span>
             </span>
-            <span className="text-slate-500">
+            <span className="text-subtle">
               {t('settings.maps')}{' '}
-              <span className="tabular-nums text-slate-300">{snapshot.meta.maps.length}</span>
+              <span className="tabular-nums text-body">{snapshot.meta.maps.length}</span>
             </span>
-            <span className="text-slate-500">
+            <span className="text-subtle">
               {t('settings.brawlers')}{' '}
-              <span className="tabular-nums text-slate-300">{snapshot.meta.brawlers.length}</span>
+              <span className="tabular-nums text-body">{snapshot.meta.brawlers.length}</span>
             </span>
           </div>
         </div>
@@ -304,7 +405,7 @@ export default function SettingsView({
         {message && (
           <p
             className={`mt-2 rounded-lg px-2 py-1.5 text-[11px] leading-snug ${
-              message.ok ? 'bg-strong/10 text-strong' : 'bg-red-500/10 text-red-400'
+              message.ok ? 'bg-strong/10 text-strong' : 'bg-red-500/10 text-danger'
             }`}
           >
             {message.text}
@@ -315,12 +416,12 @@ export default function SettingsView({
         <div className="mt-4">
           <SectionLabel>{t('settings.sectionAbout')}</SectionLabel>
 
-          <div className="mb-2 flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-2">
-            <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
-              <Database size={13} className="text-slate-500" />
+          <div className="mb-2 flex items-center justify-between rounded-lg border border-line bg-surface px-2.5 py-2 shadow-card">
+            <span className="flex items-center gap-1.5 text-[11px] text-muted">
+              <Database size={13} className="text-subtle" />
               {t('settings.currentVersion')}
             </span>
-            <span className="text-[12px] font-semibold tabular-nums text-slate-200">
+            <span className="text-[12px] font-semibold tabular-nums text-body">
               v{APP_VERSION}
             </span>
           </div>
@@ -333,7 +434,7 @@ export default function SettingsView({
             type="button"
             onClick={handleCheckUpdate}
             disabled={checking}
-            className="mb-1.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-800 text-[12px] text-slate-300 active:bg-slate-800 disabled:opacity-60"
+            className="mb-1.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-line text-[12px] text-body active:bg-press disabled:opacity-60"
           >
             <RefreshCw size={13} className={checking ? 'animate-spin' : ''} />
             {checking ? t('settings.checking') : t('settings.checkUpdate')}
@@ -355,7 +456,7 @@ export default function SettingsView({
           />
 
           {/* 合规兜底：英雄头像与（可选的）Fan Kit 音效都属于 Supercell 的玩家内容 */}
-          <p className="mt-2 px-0.5 text-[9.5px] leading-relaxed text-slate-600">
+          <p className="mt-2 px-0.5 text-[9.5px] leading-relaxed text-faint">
             {t('settings.disclaimer')}
           </p>
         </div>
@@ -381,7 +482,7 @@ export default function SettingsView({
             onClick={() => openExternal(DISCORD_INVITE_URL)}
           />
 
-          <p className="mt-3 text-center text-[10px] leading-relaxed text-slate-700">
+          <p className="mt-3 text-center text-[10px] leading-relaxed text-faint">
             {APP_NAME} v{APP_VERSION}
           </p>
         </div>

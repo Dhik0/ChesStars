@@ -186,6 +186,15 @@
 
   "settings.title": "Settings",
   "settings.language": "Language",
+  "settings.sectionAppearance": "Appearance",
+  "settings.themeMode": "Appearance mode",
+  "settings.themeDark": "Dark",
+  "settings.themeLight": "Light",
+  "settings.themeSystem": "System",
+  "settings.darkPalette": "Dark theme color",
+  "settings.paletteOled": "Pure black (OLED)",
+  "settings.paletteNavy": "Classic navy",
+  "settings.paletteOnlyDark": "Dark mode only",
   "settings.sectionData": "Data",
   "settings.sectionAbout": "About",
   "settings.sectionCommunity": "Community",
@@ -284,6 +293,7 @@
   "save.damage": "Damage",
   "save.submit": "Save",
   "save.cancel": "Cancel",
+  "save.close": "Close",
 
   "history.title": "History",
   "history.count": "{n} matches logged",

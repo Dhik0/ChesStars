@@ -1,6 +1,8 @@
 import { ChevronDown, Map as MapIcon } from 'lucide-react';
 import { modeColor } from '../data/localization';
 import { useTranslation } from '../i18n';
+import { themeAccent } from '../utils/display';
+import { useTheme } from '../utils/useTheme';
 import FullscreenToggle from './FullscreenToggle';
 import MapThumb from './MapThumb';
 import ModeIcon from './ModeIcon';
@@ -43,17 +45,19 @@ export default function TopBar({
   variant = 'card',
 }: TopBarProps) {
   const { t, map: mapLabel, mode: modeLabel, num } = useTranslation();
-  const accent = modeColor(mode);
+  const { resolved: theme } = useTheme();
+  // 模式色是按深底挑的，浅色主题下压深一档才读得清
+  const accent = themeAccent(modeColor(mode), theme);
 
   /* ---------------- 横屏：单行紧凑地图条 ---------------- */
   if (variant === 'strip') {
     return (
-      <div className="shrink-0 border-b border-slate-800/70 bg-slate-950/95 px-1.5 pb-1 pt-1 safe-top">
+      <div className="shrink-0 border-b border-line/70 bg-app/95 px-1.5 pb-1 pt-1 safe-top">
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={onOpenMap}
-            className="flex h-[38px] min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 px-1 transition-colors active:bg-slate-800"
+            className="flex h-[38px] min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-line bg-surface/80 px-1 transition-colors active:bg-press"
             aria-label={t('topbar.switchMap')}
           >
             <MapThumb
@@ -63,10 +67,10 @@ export default function TopBar({
               iconSize={13}
               className="h-[30px] w-[30px] shrink-0 rounded"
             />
-            <span className="min-w-0 flex-1 truncate text-[13px] font-bold leading-tight text-slate-50">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-bold leading-tight text-fg">
               {mapLabel(mapName)}
             </span>
-            <span className="h-3.5 w-px shrink-0 bg-slate-700" />
+            <span className="h-3.5 w-px shrink-0 bg-press" />
             <ModeIcon mode={mode} size={13} />
             <span
               className="max-w-[68px] shrink-0 truncate text-[10.5px] font-semibold leading-tight"
@@ -74,7 +78,7 @@ export default function TopBar({
             >
               {modeLabel(mode)}
             </span>
-            <ChevronDown size={12} className="shrink-0 text-slate-500" />
+            <ChevronDown size={12} className="shrink-0 text-subtle" />
           </button>
           {/* 全屏横屏开关：贴在单行地图条右端，不占用地图条本身的宽度分配 */}
           <FullscreenToggle />
@@ -86,7 +90,7 @@ export default function TopBar({
   /* ---------------- 竖屏：完整详情卡（随列表滚动） ---------------- */
   return (
     <div className="shrink-0 px-2 pb-1.5 pt-1.5 safe-top">
-      <div className="relative h-[160px] rounded-xl border border-slate-800 bg-slate-900/80 p-1.5">
+      <div className="relative h-[160px] rounded-xl border border-line bg-surface/80 p-1.5 shadow-card">
         <button
           type="button"
           onClick={onOpenMap}
@@ -104,10 +108,10 @@ export default function TopBar({
 
           {/* 右侧：名称 / 模式 / 样本量 / 门槛（底部留出换图按钮的位置） */}
           <span className="flex min-w-0 flex-1 flex-col pb-11 pr-1 pt-0.5">
-            <span className="truncate text-[17px] font-bold leading-tight text-slate-50">
+            <span className="truncate text-[17px] font-bold leading-tight text-fg">
               {mapLabel(mapName)}
             </span>
-            <span className="mt-0.5 truncate text-[10.5px] leading-tight text-slate-500">
+            <span className="mt-0.5 truncate text-[10.5px] leading-tight text-subtle">
               {mapName}
             </span>
 
@@ -122,16 +126,16 @@ export default function TopBar({
             </span>
 
             <span className="mt-1.5 flex flex-wrap items-center gap-1">
-              <span className="text-[10.5px] font-medium tabular-nums text-slate-300">
+              <span className="text-[10.5px] font-medium tabular-nums text-body">
                 {t('common.games', { n: num(mapGames) })}
               </span>
-              <span className="text-[9px] text-slate-600">·</span>
-              <span className="rounded bg-slate-800 px-1 py-px text-[9.5px] font-medium leading-tight text-slate-400">
+              <span className="text-[9px] text-faint">·</span>
+              <span className="rounded bg-raised px-1 py-px text-[9.5px] font-medium leading-tight text-muted">
                 {tierLabel}
               </span>
               {dataDate && (
                 <span
-                  className="rounded bg-slate-800/60 px-1 py-px text-[9.5px] font-medium leading-tight tabular-nums text-slate-500"
+                  className="rounded bg-raised/60 px-1 py-px text-[9.5px] font-medium leading-tight tabular-nums text-subtle"
                   title={t('topbar.dataDate')}
                 >
                   {dataDate}
@@ -147,7 +151,7 @@ export default function TopBar({
           <button
             type="button"
             onClick={onOpenMap}
-            className="flex h-9 items-center gap-1.5 rounded-lg border border-sky-500/45 bg-sky-500/15 px-3 text-[12px] font-semibold text-sky-200 transition-colors active:border-sky-400 active:bg-sky-500/30 active:text-white"
+            className="flex h-9 items-center gap-1.5 rounded-lg border border-sky-500/45 bg-sky-500/15 px-3 text-[12px] font-semibold text-brand transition-colors active:border-sky-400 active:bg-sky-500/30 active:text-brand"
             aria-label={t('topbar.switchMap')}
           >
             <MapIcon size={14} />

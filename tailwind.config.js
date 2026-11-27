@@ -4,11 +4,35 @@ export default {
   theme: {
     extend: {
       colors: {
-        // 电竞高对比配色
-        ally: '#3B82F6',
-        enemy: '#EF4444',
+        /*
+         * 语义色板：全部指向 index.css 里的 `--c-*` 变量，
+         * 由 `<html data-theme="oled | navy | light">` 切换取值。
+         * 用 `rgb(var(--x) / <alpha-value>)` 是为了保留 `/60` 这类透明度写法。
+         */
+        app: 'rgb(var(--c-app) / <alpha-value>)',
+        surface: 'rgb(var(--c-surface) / <alpha-value>)',
+        raised: 'rgb(var(--c-raised) / <alpha-value>)',
+        press: 'rgb(var(--c-press) / <alpha-value>)',
+        line: 'rgb(var(--c-line) / <alpha-value>)',
+        'line-strong': 'rgb(var(--c-line-strong) / <alpha-value>)',
+
+        fg: 'rgb(var(--c-fg) / <alpha-value>)',
+        body: 'rgb(var(--c-body) / <alpha-value>)',
+        muted: 'rgb(var(--c-muted) / <alpha-value>)',
+        subtle: 'rgb(var(--c-subtle) / <alpha-value>)',
+        faint: 'rgb(var(--c-faint) / <alpha-value>)',
+
+        brand: 'rgb(var(--c-brand) / <alpha-value>)',
+        gold: 'rgb(var(--c-gold) / <alpha-value>)',
+        brilliant: 'rgb(var(--c-brilliant) / <alpha-value>)',
+        mark: 'rgb(var(--c-mark) / <alpha-value>)',
+
+        // 电竞高对比配色（阵营色随主题走，浅色下会压深一档）
+        ally: 'rgb(var(--c-ally) / <alpha-value>)',
+        enemy: 'rgb(var(--c-enemy) / <alpha-value>)',
         ban: '#71717A',
-        strong: '#22C55E',
+        strong: 'rgb(var(--c-strong) / <alpha-value>)',
+        danger: 'rgb(var(--c-danger) / <alpha-value>)',
         ink: '#0B0F19',
       },
       fontFamily: {

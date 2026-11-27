@@ -4,6 +4,7 @@ import { counterLight } from '../utils/draftEngine';
 import type { PickOrder } from '../types/meta';
 import type { Translator } from '../i18n/translate';
 import type { Lang } from '../i18n/langs';
+import type { ResolvedTheme } from '../services/themeStore';
 
 /**
  * 展示层共用的小映射：克制色条配色、顺位标签、基础分配色。
@@ -27,7 +28,7 @@ export const COUNTER_LIGHT_CLASS: Record<CounterLight, string> = {
   good: 'bg-green-500',
   bad: 'bg-red-500',
   even: 'bg-amber-400',
-  none: 'bg-slate-700',
+  none: 'bg-press',
 };
 
 /** 色条档位 → 词条 key（优势 / 劣势 / 均势 / 无对位） */
@@ -97,8 +98,8 @@ export interface OrderTagStyle {
  * 后手统一叫「后手」，不再用「C位」这种黑话。
  */
 export function orderTag(order: PickOrder): OrderTagStyle | null {
-  if (order === 'FIRST') return { key: 'order.first', cls: 'bg-sky-500/20 text-sky-300' };
-  if (order === 'LAST') return { key: 'order.last', cls: 'bg-violet-500/20 text-violet-300' };
+  if (order === 'FIRST') return { key: 'order.first', cls: 'bg-brand/20 text-brand' };
+  if (order === 'LAST') return { key: 'order.last', cls: 'bg-mark/20 text-mark' };
   return null;
 }
 
@@ -116,9 +117,9 @@ export function orderTag(order: PickOrder): OrderTagStyle | null {
  */
 export function baseScoreColor(score: number): string {
   if (score >= 65) return 'text-strong';
-  if (score >= 55) return 'text-sky-400';
-  if (score >= 40) return 'text-slate-200';
-  return 'text-slate-500';
+  if (score >= 55) return 'text-brand';
+  if (score >= 40) return 'text-body';
+  return 'text-subtle';
 }
 
 /**
@@ -180,15 +181,39 @@ export function formatBigNumber(value: number | null, lang: Lang): string {
 }
 
 /**
+ * 强调色在浅色主题下的换算：按比例向黑色混合。
+ *
+ * 游戏给的档位色（稀有度、模式、职业）都是按深底挑的高饱和色——
+ * 传奇 `#FFF11E`、赏金 `#F59E0B` 这类直接放到 `#f4f6f9` 上会亮到看不清。
+ * 浅色主题统一压深（保留色相、档位仍可区分），深色主题原样返回。
+ */
+export function themeAccent(color: string, theme: ResolvedTheme): string {
+  if (theme !== 'light') return color;
+  const hex = color.replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return color;
+  const scale = 0.42;
+  const channels = [0, 2, 4].map((i) =>
+    Math.round(parseInt(hex.slice(i, i + 2), 16) * scale)
+      .toString(16)
+      .padStart(2, '0'),
+  );
+  return `#${channels.join('')}`;
+}
+
+/**
  * 稀有度分区卡片的配色。
  *
  * 只做一件事：把档位色压成一层**平涂**底色 + 一圈同色描边。
- * 原来的 10% 底色 + 20% 描边在 slate-950 上几乎分不出档位，这里各加一档到
+ * 原来的 10% 底色 + 20% 描边在深色底上几乎分不出档位，这里各加一档到
  * 14% / 30%，不叠渐变、不叠高光——保持全局的扁平卡片语言。
+ *
+ * 浅色主题下先按 `rarityAccentColor` 压深再算透明度，
+ * 否则高亮档位（传奇黄 / 初始绿）在近白底上会糊成一片。
  */
-export function raritySectionStyle(color: string): CSSProperties {
+export function raritySectionStyle(color: string, theme: ResolvedTheme): CSSProperties {
+  const base = themeAccent(color, theme);
   return {
-    backgroundColor: `${color}24`,
-    borderColor: `${color}4D`,
+    backgroundColor: `${base}${theme === 'light' ? '1F' : '24'}`,
+    borderColor: `${base}${theme === 'light' ? '59' : '4D'}`,
   };
 }

@@ -38,7 +38,7 @@ function formatTime(ts: number, lang: Lang): string {
 function OverviewCell({
   label,
   value,
-  accent = 'text-slate-100',
+  accent = 'text-fg',
 }: {
   label: string;
   value: string;
@@ -46,7 +46,7 @@ function OverviewCell({
 }) {
   return (
     <div className="flex min-w-0 flex-col items-center gap-0.5">
-      <span className="truncate text-[9px] text-slate-500">{label}</span>
+      <span className="truncate text-[9px] text-subtle">{label}</span>
       <span className={`text-[15px] font-bold leading-none tabular-nums ${accent}`}>{value}</span>
     </div>
   );
@@ -80,8 +80,8 @@ function MatchCard({
   const resultCls = win
     ? 'bg-strong/15 text-strong ring-1 ring-strong/30'
     : loss
-      ? 'bg-red-500/15 text-red-400 ring-1 ring-red-500/30'
-      : 'bg-slate-700/40 text-slate-400 ring-1 ring-slate-600/40';
+      ? 'bg-red-500/15 text-danger ring-1 ring-red-500/30'
+      : 'bg-press/40 text-muted ring-1 ring-line-strong/40';
 
   /** 英雄 ID 字符串 → 头像 / 译名所需信息（数据里查不到时用 #id 兜底） */
   const heroOf = (brawlerId: string) => {
@@ -110,14 +110,14 @@ function MatchCard({
   const markedHero = marked ? heroOf(marked.brawlerId) : null;
 
   return (
-    <article className="rounded-lg border border-slate-800 bg-slate-900/50 p-2">
+    <article className="rounded-lg border border-line bg-surface/50 p-2 shadow-card">
       {/* 地图 + 模式 + 时间 */}
       <div className="flex items-center gap-1.5">
         <ModeIcon mode={record.mode} size={14} />
-        <h3 className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-slate-100">
+        <h3 className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-fg">
           {mapLabel(record.mapId)}
         </h3>
-        <span className="shrink-0 text-[9.5px] tabular-nums text-slate-600">
+        <span className="shrink-0 text-[9.5px] tabular-nums text-faint">
           {formatTime(record.createdAt, lang)}
         </span>
       </div>
@@ -130,7 +130,7 @@ function MatchCard({
           {resultLabel}
           {record.score ? ` ${record.score}` : ''}
         </span>
-        <span className="min-w-0 truncate text-[9.5px] text-slate-500">{modeLabel(record.mode)}</span>
+        <span className="min-w-0 truncate text-[9.5px] text-subtle">{modeLabel(record.mode)}</span>
       </div>
 
       {/* 我方 3 头像 vs 敌方 3 头像 */}
@@ -149,7 +149,7 @@ function MatchCard({
             );
           })}
         </div>
-        <span className="shrink-0 px-0.5 text-[9px] font-bold text-slate-600">VS</span>
+        <span className="shrink-0 px-0.5 text-[9px] font-bold text-faint">VS</span>
         <div className="flex items-center gap-0.5">
           {record.enemyPicks.map((pick, i) => {
             const hero = heroOf(pick.brawlerId);
@@ -170,14 +170,14 @@ function MatchCard({
       {markedHasData && marked && markedHero && (
         <div className="mt-1.5 flex items-center gap-1 text-[10px] leading-none">
           {selfMarked ? (
-            <span className="shrink-0 rounded bg-sky-500/15 px-1 py-0.5 text-[9px] font-semibold text-sky-300">
+            <span className="shrink-0 rounded bg-sky-500/15 px-1 py-0.5 text-[9px] font-semibold text-brand">
               {t('history.selfTag')}
             </span>
           ) : (
             <>
-              <Crown size={10} className="shrink-0 text-amber-400" />
+              <Crown size={10} className="shrink-0 text-gold" />
               {markedFromEnemy && (
-                <span className="shrink-0 rounded bg-red-500/15 px-1 py-0.5 text-[9px] font-semibold text-red-300">
+                <span className="shrink-0 rounded bg-red-500/15 px-1 py-0.5 text-[9px] font-semibold text-danger">
                   {t('history.enemyTag')}
                 </span>
               )}
@@ -185,12 +185,12 @@ function MatchCard({
           )}
           <span
             className={`min-w-0 truncate font-medium ${
-              markedFromEnemy ? 'text-red-200/90' : 'text-slate-300'
+              markedFromEnemy ? 'text-danger/90' : 'text-body'
             }`}
           >
             {markedHero.label}
           </span>
-          <span className="shrink-0 tabular-nums text-slate-500">
+          <span className="shrink-0 tabular-nums text-subtle">
             {t('history.statLine', {
               k: marked.kills ?? t('history.unknown'),
               d: marked.deaths ?? t('history.unknown'),
@@ -204,10 +204,10 @@ function MatchCard({
       {confirming ? (
         <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-red-500/10 px-2 py-1.5">
           <span className="min-w-0 flex-1 leading-tight">
-            <span className="block text-[11px] font-semibold text-red-300">
+            <span className="block text-[11px] font-semibold text-danger">
               {t('history.deleteTitle')}
             </span>
-            <span className="block text-[9.5px] text-red-400/70">{t('history.deleteHint')}</span>
+            <span className="block text-[9.5px] text-danger/70">{t('history.deleteHint')}</span>
           </span>
           <button
             type="button"
@@ -219,7 +219,7 @@ function MatchCard({
           <button
             type="button"
             onClick={() => setConfirming(false)}
-            className="h-7 shrink-0 rounded-md px-2 text-[11px] text-slate-400 active:bg-slate-800"
+            className="h-7 shrink-0 rounded-md px-2 text-[11px] text-muted active:bg-press"
           >
             {t('history.deleteCancel')}
           </button>
@@ -233,7 +233,7 @@ function MatchCard({
               unlockSfx();
               onReview(record);
             }}
-            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-sky-500/40 bg-sky-500/10 text-[11px] font-semibold text-sky-300 transition-colors active:bg-sky-500/20"
+            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-sky-500/40 bg-sky-500/10 text-[11px] font-semibold text-brand transition-colors active:bg-sky-500/20"
           >
             <BarChart3 size={11} />
             {t('review.cta')}
@@ -241,7 +241,7 @@ function MatchCard({
           <button
             type="button"
             onClick={() => onEdit(record)}
-            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-800 text-[11px] font-medium text-slate-300 transition-colors active:bg-slate-800"
+            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-line text-[11px] font-medium text-body transition-colors active:bg-press"
           >
             <Pencil size={11} />
             {record.result === 'pending' ? t('history.record') : t('history.edit')}
@@ -249,7 +249,7 @@ function MatchCard({
           <button
             type="button"
             onClick={() => setConfirming(true)}
-            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-800 text-[11px] font-medium text-slate-500 transition-colors active:bg-slate-800"
+            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-line text-[11px] font-medium text-subtle transition-colors active:bg-press"
           >
             <Trash2 size={11} />
             {t('history.delete')}
@@ -278,15 +278,15 @@ export default function HistoryView({
   const summary = summarizeHistory(records);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-slate-950 animate-fade-in">
-      <header className="shrink-0 border-b border-slate-800 px-3 pb-2 pt-2 safe-top">
+    <div className="flex h-full min-h-0 flex-col bg-app animate-fade-in">
+      <header className="shrink-0 border-b border-line px-3 pb-2 pt-2 safe-top">
         {/* 横屏时内容区限宽居中，页头跟着一起收，避免标题贴在屏幕最左 */}
         <div className="mx-auto flex w-full max-w-[640px] items-baseline justify-between gap-2">
-          <h1 className="flex items-center gap-1.5 text-[14px] font-semibold text-slate-100">
-            <HistoryIcon size={15} className="text-sky-400" />
+          <h1 className="flex items-center gap-1.5 text-[14px] font-semibold text-fg">
+            <HistoryIcon size={15} className="text-brand" />
             {t('history.title')}
           </h1>
-          <span className="shrink-0 text-[10px] tabular-nums text-slate-500">
+          <span className="shrink-0 text-[10px] tabular-nums text-subtle">
             {t('history.count', { n: summary.total })}
           </span>
         </div>
@@ -295,7 +295,7 @@ export default function HistoryView({
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-5 pt-2.5">
         <div className="mx-auto flex w-full max-w-[640px] flex-col">
           {/* 概览条 */}
-          <div className="grid grid-cols-3 gap-1.5 rounded-lg border border-slate-800 bg-slate-950/60 px-2 py-2">
+          <div className="grid grid-cols-3 gap-1.5 rounded-lg border border-line bg-surface px-2 py-2 shadow-card">
             <OverviewCell label={t('history.statTotal')} value={String(summary.total)} />
             <OverviewCell
               label={t('history.statWinRate')}
@@ -308,21 +308,21 @@ export default function HistoryView({
             <OverviewCell
               label={t('history.statPending')}
               value={String(summary.pending)}
-              accent={summary.pending > 0 ? 'text-amber-300' : 'text-slate-100'}
+              accent={summary.pending > 0 ? 'text-gold' : 'text-fg'}
             />
           </div>
 
           {summary.pending > 0 && (
-            <p className="mt-1.5 text-[10px] leading-snug text-amber-400/80">
+            <p className="mt-1.5 text-[10px] leading-snug text-gold/80">
               {t('history.pendingHint', { n: summary.pending })}
             </p>
           )}
 
           {records.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 px-6 py-14 text-center">
-              <HistoryIcon size={22} className="text-slate-700" />
-              <p className="text-[13px] font-semibold text-slate-300">{t('history.emptyTitle')}</p>
-              <p className="max-w-[300px] text-[11px] leading-relaxed text-slate-500">
+              <HistoryIcon size={22} className="text-faint" />
+              <p className="text-[13px] font-semibold text-body">{t('history.emptyTitle')}</p>
+              <p className="max-w-[300px] text-[11px] leading-relaxed text-subtle">
                 {t('history.emptyDesc')}
               </p>
               <button

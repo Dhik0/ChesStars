@@ -186,6 +186,15 @@
 
   "settings.title": "設定",
   "settings.language": "語言",
+  "settings.sectionAppearance": "外觀",
+  "settings.themeMode": "外觀模式",
+  "settings.themeDark": "深色",
+  "settings.themeLight": "淺色",
+  "settings.themeSystem": "跟隨系統",
+  "settings.darkPalette": "深色主題色",
+  "settings.paletteOled": "純黑（OLED）",
+  "settings.paletteNavy": "經典深藍",
+  "settings.paletteOnlyDark": "僅深色模式下生效",
   "settings.sectionData": "資料",
   "settings.sectionAbout": "關於",
   "settings.sectionCommunity": "社群",
@@ -284,6 +293,7 @@
   "save.damage": "傷害",
   "save.submit": "儲存",
   "save.cancel": "取消",
+  "save.close": "關閉",
 
   "history.title": "戰績",
   "history.count": "已記錄 {n} 場",

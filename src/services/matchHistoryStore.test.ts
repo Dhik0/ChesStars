@@ -686,3 +686,139 @@ describe('V1 指标迁移', () => {
     }
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * 11. 回归：扩展指标（治疗 / 承伤 / 模式指标）不得在读写链路里丢失
+ * ------------------------------------------------------------------ */
+
+describe('扩展指标读写回归', () => {
+  /** 一局 V1 形态的完整记录：6 项指标齐全（金库模式，第 5 项按万录入） */
+  const fullRecord = (): MatchRecord => {
+    const record = baseRecord();
+    return {
+      ...record,
+      mapId: 'Hot Potato',
+      mode: 'heist',
+      result: 'win',
+      score: '2:0',
+      allyStats: record.allyStats.map((stat, i) => ({
+        ...stat,
+        kills: 8 + i,
+        deaths: 2,
+        damage: 24000 + i,
+        healing: 6000 + i,
+        damageTaken: 62000 + i,
+        objectiveValue: 26000 + i,
+      })),
+      enemyStats: record.enemyStats.map((stat, i) => ({
+        ...stat,
+        kills: 5 + i,
+        deaths: 6,
+        damage: 30000 + i,
+        healing: 0,
+        damageTaken: 28000 + i,
+        objectiveValue: 9000 + i,
+      })),
+    };
+  };
+
+  const fieldsOf = (stat: {
+    healing: number | null;
+    damageTaken: number | null;
+    objectiveValue: number | null;
+  }) => [stat.healing, stat.damageTaken, stat.objectiveValue];
+
+  it('完整 6 项指标：读 → 写 → 再读，三项一个都不丢', () => {
+    const record = fullRecord();
+    const data = installFakeStorage();
+    data.set(
+      MATCH_HISTORY_STORAGE_KEY,
+      JSON.stringify({ schemaVersion: MATCH_HISTORY_SCHEMA_VERSION, records: [record] }),
+    );
+
+    const loaded = loadMatchHistory();
+    expect(loaded).toHaveLength(1);
+    expect(fieldsOf(loaded[0]!.allyStats[0]!)).toEqual([6000, 62000, 26000]);
+    expect(fieldsOf(loaded[0]!.enemyStats[0]!)).toEqual([0, 28000, 9000]);
+
+    // 模拟 App 启动时的整体回写（useMatchHistory 挂载即写一次）
+    writeMatchHistory(loaded);
+    const again = loadMatchHistory();
+    expect(fieldsOf(again[0]!.allyStats[0]!)).toEqual([6000, 62000, 26000]);
+    expect(fieldsOf(again[0]!.allyStats[2]!)).toEqual([6002, 62002, 26002]);
+    expect(fieldsOf(again[0]!.enemyStats[2]!)).toEqual([0, 28002, 9002]);
+  });
+
+  it('只改比分的编辑保存不会清空三项扩展指标', () => {
+    installFakeStorage();
+    writeMatchHistory([fullRecord()]);
+    const [stored] = loadMatchHistory();
+
+    const [updated] = updateMatch([stored!], stored!.id, { score: '2:1', result: 'win' });
+    writeMatchHistory([updated!]);
+
+    const [reloaded] = loadMatchHistory();
+    expect(reloaded!.score).toBe('2:1');
+    expect(fieldsOf(reloaded!.allyStats[0]!)).toEqual([6000, 62000, 26000]);
+    expect(fieldsOf(reloaded!.enemyStats[0]!)).toEqual([0, 28000, 9000]);
+  });
+
+  it('历史别名（heal / tanking / objective）读取时归一化到标准键', () => {
+    const record = fullRecord();
+    const legacy = {
+      ...record,
+      allyStats: record.allyStats.map((stat) => {
+        const { healing, damageTaken, objectiveValue, ...rest } = stat;
+        return { ...rest, heal: healing, tanking: damageTaken, objective: objectiveValue };
+      }),
+    };
+
+    const normalized = normalizeMatchRecord(legacy)!;
+    expect(fieldsOf(normalized.allyStats[0]!)).toEqual([6000, 62000, 26000]);
+    expect(normalized.allyStats[0]).not.toHaveProperty('heal');
+  });
+
+  it('「万」输入框原文被直接落盘（小数文本）时按 ×10000 还原', () => {
+    const record = fullRecord();
+    const dirty = {
+      ...record,
+      allyStats: record.allyStats.map((stat) => ({
+        ...stat,
+        healing: '0.6',
+        damageTaken: '6.2',
+        objectiveValue: '2.6',
+      })),
+    };
+
+    const normalized = normalizeMatchRecord(dirty)!;
+    expect(fieldsOf(normalized.allyStats[0]!)).toEqual([6000, 62000, 26000]);
+  });
+
+  it('非金库模式的第 5 项按整数解析，不受万单位影响', () => {
+    const record = { ...fullRecord(), mapId: 'Gem Fort', mode: 'gemGrab' };
+    const normalized = normalizeMatchRecord({
+      ...record,
+      allyStats: record.allyStats.map((stat) => ({ ...stat, objectiveValue: 7 })),
+    })!;
+    expect(normalized.allyStats[0]!.objectiveValue).toBe(7);
+  });
+
+  it('旧记录缺少这三项时仍然读得出来（不会因此整条丢弃）', () => {
+    const record = fullRecord();
+    const legacy = {
+      ...record,
+      allyStats: record.allyStats.map((stat) => {
+        const copy = { ...stat } as Record<string, unknown>;
+        delete copy.healing;
+        delete copy.damageTaken;
+        delete copy.objectiveValue;
+        return copy;
+      }),
+    };
+
+    const normalized = normalizeMatchRecord(legacy)!;
+    expect(normalized.allyStats).toHaveLength(3);
+    expect(normalized.allyStats[0]!.kills).toBe(8);
+    expect(fieldsOf(normalized.allyStats[0]!)).toEqual([null, null, null]);
+  });
+});
