@@ -38,19 +38,24 @@
     color-scheme: dark;
 
     --c-app: 0 0 0;
-    --c-surface: 10 10 10;
-    --c-raised: 20 20 20;
-    --c-press: 31 31 31;
-    --c-line: 34 34 34;
-    --c-line-strong: 46 46 46;
+    /* 卡片灰阶：#1C1C1E 与纯黑底板拉开一整档明度，靠块面对比分层，不再靠描边 */
+    --c-surface: 28 28 30;
+    --c-card: 28 28 30;
+    /* 二级胶囊 / 内嵌底色：#222427，与卡片之间还有一级可辨的台阶 */
+    --c-raised: 34 36 39;
+    --c-press: 46 48 52;
+    --c-line: 34 36 39;
+    --c-line-strong: 56 58 62;
 
-    --c-fg: 245 245 245;
+    /* #F0F0F3：柔和白，标题与列表项不再被纯白压得太狠 */
+    --c-fg: 240 240 243;
     --c-body: 212 212 212;
     --c-muted: 163 163 163;
     --c-subtle: 138 138 138;
-    --c-faint: 107 107 107;
+    /* 承载信息的脚注也要过 WCAG AA：卡片底上 4.8:1（旧值 #6B6B6B 只有 3.19:1） */
+    --c-faint: 136 136 136;
 
-    --c-brand: 56 189 248;
+    --c-brand: 91 141 239;
     --c-strong: 34 197 94;
     --c-danger: 248 113 113;
     --c-gold: 252 211 77;
@@ -85,19 +90,21 @@
     color-scheme: dark;
 
     --c-app: 2 6 23;
-    --c-surface: 15 23 42;
-    --c-raised: 30 41 59;
-    --c-press: 51 65 85;
-    --c-line: 30 41 59;
-    --c-line-strong: 51 65 85;
+    --c-surface: 24 33 54;
+    --c-card: 24 33 54;
+    --c-raised: 38 49 72;
+    --c-press: 51 65 90;
+    --c-line: 38 49 72;
+    --c-line-strong: 62 76 102;
 
-    --c-fg: 241 245 249;
+    --c-fg: 240 240 243;
     --c-body: 203 213 225;
-    --c-muted: 148 163 184;
-    --c-subtle: 100 116 139;
-    --c-faint: 71 85 105;
+    /* 深蓝卡片底上重新拉开 muted > subtle > faint 三档，三档都过 4.5:1 */
+    --c-muted: 170 182 199;
+    --c-subtle: 148 163 184;
+    --c-faint: 132 147 170;
 
-    --c-brand: 56 189 248;
+    --c-brand: 91 141 239;
     --c-strong: 34 197 94;
     --c-danger: 248 113 113;
     --c-gold: 252 211 77;
@@ -116,6 +123,7 @@
 
     --c-app: 244 246 249;
     --c-surface: 255 255 255;
+    --c-card: 255 255 255;
     --c-raised: 238 242 246;
     --c-press: 226 232 240;
     --c-line: 219 226 234;
@@ -125,9 +133,10 @@
     --c-body: 51 65 85;
     --c-muted: 71 85 105;
     --c-subtle: 100 116 139;
-    --c-faint: 148 163 184;
+    /* 白底脚注从 #94A3B8（2.56:1）压深到 4.96:1，仍比 subtle 浅一档 */
+    --c-faint: 106 112 126;
 
-    --c-brand: 3 105 161;
+    --c-brand: 37 99 235;
     --c-strong: 21 128 61;
     --c-danger: 185 28 28;
     --c-gold: 180 83 9;
@@ -138,6 +147,187 @@
     --c-enemy: 220 38 38;
 
     --shadow-card: 0 1px 2px rgb(15 23 42 / 0.06), 0 2px 6px -2px rgb(15 23 42 / 0.08);
+  }
+
+  /*
+   * 深色两套：卡片只留一道极弱的顶边微光；行内分割线、底栏顶边同样是低对比白。
+   * 浅色主题反过来用极弱的墨色，否则白线在白底上等于不存在。
+   */
+  :root,
+  [data-theme='oled'],
+  [data-theme='navy'] {
+    --card-top: rgba(255, 255, 255, 0.05);
+    --row-divider: rgba(255, 255, 255, 0.06);
+    --nav-line: rgba(255, 255, 255, 0.06);
+    --switch-thumb: #ffffff;
+    --switch-off: #4a4a4e;
+    /* 深色主题的强调色都是亮色，实心按钮上必须配深色文字 */
+    --accent-on: #0d1117;
+  }
+
+  /* 纯黑 OLED：顶边微光压到 3%，卡片块面自己说话 */
+  :root,
+  [data-theme='oled'] {
+    --card-top: rgba(255, 255, 255, 0.03);
+  }
+
+  [data-theme='light'] {
+    --card-top: rgba(15, 23, 42, 0.045);
+    --row-divider: rgba(15, 23, 42, 0.07);
+    --nav-line: rgba(15, 23, 42, 0.08);
+    --switch-thumb: #ffffff;
+    --switch-off: #d1d1d6;
+    /* 浅色主题会把强调色压深，实心按钮换回白字 */
+    --accent-on: #ffffff;
+  }
+
+  /*
+   * ------------------------------------------------------------------ *
+   * 派生 Token：卡片表面 / 强调色（Monet 色彩微染）
+   * ------------------------------------------------------------------ *
+   *
+   *   --c-card       卡片灰阶（三套主题各自定义，永远是中性色）
+   *   --card-bg      卡片实际底色：
+   *                    微染关闭 = --c-card 原样（纯黑主题下就是中性灰）
+   *                    微染开启 = 与强调色 color-mix 后的一层同色系灰
+   *   --accent-rgb   强调色通道；微染关闭时直接引用主题自带的 --c-brand
+   *   --accent       强调色实体色（选中开关 / 勾选图标 / 微染开启时的标题与图标）
+   *   --radius-card  卡片圆角，统一 18px
+   *
+   * 组件只写 `.card` / `.section-label` / `.text-accent`，不关心当前是不是微染模式。
+   */
+  :root {
+    --radius-card: 18px;
+    --radius-card-lg: 28px;
+
+    /* 自定义色的透明度：预设色固定 1，调色盘可把它降到 0 */
+    --accent-alpha: 1;
+    --accent-rgb: var(--c-brand);
+    --accent: rgb(var(--accent-rgb) / var(--accent-alpha));
+
+    /* 页面主背景：微染关闭时严格等于 --c-app（纯黑 / 纯浅灰），老 WebView 也看得懂 */
+    --app-bg: rgb(var(--c-app));
+
+    --card-bg: rgb(var(--c-card));
+  }
+
+  /*
+   * 微染关闭时严格单色：深色与浅色都走黑白灰，只有悬浮选单选中字 / 激活开关
+   * 这类小面积焦点才保留蓝色。浅色下分组 #6E6E73、图标 #1C1C1E，
+   * 在白卡片上仍然清楚，不需要靠强调色撑对比度。
+   */
+  :root:not([data-theme='light']) {
+    --section-label-fg: #8e8e93;
+    --list-icon-fg: #e5e5ea;
+    /* 微染关闭：全局强调色回到原生系统蓝 #5B8DEF */
+    --accent-soft: rgba(91, 141, 239, 0.16);
+    --accent-on: #ffffff;
+    /* 外观子页选中控件：深色走中性抬升，不铺大面积蓝 */
+    --control-selected-bg: #2c2c2e;
+    --control-selected-fg: #f2f2f7;
+    --control-selected-shadow: none;
+    /* 语言悬浮选单：深色 #242426 + 外层柔和投影，选中态用原生系统蓝 */
+    --menu-bg: #242426;
+    --menu-filter: drop-shadow(0 12px 28px rgb(0 0 0 / 0.45));
+    --menu-selected-fg: #5b8def;
+  }
+  [data-theme='light'] {
+    --section-label-fg: #6e6e73;
+    --list-icon-fg: #1c1c1e;
+    --accent-soft: rgba(37, 99, 235, 0.12);
+    --control-selected-bg: #ffffff;
+    --control-selected-fg: rgb(var(--c-fg));
+    --control-selected-shadow:
+      0 1px 2px rgb(15 23 42 / 0.08), 0 2px 6px -2px rgb(15 23 42 / 0.1);
+    --menu-bg: #ffffff;
+    --menu-filter: drop-shadow(0 10px 24px rgb(15 23 42 / 0.18));
+    --menu-selected-fg: #2563eb;
+  }
+
+  /*
+   * 微染：页面底板掺 5%，卡片面掺 9%——卡片始终比底板亮一档，层级靠明度差不靠描边。
+   * 两行同属性是有意为之——老 WebView 不认识 color-mix 时保留第一行的中性色，
+   * 不会因为一条解析失败的声明变成透明。
+   */
+  /*
+   * 特异性必须压过上面的「微染关闭」中性块 (:root:not([data-theme='light']) = 0,2,0)，
+   * 否则 --menu-selected-fg / --section-label-fg 会被上游同优先级规则按源码顺序锁死在
+   * 系统蓝，微染开了选中项也不变色。这里用 :root[data-monet='on'] 同为 0,2,0，
+   * 靠写在后面取胜；挂在 body 的 Portal 浮层同样 inherits 到这些变量。
+   */
+  :root[data-monet='on'] {
+    /* 深色底板：纯黑 95% + 强调色 5% */
+    --app-bg: rgb(var(--c-app));
+    --app-bg: color-mix(in srgb, rgb(var(--c-app)) 95%, rgb(var(--accent-rgb)) 5%);
+    --card-bg: rgb(var(--c-card));
+    --card-bg: color-mix(in srgb, rgb(var(--c-card)) 91%, rgb(var(--accent-rgb)) 9%);
+    /* 语言悬浮选单：中性灰兜底 + 8% 同色系微染，关闭微染时仍是纯 #242426 */
+    --menu-bg: #242426;
+    --menu-bg: color-mix(in srgb, #242426 92%, rgb(var(--accent-rgb)) 8%);
+    /* 粉彩底上必须用深色文字，禁止高饱和色块配白字 */
+    --accent-on: #101319;
+    --switch-thumb: #101319;
+    /* 微染开启时标题、图标与语言选单选中态才回到强调色 */
+    --section-label-fg: var(--accent);
+    --list-icon-fg: var(--accent);
+    --menu-selected-fg: var(--accent);
+    --accent-soft: rgb(var(--accent-rgb) / 0.16);
+    --control-selected-bg: var(--accent-soft);
+    --control-selected-fg: var(--accent);
+    --control-selected-shadow: none;
+  }
+
+  /* 强调色预设：只在微染开启时接管 --accent-rgb，关闭时一律回到主题自带系统蓝 */
+  [data-monet='on'][data-accent='mint'] {
+    --accent-rgb: 124 232 216;
+  }
+  [data-monet='on'][data-accent='sky'] {
+    --accent-rgb: 122 162 247;
+  }
+  [data-monet='on'][data-accent='violet'] {
+    --accent-rgb: 183 148 244;
+  }
+  [data-monet='on'][data-accent='amber'] {
+    --accent-rgb: 246 173 85;
+  }
+  [data-monet='on'][data-accent='sakura'] {
+    --accent-rgb: 246 135 179;
+  }
+  /*
+   * 调色盘自定义色：变量由 themeStore / index.html 内联脚本写到 root。
+   * 实心按钮的文字色也随色相亮度切换（--custom-accent-on），不是一律深字。
+   */
+  [data-monet='on'][data-accent='custom'] {
+    --accent-rgb: var(--custom-accent-rgb, 124 232 216);
+    --accent-alpha: var(--custom-accent-alpha, 1);
+    --accent-on: var(--custom-accent-on, #101319);
+  }
+
+  /*
+   * 浅色主题：同一个强调色在白底上必须压深才看得清，
+   * 卡片本身只掺 6%，否则近白的卡片会糊成一块淡彩色。
+   */
+  [data-theme='light'][data-monet='on'] {
+    --accent: rgb(var(--accent-rgb));
+    --accent: color-mix(in srgb, rgb(var(--accent-rgb)) 58%, #0f172a);
+    /* 浅色底板：#F4F6F9 95% + 强调色 5%，卡片仍只掺 6% 保持近白 */
+    --app-bg: rgb(var(--c-app));
+    --app-bg: color-mix(in srgb, rgb(var(--c-app)) 95%, rgb(var(--accent-rgb)) 5%);
+    --card-bg: rgb(var(--c-card));
+    --card-bg: color-mix(in srgb, rgb(var(--c-card)) 94%, rgb(var(--accent-rgb)) 6%);
+    /* 浅色选单：白底兜底 + 6% 同色系微染，关闭微染时仍是纯 #FFFFFF */
+    --menu-bg: #ffffff;
+    --menu-bg: color-mix(in srgb, #ffffff 94%, rgb(var(--accent-rgb)) 6%);
+    /* 压深后的强调色仍是暗色，文字回到白色 */
+    --accent-on: #ffffff;
+    --switch-thumb: #ffffff;
+    --accent-soft: rgb(var(--accent-rgb) / 0.12);
+  }
+
+  /* 自定义色不套预设的压深逻辑：用户选的就是最终色，对比度由 --custom-accent-on 兜底 */
+  [data-theme='light'][data-monet='on'][data-accent='custom'] {
+    --accent: rgb(var(--accent-rgb) / var(--accent-alpha));
+    --accent-on: var(--custom-accent-on, #ffffff);
   }
 
   /*
@@ -172,8 +362,9 @@
   #root {
     height: 100%;
     margin: 0;
-    background-color: rgb(var(--c-app));
+    background-color: var(--app-bg);
     color: rgb(var(--c-body));
+    -webkit-font-smoothing: antialiased;
   }
 
   body {
@@ -188,6 +379,27 @@
   button {
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+  }
+
+  /* 清掉网页端原生质感：滚动条、点按高亮、非输入区文字选中 */
+  *,
+  *::before,
+  *::after {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  *::-webkit-scrollbar {
+    display: none;
+  }
+  :not(input):not(textarea) {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  input,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
   }
 
   input {
@@ -330,6 +542,421 @@
   }
 }
 
+/*
+ * 卡片与分组标题的统一语言。
+ *
+ * 卡片层级只靠「底板 → 卡片灰阶」的明度差，不再画一圈高对比描边；
+ * 圆角统一走 --radius-card（18px），顶边微光按主题压到最低。
+ */
+@layer components {
+  .card {
+    background-color: var(--card-bg);
+    border-radius: var(--radius-card);
+    border-top: 1px solid var(--card-top);
+    box-shadow: var(--shadow-card);
+  }
+
+  /*
+   * 分组小标题：独立置于卡片上方 10px。
+   * 微染关 = 中性灰，微染开 = 强调色。
+   */
+  .section-label {
+    display: block;
+    margin: 0 0 10px;
+    padding: 0 4px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: 0;
+    color: var(--section-label-fg);
+  }
+
+  /*
+   * 原生触控比例的列表行：64px 起、16px 横内距、22px 线性图标、
+   * 17px 主标题 + 13px 柔和副标题。
+   * 同行之间只靠留白分隔，不画分割线。
+   */
+  .list-card {
+    background-color: var(--card-bg);
+    border-radius: var(--radius-card);
+    border-top: 1px solid var(--card-top);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+  }
+  .list-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    min-height: 64px;
+    padding: 16px;
+    text-align: left;
+    transition: background-color 140ms ease;
+  }
+  button.list-row:active {
+    background-color: rgb(255 255 255 / 0.06);
+  }
+  [data-theme='light'] button.list-row:active {
+    background-color: rgb(var(--c-press) / 0.45);
+  }
+  .list-icon {
+    display: flex;
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    align-items: center;
+    justify-content: center;
+    color: var(--list-icon-fg);
+  }
+  .list-title {
+    display: block;
+    font-size: 17px;
+    font-weight: 500;
+    line-height: 1.25;
+    color: rgb(var(--c-fg));
+  }
+  .list-subtitle {
+    display: block;
+    margin-top: 3px;
+    font-size: 13px;
+    line-height: 1.3;
+    color: rgb(var(--c-muted));
+  }
+  .list-trailing {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: rgb(var(--c-muted));
+  }
+
+  /* 外观子页选中控件：微染关走中性抬升，微染开走柔和强调色 */
+  .appearance-segment-active {
+    background-color: var(--control-selected-bg);
+    color: var(--control-selected-fg);
+    box-shadow: var(--control-selected-shadow);
+  }
+
+  /*
+   * 全局开关：50×28 内缩胶囊轨 + 20px 圆点四周留 4px（开启时右移 22px）。
+   * 关闭轨中性灰、开启轨跟随焦点色；色值全部走 Token。
+   */
+  .switch-track {
+    position: relative;
+    display: block;
+    width: 50px;
+    height: 28px;
+    flex: 0 0 50px;
+    border-radius: 9999px;
+    background-color: var(--switch-off);
+    transition: background-color 200ms ease;
+  }
+  .switch-track[aria-checked='true'] {
+    background-color: var(--accent);
+  }
+  .switch-thumb {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 20px;
+    height: 20px;
+    border-radius: 9999px;
+    background-color: var(--switch-thumb);
+    transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .switch-track[aria-checked='true'] .switch-thumb {
+    transform: translateX(22px);
+  }
+
+  /* 主题子页独立卡片：20px 圆角 */
+  .theme-card {
+    border-radius: 20px;
+  }
+
+  /*
+   * 主题色入口：随 Monet 开关做手风琴展开。
+   * grid-template-rows 0fr↔1fr 让高度过渡不需要写死像素；
+   * 内层 overflow:hidden 保证收起时完全不占空间，行间仍靠留白不画分割线。
+   */
+  .theme-color-reveal {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transform: translateY(-4px);
+    pointer-events: none;
+    transition:
+      grid-template-rows 240ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 240ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .theme-color-reveal[data-open='true'] {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+  .theme-color-reveal > div {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /*
+   * 调色盘：棋盘格预览底 + 透明度滑块。
+   * 棋盘格只用两种中性灰平铺，不加渐变/高光；滑块轨道跟随当前色由透明到实心。
+   */
+  .theme-alpha-checker {
+    background-image:
+      linear-gradient(45deg, var(--c-raised) 25%, transparent 25%),
+      linear-gradient(-45deg, var(--c-raised) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, var(--c-raised) 75%),
+      linear-gradient(-45deg, transparent 75%, var(--c-raised) 75%);
+    background-size: 12px 12px;
+    background-position:
+      0 0,
+      0 6px,
+      6px -6px,
+      -6px 0;
+    background-color: rgb(var(--c-card));
+  }
+  .theme-alpha-range {
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    /* 拖滑块时不让父级抽屉/页面跟着滚 */
+    touch-action: none;
+  }
+  .theme-alpha-range::-webkit-slider-runnable-track {
+    height: 16px;
+    border-radius: 9999px;
+    border: 1px solid var(--c-line-strong);
+    background-image: linear-gradient(
+      to right,
+      rgb(var(--range-color) / 0) 0%,
+      rgb(var(--range-color) / 1) 100%
+    );
+  }
+  .theme-alpha-range::-moz-range-track {
+    height: 16px;
+    border-radius: 9999px;
+    border: 1px solid var(--c-line-strong);
+    background-image: linear-gradient(
+      to right,
+      rgb(var(--range-color) / 0) 0%,
+      rgb(var(--range-color) / 1) 100%
+    );
+  }
+  .theme-alpha-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 24px;
+    height: 24px;
+    margin-top: -5px;
+    border-radius: 9999px;
+    border: 3px solid var(--c-card);
+    background: var(--c-fg);
+    box-shadow: none;
+  }
+  .theme-alpha-range::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 9999px;
+    border: 3px solid var(--c-card);
+    background: var(--c-fg);
+  }
+  .theme-swatch {
+    transition: transform 140ms ease;
+  }
+  .theme-swatch:active {
+    opacity: 0.75;
+    transform: scale(0.95);
+  }
+
+  /* 主题三按钮：独立等宽胶囊，选中实底、未选透明细描边 */
+  .theme-mode-btn {
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background-color: transparent;
+    color: #a1a1aa;
+    transition:
+      background-color 160ms ease,
+      color 160ms ease,
+      border-color 160ms ease;
+  }
+  [data-theme='light'] .theme-mode-btn {
+    border-color: rgba(0, 0, 0, 0.12);
+    color: #52525b;
+  }
+  .theme-mode-btn[aria-checked='true'] {
+    border-color: transparent;
+    background-color: #2c2c2e;
+    color: #f5f5f7;
+  }
+  [data-theme='light'] .theme-mode-btn[aria-checked='true'] {
+    background-color: #ffffff;
+    color: rgb(var(--c-fg));
+    box-shadow: var(--control-selected-shadow);
+  }
+
+  /* 原生大标题页头：安全区留白由页头自己吃掉，标题随列表一起上滑 */
+  .page-head {
+    padding: calc(env(safe-area-inset-top, 0px) + 26px) 20px 20px;
+  }
+  .has-update-banner .page-head {
+    padding-top: 18px;
+  }
+  /* 设置页：大标题与分组标题、卡片共用 16px 左基准，不再各缩进一档 */
+  .settings-page-head {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .settings-page .section-label {
+    padding: 0;
+  }
+  .page-title {
+    font-size: 30px;
+    font-weight: 600;
+    line-height: 1.18;
+    letter-spacing: -0.02em;
+    color: rgb(var(--c-fg));
+  }
+  /* 顶部柔和渐隐遮罩：列表上滑时在这一段淡出，不与状态栏时间重叠 */
+  .page-veil {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 20;
+    height: calc(env(safe-area-inset-top, 0px) + 24px);
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      var(--app-bg) 42%,
+      color-mix(in srgb, var(--app-bg) 72%, transparent) 72%,
+      transparent 100%
+    );
+  }
+
+  /* 设置二级子页：两行式页头——首行 40px 返回热区，次行 32px 大标题左对齐卡片 */
+  .subpage-head {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px 20px;
+  }
+  .has-update-banner .subpage-head {
+    padding-top: 12px;
+  }
+  .subpage-back {
+    display: flex;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+    margin-left: -8px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 14px;
+    color: rgb(var(--c-fg));
+  }
+  .subpage-back:active {
+    background-color: rgb(var(--c-press) / 0.6);
+  }
+  .subpage-title {
+    font-size: 32px;
+    font-weight: 550;
+    line-height: 1.18;
+    letter-spacing: -0.02em;
+    color: rgb(var(--c-fg));
+  }
+  /* 子页打开时底层主界面微微左移（压暗由子页自带的遮罩负责） */
+  .settings-underlay {
+    transform: translate3d(-22px, 0, 0);
+    transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* 「关于」页顶部：深海蓝垫底 + 主题色径向光晕，往下自然融入底板 */
+  .about-hero-glow {
+    background-image:
+      radial-gradient(
+        130% 96% at 50% -8%,
+        color-mix(in srgb, var(--accent) 30%, transparent) 0%,
+        transparent 68%
+      ),
+      radial-gradient(
+        150% 110% at 50% -18%,
+        rgba(16, 42, 92, 0.55) 0%,
+        transparent 70%
+      );
+  }
+  /* 浅色主题：深海蓝那层换成很淡的冷灰蓝，白底上不会压出一块暗斑 */
+  [data-theme='light'] .about-hero-glow {
+    background-image:
+      radial-gradient(
+        130% 96% at 50% -8%,
+        color-mix(in srgb, var(--accent) 14%, transparent) 0%,
+        transparent 68%
+      ),
+      radial-gradient(150% 110% at 50% -18%, rgba(178, 199, 232, 0.3) 0%, transparent 70%);
+  }
+}
+
+@layer utilities {
+  /*
+   * 全站底板类跟随 --app-bg：微染开启时局部容器与页面底板同色系，
+   * 不会出现「页面染了、卡片缝里还是纯黑」的割裂。透明变体用 color-mix 套 alpha。
+   */
+  .bg-app {
+    background-color: var(--app-bg);
+  }
+  .bg-app\/95 {
+    background-color: color-mix(in srgb, var(--app-bg) 95%, transparent);
+  }
+  .bg-app\/80 {
+    background-color: color-mix(in srgb, var(--app-bg) 80%, transparent);
+  }
+  .bg-app\/70 {
+    background-color: color-mix(in srgb, var(--app-bg) 70%, transparent);
+  }
+  .bg-app\/50 {
+    background-color: color-mix(in srgb, var(--app-bg) 50%, transparent);
+  }
+  .text-accent {
+    color: var(--accent);
+  }
+  .bg-accent {
+    background-color: var(--accent);
+  }
+  .border-accent {
+    border-color: var(--accent);
+  }
+  .text-accent-on {
+    color: var(--accent-on);
+  }
+  /* 强调色的浅底：选中胶囊 / 图标底圈；第一行是老 WebView 兜底 */
+  .bg-accent-soft {
+    background-color: rgb(var(--accent-rgb) / 0.14);
+    background-color: var(--accent-soft);
+  }
+
+  /*
+   * 微染关闭：列表尾部的语言双箭头跟随卡片图标回中性色；底栏严格单色。
+   * 深色选中纯白 / 未选 #7D8187；浅色选中 #111113 / 未选走 --c-subtle。
+   * 开启微染时两者都继续跟随 --accent。
+   */
+  :root:not([data-monet='on']) .list-trailing .text-accent {
+    color: var(--list-icon-fg);
+  }
+  :root:not([data-monet='on']):not([data-theme='light']) nav button[aria-current='page'] {
+    color: #ffffff;
+  }
+  :root:not([data-monet='on']):not([data-theme='light']) nav button:not([aria-current='page']) {
+    color: #7d8187;
+  }
+  [data-theme='light']:not([data-monet='on']) nav button[aria-current='page'] {
+    color: #111113;
+  }
+  [data-theme='light']:not([data-monet='on']) nav button:not([aria-current='page']) {
+    color: rgb(var(--c-subtle));
+  }
+}
+
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar {
     display: none;
@@ -404,6 +1031,165 @@
 }
 
 /*
+ * 语言悬浮选单：锚点卷轴揭幕。
+ * 柔和投影放在外层定位容器（filter），clip-path 与缩放只作用内层主体，
+ * 卷轴裁切就不会把阴影切掉。向上展开时先露出底部选项，向下则反过来。
+ */
+@keyframes lang-menu-up-in {
+  0% {
+    clip-path: inset(68% 0 0 0 round 20px);
+    opacity: 0;
+    transform: scale(0.86) translateY(6px);
+  }
+  72% {
+    clip-path: inset(0 0 0 0 round 20px);
+    opacity: 1;
+    transform: scale(1.015) translateY(0);
+  }
+  100% {
+    clip-path: inset(0 0 0 0 round 20px);
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+@keyframes lang-menu-down-in {
+  0% {
+    clip-path: inset(0 0 68% 0 round 20px);
+    opacity: 0;
+    transform: scale(0.86) translateY(-6px);
+  }
+  72% {
+    clip-path: inset(0 0 0 0 round 20px);
+    opacity: 1;
+    transform: scale(1.015) translateY(0);
+  }
+  100% {
+    clip-path: inset(0 0 0 0 round 20px);
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+@keyframes lang-menu-up-out {
+  0% {
+    clip-path: inset(0 0 0 0 round 20px);
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    clip-path: inset(68% 0 0 0 round 20px);
+    opacity: 0;
+    transform: scale(0.88) translateY(6px);
+  }
+}
+@keyframes lang-menu-down-out {
+  0% {
+    clip-path: inset(0 0 0 0 round 20px);
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    clip-path: inset(0 0 68% 0 round 20px);
+    opacity: 0;
+    transform: scale(0.88) translateY(-6px);
+  }
+}
+@keyframes lang-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes lang-scrim-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.lang-menu-up-in {
+  animation: lang-menu-up-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.lang-menu-down-in {
+  animation: lang-menu-down-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.lang-menu-up-out {
+  animation: lang-menu-up-out 170ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+.lang-menu-down-out {
+  animation: lang-menu-down-out 170ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+.lang-scrim-in {
+  animation: lang-scrim-in 220ms ease-out both;
+}
+.lang-scrim-out {
+  animation: lang-scrim-out 170ms ease-in both;
+}
+
+/*
+ * 主题色调色盘：底部推入 + 弹簧微过冲，退场干脆向下缩回。
+ * 与语言选单共用 Emphasized 曲线，但换成 translate/scale 而不是 clip-path 揭幕——
+ * 抽屉整块从屏幕外进，方向感靠位移而不靠裁切。
+ */
+@keyframes theme-color-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 44px, 0) scale(0.94);
+  }
+  72% {
+    opacity: 1;
+    transform: translate3d(0, -4px, 0) scale(1.008);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+@keyframes theme-color-out {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, 32px, 0) scale(0.95);
+  }
+}
+@keyframes theme-color-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes theme-color-scrim-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.theme-color-in {
+  animation: theme-color-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: bottom center;
+}
+.theme-color-out {
+  animation: theme-color-out 185ms cubic-bezier(0.4, 0, 1, 1) both;
+  transform-origin: bottom center;
+}
+.theme-color-scrim-in {
+  animation: theme-color-scrim-in 220ms ease-out both;
+}
+.theme-color-scrim-out {
+  animation: theme-color-scrim-out 185ms ease-in both;
+}
+
+/*
  * 妙手（`!!`）联动特效：流光 / 波纹 / 闪光 / 播报条。
  * 系统开启「减少动态效果」时整体关停，只保留常驻的青蓝描边（静态，不晃眼）。
  * 这里用媒体查询兜底，不依赖 Tailwind 的 motion-reduce 变体是否被 JIT 命中。
@@ -412,7 +1198,23 @@
   .animate-brilliant-sweep,
   .animate-brilliant-ring,
   .animate-brilliant-flash,
-  .animate-banner-life {
+  .animate-banner-life,
+  .animate-page-in-next,
+  .animate-page-in-prev,
+  .animate-subpage-in,
+  .lang-menu-up-in,
+  .lang-menu-down-in,
+  .lang-menu-up-out,
+  .lang-menu-down-out,
+  .lang-scrim-in,
+  .lang-scrim-out,
+  .theme-color-in,
+  .theme-color-out,
+  .theme-color-scrim-in,
+  .theme-color-scrim-out {
     animation: none !important;
+  }
+  .theme-color-reveal {
+    transition: none !important;
   }
 }

@@ -13,8 +13,19 @@
 
 export type Lang = 'en' | 'zh-CN' | 'zh-TW';
 
-/** 首期支持的语言（顺序即设置页选择器的展示顺序） */
+/** 首期支持的语言 */
 export const LANGS: readonly Lang[] = ['en', 'zh-CN', 'zh-TW'];
+
+/**
+ * 悬浮语言选单里的可选项：`system` 表示清掉手动选择、回到系统语言。
+ * 顺序即菜单自上而下的顺序（跟随系统 → 简中 → 繁中 → English）。
+ */
+export type LangChoice = Lang | 'system';
+export const LANG_CHOICES: readonly LangChoice[] = ['system', 'zh-CN', 'zh-TW', 'en'];
+
+export function isLangChoice(value: unknown): value is LangChoice {
+  return value === 'system' || isLang(value);
+}
 
 /**
  * 检测不到任何线索时的兜底语言。
@@ -85,14 +96,32 @@ export function saveLang(lang: Lang): void {
   }
 }
 
+/** 回到「跟随系统」：清掉手动选择，写失败也不影响本次会话 */
+export function clearSavedLang(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(LANG_STORAGE_KEY);
+  } catch {
+    /* 存储不可用：本次会话内仍然按系统语言渲染 */
+  }
+}
+
 /**
- * 自动检测：手动选择 > 系统语言 > 兜底。
+ * 当前系统语言映射到支持的语言。
  * 只取系统语言列表的**首项**——用户装了多语言系统时，首项才是他真正在用的语言。
  */
-export function detectLang(): Lang {
-  const saved = readSavedLang();
-  if (saved) return saved;
+export function systemLang(): Lang {
   if (typeof navigator === 'undefined') return DEFAULT_LANG;
   const primary = navigator.languages?.[0] ?? navigator.language;
   return primary ? matchLang(primary) : DEFAULT_LANG;
+}
+
+/** 自动检测：手动选择 > 系统语言 > 兜底 */
+export function detectLang(): Lang {
+  return readSavedLang() ?? systemLang();
+}
+
+/** 当前「选单项」：存过手动选择就是那门语言，否则是跟随系统 */
+export function readLangChoice(): LangChoice {
+  return readSavedLang() ?? 'system';
 }

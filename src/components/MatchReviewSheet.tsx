@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Crown, Pencil, Volume2, VolumeX, X } from 'lucide-react';
 import type { MetaIndex } from '../data/metaIndex';
 import { useTranslation } from '../i18n';
@@ -15,6 +15,7 @@ import {
 } from '../services/reviewEngine';
 import { playReviewSfx, useSfxMuted } from '../services/reviewSfx';
 import { formatBigNumber } from '../utils/display';
+import { useModalFocus } from '../utils/modalFocus';
 import Avatar from './Avatar';
 import ModeIcon from './ModeIcon';
 
@@ -58,7 +59,7 @@ const GRADE_TONE: Record<ReviewGrade, string> = {
 const CONTEXT_TONE: Record<BpContext, string> = {
   disadvantaged: 'bg-red-500/10 text-danger ring-1 ring-red-500/25',
   neutral: 'bg-press/40 text-muted ring-1 ring-line-strong/40',
-  advantaged: 'bg-sky-500/10 text-brand ring-1 ring-sky-500/25',
+  advantaged: 'bg-accent-soft text-accent ring-1 ring-accent/25',
 };
 
 /** 整局标签配色 */
@@ -298,7 +299,7 @@ function ReviewCard({
               {displayName}
             </span>
             {player.isSelf && (
-              <span className="shrink-0 rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-brand">
+              <span className="shrink-0 rounded-full bg-accent-soft px-1.5 py-0.5 text-[9px] font-semibold leading-none text-accent">
                 {t('history.selfTag')}
               </span>
             )}
@@ -433,6 +434,8 @@ export default function MatchReviewSheet({
 }: MatchReviewSheetProps) {
   const { t, lang, brawler, map: mapLabel, mode: modeLabel } = useTranslation();
   const { muted, toggle } = useSfxMuted();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(dialogRef);
 
   // 评语里的伤害用本地化单位（万 / k），不输出裸整数
   const review = useMemo(
@@ -546,6 +549,8 @@ export default function MatchReviewSheet({
       role="presentation"
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={t('review.title')}

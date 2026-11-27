@@ -1,6 +1,8 @@
+import { useRef } from 'react';
 import { Download, Sparkles, X } from 'lucide-react';
 import { useTranslation } from '../i18n';
 import { mirrorDownloadUrl, type UpdateInfo } from '../services/updateChecker';
+import { useModalFocus } from '../utils/modalFocus';
 import { openExternal } from '../utils/openExternal';
 
 interface UpdateDialogProps {
@@ -42,6 +44,8 @@ export default function UpdateDialog({
 }: UpdateDialogProps) {
   const { t, lang } = useTranslation();
   const published = formatDate(info.publishedAt);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(dialogRef);
 
   /**
    * 备用下载入口：只有简中界面才出现。
@@ -57,6 +61,8 @@ export default function UpdateDialog({
       role="presentation"
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-2xl animate-slide-up"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -65,7 +71,7 @@ export default function UpdateDialog({
       >
         <div className="flex items-start justify-between gap-2 px-3.5 pb-2 pt-3.5">
           <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/15 text-brand">
+            <span className="bg-accent-soft flex h-8 w-8 items-center justify-center rounded-[14px] text-accent">
               <Sparkles size={16} />
             </span>
             <div className="leading-tight">
@@ -91,7 +97,7 @@ export default function UpdateDialog({
         </div>
 
         <div className="px-3.5">
-          <p className="mb-2 text-[15px] font-bold text-brand">v{info.version}</p>
+          <p className="mb-2 text-[15px] font-bold text-accent">v{info.version}</p>
 
           {info.notes ? (
             <div className="max-h-[36vh] overflow-y-auto overscroll-contain whitespace-pre-line rounded-lg border border-line bg-app/70 p-2 text-[11px] leading-relaxed text-muted">
@@ -109,7 +115,7 @@ export default function UpdateDialog({
           <button
             type="button"
             onClick={onDownload}
-            className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-sky-600 text-[13px] font-semibold text-white transition-colors active:bg-sky-700"
+            className="bg-accent text-accent-on flex h-11 w-full items-center justify-center gap-1.5 rounded-[16px] text-[13px] font-semibold transition-opacity active:opacity-80"
           >
             <Download size={14} />
             {t('update.downloadGithub')}

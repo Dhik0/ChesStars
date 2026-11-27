@@ -14,6 +14,7 @@ function mainPage(over: Partial<BackState> = {}): BackState {
     screen: 'draft',
     hasDraft: true,
     hasGuard: false,
+    settingsPageOpen: false,
     ...over,
   };
 }
@@ -44,6 +45,35 @@ describe('decideBack：弹层优先', () => {
   it('设置页上有弹层时，先关弹层而不是切回 BP 助手', () => {
     const res = decideBack(mainPage({ tab: 'settings', layers: ['update'] }), null, T0);
     expect(res.action).toEqual({ type: 'closeLayer', layer: 'update' });
+  });
+});
+
+describe('decideBack：设置二级子页', () => {
+  it('子页打开时优先关闭子页，而不是切回 BP 助手', () => {
+    const res = decideBack(mainPage({ tab: 'settings', settingsPageOpen: true }), null, T0);
+    expect(res.action).toEqual({ type: 'closeSettingsPage' });
+    expect(res.lastBackAt).toBeNull();
+  });
+
+  it('关子页不算「按过返回键」，双击退出计时必须清空', () => {
+    const res = decideBack(mainPage({ tab: 'settings', settingsPageOpen: true }), T0, T0 + 300);
+    expect(res.lastBackAt).toBeNull();
+  });
+
+  it('子页上有弹层（如语言选单）时先关弹层，再关子页', () => {
+    const res = decideBack(
+      mainPage({ tab: 'settings', settingsPageOpen: true, layers: ['languageMenu'] }),
+      null,
+      T0,
+    );
+    expect(res.action).toEqual({ type: 'closeLayer', layer: 'languageMenu' });
+  });
+
+  it('子页关掉后下一次返回才切回 BP 助手', () => {
+    const closed = decideBack(mainPage({ tab: 'settings', settingsPageOpen: true }), null, T0);
+    expect(closed.action).toEqual({ type: 'closeSettingsPage' });
+    const next = decideBack(mainPage({ tab: 'settings' }), closed.lastBackAt, T0 + 400);
+    expect(next.action).toEqual({ type: 'goMainTab' });
   });
 });
 

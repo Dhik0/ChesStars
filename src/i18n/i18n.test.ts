@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateMeta, type BrawlMeta } from '../types/meta';
-import { LANG_LABEL, LANGS, matchLang } from './langs';
+import { LANG_CHOICES, LANG_LABEL, LANGS, isLangChoice, matchLang } from './langs';
 import { DICTS, translate } from './translate';
 import {
   brawlerName,
@@ -69,6 +69,58 @@ describe('词库结构', () => {
     expect(LANG_LABEL.en).toBe('English');
     expect(LANG_LABEL['zh-CN']).toBe('简体中文');
     expect(LANG_LABEL['zh-TW']).toBe('繁體中文');
+  });
+
+  it('语言悬浮选单固定为「跟随系统 → 简中 → 繁中 → English」四项', () => {
+    expect(LANG_CHOICES).toEqual(['system', 'zh-CN', 'zh-TW', 'en']);
+    for (const choice of LANG_CHOICES) expect(isLangChoice(choice)).toBe(true);
+    expect(isLangChoice('fr')).toBe(false);
+  });
+
+  it('设置二级子页 / 偏好 / 重置词条三语齐全且不为空', () => {
+    const keys = [
+      'settings.sectionPreference',
+      'settings.sectionGeneral',
+      'settings.navAppearance',
+      'settings.navDraft',
+      'settings.navDraftHint',
+      'settings.navData',
+      'settings.languageHint',
+      'settings.languageSystem',
+      'settings.monetOnLabel',
+      'settings.monetOffLabel',
+      'settings.pageAppearance',
+      'settings.pageDraft',
+      'settings.pageData',
+      'settings.themeDetails',
+      'settings.draftSectionBlocked',
+      'settings.draftSectionReview',
+      'settings.draftBlocked',
+      'settings.draftBlockedHint',
+      'settings.draftBlockedCount',
+      'settings.draftHideBlocked',
+      'settings.draftHideBlockedHint',
+      'settings.draftSfx',
+      'settings.draftSfxHint',
+      'settings.draftAdvanced',
+      'settings.draftAdvancedHint',
+      'settings.resetSection',
+      'settings.reset',
+      'settings.resetHint',
+      'settings.resetConfirmHint',
+      'settings.resetConfirm',
+      'settings.resetCancel',
+      'settings.resetDone',
+    ];
+    for (const key of keys) {
+      for (const lang of LANGS) {
+        expect(DICTS[lang][key]?.trim() ?? '', `${lang} 缺少 ${key}`).not.toBe('');
+      }
+    }
+    // 唯一带参数的词条：三语都保留 {n}
+    for (const lang of LANGS) {
+      expect(DICTS[lang]['settings.draftBlockedCount']).toContain('{n}');
+    }
   });
 });
 

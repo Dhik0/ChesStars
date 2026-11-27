@@ -127,7 +127,7 @@ export default function MatchupSheet({
               </p>
             </div>
             <div className="shrink-0 text-right">
-              <div className="text-[22px] font-bold leading-none tabular-nums text-brand">
+              <div className="text-[22px] font-bold leading-none tabular-nums text-accent">
                 {score !== null ? score.toFixed(0) : '—'}
               </div>
               <div className="text-[9px] text-subtle">{t('matchup.mapScore')}</div>

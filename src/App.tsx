@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { App as NativeApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import { Ban as EmptyBanIcon, ClipboardCheck, EyeOff, Flame, Loader2, RefreshCw, Save, Swords } from 'lucide-react';
-import BottomNav, { type MainTab } from './components/BottomNav';
+import AboutView from './components/AboutView';
+import BottomNav, { MAIN_TABS, type MainTab } from './components/BottomNav';
 import BlockedBrawlersSheet from './components/BlockedBrawlersSheet';
 import BrawlerDetail from './components/BrawlerDetail';
 import BrawlerTile from './components/BrawlerTile';
@@ -12,7 +13,8 @@ import MapPicker from './components/MapPicker';
 import MatchReviewSheet from './components/MatchReviewSheet';
 import MatchSaveSheet, { type MatchSaveSheetHandle } from './components/MatchSaveSheet';
 import MatchupSheet from './components/MatchupSheet';
-import SettingsView from './components/SettingsView';
+import SettingsView, { SettingsSubpage, type SettingsPage } from './components/SettingsView';
+import ThemeColorSheet from './components/ThemeColorSheet';
 import TopBar from './components/TopBar';
 import UpdateBanner from './components/UpdateBanner';
 import UpdateDialog from './components/UpdateDialog';
@@ -22,6 +24,12 @@ import { CLASS_COLOR, CLASS_ORDER, type BrawlerClass } from './data/brawlerProfi
 import { useTranslation } from './i18n';
 import { loadErrorMessage } from './i18n/format';
 import { metaStore, type MetaSnapshot } from './services/metaStore';
+import {
+  browserPrefsStorage,
+  readDisplayPrefs,
+  writeDisplayPrefs,
+  type DisplayPrefs,
+} from './services/prefsStore';
 import {
   buildMatchFromDraft,
   draftSignature,
@@ -58,6 +66,7 @@ import { decideBack, type BackLayer, type BackState } from './utils/backNavigati
 import { useBlockedBrawlers } from './utils/blockedBrawlers';
 import { openExternal } from './utils/openExternal';
 import { TOP_PICK_COUNT, buildBrawlerPool, rankMap } from './utils/pool';
+import { useSwipePager, type SwipeDirection } from './utils/swipeNav';
 import { useTheme } from './utils/useTheme';
 import { useViewport } from './utils/useViewport';
 
@@ -79,11 +88,14 @@ function ClassChip({
   label,
   active,
   color,
+  accent = false,
   onClick,
 }: {
   label: string;
   active: boolean;
   color: string;
+  /** 「全部」这类不属于具体职业的标签，选中态直接走 --accent */
+  accent?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -98,7 +110,13 @@ function ClassChip({
       }`}
       style={
         active
-          ? { backgroundColor: `${color}2E`, borderColor: `${color}99`, color }
+          ? accent
+            ? {
+                backgroundColor: 'rgb(var(--accent-rgb) / 0.14)',
+                borderColor: 'var(--accent)',
+                color: 'var(--accent)',
+              }
+            : { backgroundColor: `${color}2E`, borderColor: `${color}99`, color }
           : undefined
       }
     >
@@ -110,16 +128,28 @@ function ClassChip({
 export default function App() {
   const { t, brawler, tier } = useTranslation();
   /** 生效主题：稀有度色块在浅色主题下要按深一档的色相渲染 */
-  const { resolved: theme } = useTheme();
+  const { resolved: theme, customAccent, setCustomAccent } = useTheme();
   const [snap, setSnap] = useState<MetaSnapshot | null>(metaStore.getSnapshot());
   /** 首屏加载失败的原因对象（含「超时 / 断网 / 状态码」分类），null = 正常 */
   const [error, setError] = useState<unknown>(null);
 
   const [draft, setDraft] = useState<DraftState | null>(null);
-  /** 一级页面（底部导航）：左侧选图 + BP 主流程 / 右侧设置 */
+  /** 一级页面（底部导航）：BP 助手 / 战绩 / 设置 / 关于 */
   const [tab, setTab] = useState<MainTab>('draft');
+  /** 上一次切页的方向：只用来给新页面挑一个入场动效（点导航进来时为空 = 淡入） */
+  const [swipeDir, setSwipeDir] = useState<SwipeDirection | null>(null);
   /** BP 助手内的二级页面：启动时停在选图页，选定地图后才进 BP */
   const [screen, setScreen] = useState<Screen>('select');
+  /** 「设置」页推入的二级子页（null = 停在设置主界面） */
+  const [settingsPage, setSettingsPage] = useState<SettingsPage | null>(null);
+  /** 锚定在「语言」行附近的悬浮选单 */
+  const [languageOpen, setLanguageOpen] = useState(false);
+  /** 主题色调色盘（设置 → 主题子页 → 主题色） */
+  const [themeColorOpen, setThemeColorOpen] = useState(false);
+  /** BP 与复盘的展示偏好：只影响入口与推荐栏展示，不碰算分 */
+  const [displayPrefs, setDisplayPrefs] = useState<DisplayPrefs>(() =>
+    readDisplayPrefs(browserPrefsStorage()),
+  );
   /** 撤回栈（最多保留 30 步）。重做已按需求彻底移除 */
   const [history, setHistory] = useState<DraftState[]>([]);
   const [detailId, setDetailId] = useState<number | null>(null);
@@ -183,6 +213,7 @@ export default function App() {
     tab: 'draft',
     screen: 'select',
     hasDraft: false,
+    settingsPageOpen: false,
   });
 
   /**
@@ -196,7 +227,16 @@ export default function App() {
   if (blockedOpen) layers.push('blocked');
   if (detailId !== null) layers.push('detail');
   if (updateOpen && updateInfo !== null) layers.push('update');
-  backStateRef.current = { layers, tab, screen, hasDraft: draft !== null };
+  // 语言悬浮选单永远是最顶层：返回键 / Escape 先收它
+  if (themeColorOpen) layers.push('themeColor');
+  if (languageOpen) layers.push('languageMenu');
+  backStateRef.current = {
+    layers,
+    tab,
+    screen,
+    hasDraft: draft !== null,
+    settingsPageOpen: settingsPage !== null,
+  };
 
   /** 弹一条 2 秒后自动消失的底部提示（不拦截点击） */
   const showToast = useCallback((text: string) => {
@@ -207,6 +247,43 @@ export default function App() {
       setToast(null);
     }, 2000);
   }, []);
+
+  /**
+   * 一级页面切换的唯一入口。
+   * `direction` 非空表示这次是滑动切页，新页面按方向从对侧推进来；
+   * 点底部导航传空，走普通的淡入。
+   */
+  const goTab = useCallback((next: MainTab, direction: SwipeDirection | null = null) => {
+    setSwipeDir(direction);
+    setTab(next);
+  }, []);
+
+  /** 偏好改动：先落盘，再同步给 BP 页；写入失败也不影响本次会话 */
+  const handleDisplayPrefsChange = useCallback((next: DisplayPrefs) => {
+    writeDisplayPrefs(browserPrefsStorage(), next);
+    setDisplayPrefs(next);
+  }, []);
+
+  /* ---------------- 左右滑动切页 ----------------
+   * 只有四个一级页面之间可以滑，而且必须让路给下面这些场景：
+   *   1. BP 详细选人界面（已选定地图、进入 Ban/Pick 操作态）——选人时手指划过英雄池
+   *      太常见了，这里滑一下就翻页会直接毁掉一局 BP；地图选择首页不受影响；
+   *   2. 任意弹窗 / 抽屉打开时（复盘、保存、对位、英雄详情、更新说明、屏蔽名单）；
+   *   3. 手指落在屏幕左右 28px 内（安卓全面屏侧滑返回的手势区）；
+   *   4. 落在可横向滚动的子容器里（职业筛选标签栏、横向卡片列表）；
+   *   5. 竖向位移占优或横向不足 56px（在滚列表 / 只是点了一下）。
+   * 前两条在这里判定，后三条由 useSwipePager / decideSwipe 负责。
+   */
+  const overlayOpen = layers.length > 0;
+  const draftLocked = tab === 'draft' && screen === 'draft' && draft !== null;
+  const swipeHandlers = useSwipePager({
+    enabled: !overlayOpen && !draftLocked && settingsPage === null,
+    onSwipe: (direction) => {
+      const next = MAIN_TABS[MAIN_TABS.indexOf(tab) + (direction === 'next' ? 1 : -1)];
+      // 已经在最左 / 最右：不动，页面自己回弹
+      if (next) goTab(next, direction);
+    },
+  });
 
   /**
    * 返回键总入口：只做决策结果对应的一步，绝不在一次返回里连关两层。
@@ -230,13 +307,18 @@ export default function App() {
           if (matchSheetRef.current) matchSheetRef.current.requestClose();
           else setMatchSheet(null);
         } else if (decision.action.layer === 'review') setReviewId(null);
+        else if (decision.action.layer === 'languageMenu') setLanguageOpen(false);
+        else if (decision.action.layer === 'themeColor') setThemeColorOpen(false);
         else setMatchupId(null);
+        break;
+      case 'closeSettingsPage':
+        setSettingsPage(null);
         break;
       case 'runGuard':
         runTopBackGuard();
         break;
       case 'goMainTab':
-        setTab('draft');
+        goTab('draft');
         break;
       case 'leaveDraft':
         setScreen('select');
@@ -248,7 +330,7 @@ export default function App() {
         void NativeApp.exitApp();
         break;
     }
-  }, [showToast, t]);
+  }, [goTab, showToast, t]);
 
   /** 仅在原生壳里接管返回键；桌面浏览器 npm run dev 不注册任何监听 */
   useEffect(() => {
@@ -264,6 +346,35 @@ export default function App() {
       if (listener) void listener.remove();
     };
   }, [handleBack]);
+
+  /**
+   * Escape 与安卓返回键同一套优先级：先收语言选单，再关设置二级子页。
+   * 其它模态层（保存抽屉等）有自己的键盘处理，这里不抢。
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      const state = backStateRef.current;
+      const top = state.layers.length > 0 ? state.layers[state.layers.length - 1] : null;
+      if (top === 'languageMenu') {
+        setLanguageOpen(false);
+        event.preventDefault();
+        return;
+      }
+      if (top === 'themeColor') {
+        setThemeColorOpen(false);
+        event.preventDefault();
+        return;
+      }
+      if (top !== null) return;
+      if (state.settingsPageOpen) {
+        setSettingsPage(null);
+        event.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   /** 卸载时清掉未到期的提示定时器 */
   useEffect(
@@ -629,6 +740,18 @@ export default function App() {
   };
 
   /**
+   * 导入备份成功后重新载入应用。
+   *
+   * 备份覆盖的是「战绩 + 主题 + 微染 + 语言」四份存储，它们分别住在
+   * useMatchHistory 的组件状态、themeStore 单例和 i18n 上下文里；
+   * 逐处热同步比重启一遍更容易漏（还有 data-* 属性、状态栏底色这些副作用）。
+   * 数据已经落盘，刷新不会丢任何东西，所以这里用最稳的那条路。
+   */
+  const handleImportedBackup = useCallback(() => {
+    window.setTimeout(() => window.location.reload(), 900);
+  }, []);
+
+  /**
    * 更新弹窗是**全局浮层**：它挂在最外层壳上，选图页 / BP 页 / 设置页
    * 三个层级都能看到，启动检测到新版本时不管停在哪一屏都不会漏。
    * 仅原生壳渲染：Web / PWA 不引导下载安卓安装包。
@@ -702,7 +825,7 @@ export default function App() {
     return (
       <div className="app-frame flex h-dvh w-full justify-center">
         <div className="flex h-dvh w-full max-w-[440px] flex-col items-center justify-center gap-2 bg-app">
-          <Loader2 size={20} className="animate-spin text-brand" />
+          <Loader2 size={20} className="animate-spin text-accent" />
           <p className="text-[11px] text-subtle">{t('app.loading')}</p>
         </div>
       </div>
@@ -740,6 +863,17 @@ export default function App() {
         />
       )}
 
+      {themeColorOpen && (
+        <ThemeColorSheet
+          current={customAccent}
+          onSave={(accent) => {
+            setCustomAccent(accent);
+            setThemeColorOpen(false);
+          }}
+          onClose={() => setThemeColorOpen(false)}
+        />
+      )}
+
       {blockedOpen && (
         <BlockedBrawlersSheet
           ids={blockedIds}
@@ -768,10 +902,14 @@ export default function App() {
           blocked={blockedSet.has(matchupId)}
           onToggleBlock={() => toggleBlocked(matchupId)}
           onClose={() => setMatchupId(null)}
-          onOpenBreakdown={() => {
-            setDetailId(matchupId);
-            setMatchupId(null);
-          }}
+          onOpenBreakdown={
+            displayPrefs.advancedTools
+              ? () => {
+                  setDetailId(matchupId);
+                  setMatchupId(null);
+                }
+              : undefined
+          }
         />
       )}
     </>
@@ -780,17 +918,28 @@ export default function App() {
   /* ---------------- 外壳：内容区 + 底部一级导航 ---------------- */
 
   /**
+   * 页面入场动效：滑动切页时新页面从对侧推进来，点导航进来则淡入。
+   * `key={tab}` 让切页时整块重新挂载——动效只播一次，也顺手把上一页的滚动位置清零。
+   */
+  const pageAnim =
+    swipeDir === 'next'
+      ? 'animate-page-in-next'
+      : swipeDir === 'prev'
+        ? 'animate-page-in-prev'
+        : 'animate-fade-in';
+
+  /**
    * 最外层壳：外层是主题暗色背景，内层是限宽的「手机面板」。
    *
    * 手机 / 安卓 WebView 上宽度本来就小于 440px，内外两层重合，视觉与以前一致；
    * PC 浏览器打开时自动居中成紧凑的移动端面板，不会被横向拉伸变形。
    *
    * `navVisible` 由各页面决定：
-   *   - 选图页 / 战绩页 / 设置页：常驻（都是底部导航的入口，必须可达）；
+   *   - 选图页 / 战绩页 / 设置页 / 关于页：常驻（都是底部导航的入口，必须可达）；
    *   - BP 页：竖向空间充足时（非矮视口竖屏）常驻，否则让位给英雄网格与 BP 台
    *     ——此时回设置要走顶部地图卡回到选图页，BP 进度不会因此丢失。
    */
-  const shell = (content: ReactNode, navVisible: boolean) => (
+  const shell = (content: ReactNode, navVisible: boolean, subpage?: ReactNode) => (
     <div className="app-frame flex h-dvh w-full justify-center">
       <div
         className={`relative flex h-dvh w-full flex-col overflow-hidden bg-app text-body ${
@@ -802,10 +951,21 @@ export default function App() {
         } ${navVisible ? 'has-bottom-nav' : ''} ${webUpdateBanner ? 'has-update-banner' : ''}`}
       >
         {webUpdateBanner}
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{content}</div>
+        {/* 滑动切页的跟手位移直接写在这一层上（见 useSwipePager），不动任何业务状态 */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div
+            key={tab}
+            className={`flex min-h-0 flex-1 flex-col overflow-hidden ${pageAnim}`}
+            {...swipeHandlers}
+          >
+            {content}
+          </div>
+        </div>
         {navVisible && (
-          <BottomNav tab={tab} onChange={setTab} hasUpdate={updateInfo !== null} />
+          <BottomNav tab={tab} onChange={goTab} hasUpdate={updateInfo !== null} />
         )}
+        {/* 设置二级子页：整屏覆盖内容区与底栏，仍压在全局模态层之下 */}
+        {subpage}
         {overlays}
         {toast && (
           <div
@@ -833,11 +993,41 @@ export default function App() {
     return shell(
       <SettingsView
         snapshot={snap}
-        onPull={() => metaStore.pullNow()}
+        subpageOpen={settingsPage !== null}
+        languageOpen={languageOpen}
+        onLanguageOpenChange={setLanguageOpen}
+        onOpenPage={setSettingsPage}
+        onOpenThemeColor={() => setThemeColorOpen(true)}
+      />,
+      true,
+      settingsPage ? (
+        <SettingsSubpage
+          key={settingsPage}
+          page={settingsPage}
+          onBack={() => setSettingsPage(null)}
+          snapshot={snap}
+          onPull={() => metaStore.pullNow()}
+          displayPrefs={displayPrefs}
+          onDisplayPrefsChange={handleDisplayPrefsChange}
+          blockedCount={blockedIds.length}
+          onOpenBlocked={() => setBlockedOpen(true)}
+          onOpenThemeColor={() => setThemeColorOpen(true)}
+        />
+      ) : null,
+    );
+  }
+
+  /* ---------------- 一级页面：关于 ---------------- */
+
+  if (tab === 'about') {
+    return shell(
+      <AboutView
+        records={matches}
         updateInfo={updateInfo}
         qqGroupUrl={qqGroupUrl}
         onCheckUpdate={handleCheckUpdate}
         onShowUpdate={() => setUpdateOpen(true)}
+        onImported={handleImportedBackup}
       />,
       true,
     );
@@ -853,7 +1043,7 @@ export default function App() {
         onEdit={(record) => openMatchSheet(record, false)}
         onReview={handleOpenReview}
         onDelete={handleDeleteMatch}
-        onGoDraft={() => setTab('draft')}
+        onGoDraft={() => goTab('draft')}
       />,
       true,
     );
@@ -914,7 +1104,9 @@ export default function App() {
   const filterBase =
     classFilter === 'ALL' ? candidates : candidates.filter((c) => c.cls === classFilter);
   const topPicks = (
-    allyPickPhase ? filterBase.filter((c) => !blockedSet.has(c.id)) : filterBase
+    allyPickPhase && displayPrefs.hideBlocked
+      ? filterBase.filter((c) => !blockedSet.has(c.id))
+      : filterBase
   ).slice(0, TOP_PICK_COUNT);
 
   /**
@@ -932,7 +1124,7 @@ export default function App() {
    * 「空 Ban」入口：放在选人面板最前面，Ban 阶段常驻。
    * 点它 = 这个 Ban 位不 Ban 人（盲 Ban 时对面没被 Ban 到 / 双方撞车都算常见）。
    */
-  const emptyBanEntry = banPhase ? (
+  const emptyBanEntry = banPhase && displayPrefs.advancedTools ? (
     <button
       type="button"
       onClick={handleEmptyBan}
@@ -967,7 +1159,7 @@ export default function App() {
         className={`mt-1.5 flex h-10 w-full max-w-[260px] items-center justify-center gap-1.5 rounded-lg px-3 text-[12.5px] font-semibold transition-colors ${
           savedRecord
             ? 'border border-line-strong bg-surface/80 text-body active:bg-press'
-            : 'bg-sky-600 text-white active:bg-sky-700'
+            : 'bg-accent text-accent-on active:opacity-80'
         }`}
       >
         {savedRecord ? <ClipboardCheck size={14} /> : <Save size={14} />}
@@ -988,10 +1180,8 @@ export default function App() {
           {topPicks.length > 0 && (
           <section
             ref={topSectionRef}
-            className={`mx-1 mb-1.5 rounded-lg border px-1.5 pb-1.5 pt-1 ${
-              head.enemy
-                ? 'border-enemy/40 bg-enemy/[0.08]'
-                : 'border-sky-500/30 bg-sky-500/[0.07]'
+            className={`mx-1 mb-1.5 rounded-[18px] border px-1.5 pb-1.5 pt-1 ${
+              head.enemy ? 'border-enemy/40 bg-enemy/[0.08]' : 'border-accent/30 bg-accent-soft'
             }`}
           >
             <header className="mb-1 flex items-baseline justify-between gap-2">
@@ -999,18 +1189,18 @@ export default function App() {
                 {head.enemy ? (
                   <Swords size={11} className="shrink-0 text-enemy" />
                 ) : (
-                  <Flame size={11} className="shrink-0 text-brand" />
+                  <Flame size={11} className="shrink-0 text-accent" />
                 )}
                 <h3
                   className={`text-[11px] font-bold tracking-wide ${
-                    head.enemy ? 'text-danger' : 'text-brand'
+                    head.enemy ? 'text-danger' : 'text-accent'
                   }`}
                 >
                   {t(head.key)}
                 </h3>
                 <span
                   className={`text-[9px] tabular-nums ${
-                    head.enemy ? 'text-danger/60' : 'text-brand/60'
+                    head.enemy ? 'text-danger/60' : 'text-accent/60'
                   }`}
                 >
                   {topPicks.length}
@@ -1048,6 +1238,7 @@ export default function App() {
                 label={t('pool.classAll')}
                 active={classFilter === 'ALL'}
                 color={themeAccent('#38BDF8', theme)}
+                accent
                 onClick={() => setClassFilter('ALL')}
               />
               {CLASS_ORDER.map((k) => (
@@ -1085,7 +1276,7 @@ export default function App() {
           pool.sections.map((sec) => (
             <section
               key={sec.key}
-              className="mx-1 mb-1.5 rounded-lg border px-1.5 pb-1.5 pt-1"
+              className="mx-1 mb-1.5 rounded-[18px] border px-1.5 pb-1.5 pt-1"
               style={raritySectionStyle(sec.color, theme)}
             >
               <header className="mb-1 flex items-baseline justify-between gap-2">

@@ -13,14 +13,32 @@
 
       这段脚本必须是同步内联的，不能抽成模块——任何异步加载都会先渲染出一帧
       默认配色再跳变。键名与取值必须和 src/services/themeStore.ts 保持一致：
-        brawl.draft.themeMode   dark | light | system   （默认 dark）
-        brawl.draft.darkPalette oled | navy             （默认 oled）
+        brawl.draft.themeMode     dark | light | system   （默认 dark）
+        brawl.draft.darkPalette   oled | navy             （默认 oled）
+        brawl.draft.monetEnabled  true | false            （默认 false）
+        brawl.draft.accentColor   mint|sky|violet|amber|sakura|custom（默认 sky）
+        brawl.draft.customAccent  {"r":0-255,"g":0-255,"b":0-255,"a":0-1}
       生效规则也一致：浅色 / 跟随系统且系统是浅色 → light，否则按 darkPalette。
     -->
     <script>
       (function () {
         var THEME_COLORS = { oled: '#000000', navy: '#020617', light: '#f8fafc' };
+        var ACCENTS = ['mint', 'sky', 'violet', 'amber', 'sakura', 'custom'];
+        function validChannel(n) {
+          return typeof n === 'number' && n >= 0 && n <= 255 && Math.floor(n) === n;
+        }
+        function luminance(c) {
+          var lin = function (v) {
+            var s = v / 255;
+            return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+          };
+          return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+        }
         var theme = 'oled';
+        var monet = 'off';
+        var accent = 'sky';
+        var custom = null;
+        var root = document.documentElement;
         try {
           var mode = localStorage.getItem('brawl.draft.themeMode') || 'dark';
           var palette = localStorage.getItem('brawl.draft.darkPalette') || 'oled';
@@ -29,11 +47,40 @@
             window.matchMedia('(prefers-color-scheme: dark)').matches === false;
           var light = mode === 'light' || (mode === 'system' && systemLight);
           theme = light ? 'light' : palette === 'navy' ? 'navy' : 'oled';
+          monet = localStorage.getItem('brawl.draft.monetEnabled') === 'true' ? 'on' : 'off';
+          var savedAccent = localStorage.getItem('brawl.draft.accentColor');
+          if (ACCENTS.indexOf(savedAccent) >= 0) accent = savedAccent;
+          var rawCustom = localStorage.getItem('brawl.draft.customAccent');
+          if (rawCustom) {
+            try {
+              var c = JSON.parse(rawCustom);
+              if (
+                c &&
+                validChannel(c.r) &&
+                validChannel(c.g) &&
+                validChannel(c.b) &&
+                typeof c.a === 'number' &&
+                c.a >= 0 &&
+                c.a <= 1
+              ) {
+                custom = c;
+              }
+            } catch (e2) {
+              custom = null;
+            }
+          }
+          if (accent === 'custom' && !custom) accent = 'sky';
         } catch (e) {
           /* 存储被禁用：直接按默认纯黑深色渲染 */
         }
-        var root = document.documentElement;
+        if (accent === 'custom' && custom) {
+          root.style.setProperty('--custom-accent-rgb', custom.r + ' ' + custom.g + ' ' + custom.b);
+          root.style.setProperty('--custom-accent-alpha', String(custom.a));
+          root.style.setProperty('--custom-accent-on', luminance(custom) > 0.42 ? '#101319' : '#ffffff');
+        }
         root.setAttribute('data-theme', theme);
+        root.setAttribute('data-monet', monet);
+        root.setAttribute('data-accent', accent);
         var metaTheme = document.querySelector('meta[name="theme-color"]');
         if (metaTheme) metaTheme.setAttribute('content', THEME_COLORS[theme]);
         var metaScheme = document.querySelector('meta[name="color-scheme"]');

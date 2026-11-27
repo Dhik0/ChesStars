@@ -151,7 +151,7 @@ export default function TopBar({
           <button
             type="button"
             onClick={onOpenMap}
-            className="flex h-9 items-center gap-1.5 rounded-lg border border-sky-500/45 bg-sky-500/15 px-3 text-[12px] font-semibold text-brand transition-colors active:border-sky-400 active:bg-sky-500/30 active:text-brand"
+            className="flex h-9 items-center gap-1.5 rounded-[14px] border border-accent/45 bg-accent-soft px-3 text-[12px] font-semibold text-accent transition-colors active:bg-press/60"
             aria-label={t('topbar.switchMap')}
           >
             <MapIcon size={14} />

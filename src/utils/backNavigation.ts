@@ -6,11 +6,12 @@
  * 这样每一层优先级都能被单元测试直接盯住，不需要渲染组件。
  *
  * 优先级（每次返回只走最上面一层）：
- *   1. 关闭最顶层模态层（复盘报告 / 保存抽屉 / 更新说明 / 对位详情 / 长按对位）；
- *   2. 消费页面内临时状态（选图页搜索框有内容时先清空搜索）；
- *   3. 非「BP 助手」一级页面 → 切回「BP 助手」；
- *   4. BP 选人界面 → 回到地图选择页（保留当前 BP 进度）；
- *   5. 已在地图选择页（最顶层）→ 双击退出：首次只提示，2 秒内再按一次才退出。
+ *   1. 关闭最顶层模态层（复盘报告 / 保存抽屉 / 更新说明 / 对位详情 / 长按对位 / 语言选单）；
+ *   2. 关闭「设置」里推入的二级子页（先退回设置主界面，再谈切 Tab）；
+ *   3. 消费页面内临时状态（选图页搜索框有内容时先清空搜索）；
+ *   4. 非「BP 助手」一级页面 → 切回「BP 助手」；
+ *   5. BP 选人界面 → 回到地图选择页（保留当前 BP 进度）；
+ *   6. 已在地图选择页（最顶层）→ 双击退出：首次只提示，2 秒内再按一次才退出。
  *
  * 视图层级只认 App 里的 state，不写 window.history：
  * Android 上返回事件被 @capacitor/app 的 OnBackPressedCallback 全量消费，
@@ -22,10 +23,18 @@
 export const EXIT_CONFIRM_WINDOW_MS = 2000;
 
 /** 可叠放的模态层。数组末尾 = 最顶层（z-index 更高） */
-export type BackLayer = 'review' | 'matchSheet' | 'matchup' | 'blocked' | 'detail' | 'update';
+export type BackLayer =
+  | 'review'
+  | 'matchSheet'
+  | 'matchup'
+  | 'blocked'
+  | 'detail'
+  | 'update'
+  | 'themeColor'
+  | 'languageMenu';
 
 /** 一级页面 */
-export type BackTab = 'draft' | 'history' | 'settings';
+export type BackTab = 'draft' | 'history' | 'settings' | 'about';
 
 /** 「BP 助手」Tab 内的二级页面 */
 export type BackScreen = 'select' | 'draft';
@@ -41,10 +50,13 @@ export interface BackState {
   hasDraft: boolean;
   /** 页面内是否有可被返回键消费的临时状态（如选图页搜索框非空） */
   hasGuard: boolean;
+  /** 「设置」页是否正停在一个推入式二级子页上 */
+  settingsPageOpen: boolean;
 }
 
 export type BackAction =
   | { type: 'closeLayer'; layer: BackLayer }
+  | { type: 'closeSettingsPage' }
   | { type: 'runGuard' }
   | { type: 'goMainTab' }
   | { type: 'leaveDraft' }
@@ -79,22 +91,27 @@ export function decideBack(
     return { action: { type: 'closeLayer', layer: topLayer }, lastBackAt: null };
   }
 
-  // 2. 页面内临时状态（搜索框等）
+  // 2. 设置的二级子页：先退回设置主界面，不切 Tab、不进双击退出计时
+  if (state.settingsPageOpen) {
+    return { action: { type: 'closeSettingsPage' }, lastBackAt: null };
+  }
+
+  // 3. 页面内临时状态（搜索框等）
   if (state.hasGuard) {
     return { action: { type: 'runGuard' }, lastBackAt: null };
   }
 
-  // 3. 非主页面 Tab → 回「BP 助手」
+  // 4. 非主页面 Tab → 回「BP 助手」
   if (state.tab !== 'draft') {
     return { action: { type: 'goMainTab' }, lastBackAt: null };
   }
 
-  // 4. BP 选人界面 → 回地图选择页（BP 进度留在 state 里，重新选同一张图可继续）
+  // 5. BP 选人界面 → 回地图选择页（BP 进度留在 state 里，重新选同一张图可继续）
   if (state.hasDraft && state.screen === 'draft') {
     return { action: { type: 'leaveDraft' }, lastBackAt: null };
   }
 
-  // 5. 地图选择页（最顶层）：双击退出
+  // 6. 地图选择页（最顶层）：双击退出
   const delta = lastBackAt === null ? Number.POSITIVE_INFINITY : now - lastBackAt;
   if (delta >= 0 && delta <= EXIT_CONFIRM_WINDOW_MS) {
     return { action: { type: 'exitApp' }, lastBackAt: null };

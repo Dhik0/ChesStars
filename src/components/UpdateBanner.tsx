@@ -18,20 +18,20 @@ export default function UpdateBanner({ version, onUpdate, onDismiss }: UpdateBan
   const { t } = useTranslation();
 
   return (
-    <div className="shrink-0 border-b border-sky-500/25 bg-sky-500/[0.08] safe-top-banner">
+    <div className="shrink-0 border-b border-accent/25 bg-accent-soft safe-top-banner">
       <div className="flex items-center gap-2 px-3 py-1.5">
-        <Sparkles size={12} className="shrink-0 text-brand" />
+        <Sparkles size={12} className="shrink-0 text-accent" />
         <button
           type="button"
           onClick={onUpdate}
-          className="min-w-0 flex-1 truncate text-left text-[11.5px] font-medium text-brand active:text-brand"
+          className="min-w-0 flex-1 truncate text-left text-[11.5px] font-medium text-accent active:text-accent"
         >
           {version ? t('update.banner', { v: version }) : t('update.bannerReady')}
         </button>
         <button
           type="button"
           onClick={onUpdate}
-          className="shrink-0 rounded-md bg-sky-600 px-2 py-1 text-[10.5px] font-semibold text-white active:bg-sky-700"
+          className="bg-accent text-accent-on shrink-0 rounded-[12px] px-2.5 py-1 text-[10.5px] font-semibold active:opacity-80"
         >
           {t('update.bannerAction')}
         </button>

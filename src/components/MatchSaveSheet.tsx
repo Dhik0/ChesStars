@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { Crown, User, X } from 'lucide-react';
 import { useTranslation } from '../i18n';
+import { useModalFocus } from '../utils/modalFocus';
 import {
   SCORE_OPTIONS,
   WIN_SCORES,
@@ -268,6 +269,8 @@ const MatchSaveSheet = forwardRef<MatchSaveSheetHandle, MatchSaveSheetProps>(fun
   ref,
 ) {
   const { t, map: mapLabel, mode: modeLabel, brawler } = useTranslation();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(dialogRef);
   const objectiveKind = objectiveKindOf(record.mode);
   const [score, setScore] = useState<MatchScore | null>(record.score);
   const [team, setTeam] = useState<Side>('ally');
@@ -451,6 +454,8 @@ const MatchSaveSheet = forwardRef<MatchSaveSheetHandle, MatchSaveSheetProps>(fun
       role="presentation"
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={isNew ? t('save.title') : t('save.editTitle')}
@@ -483,13 +488,13 @@ const MatchSaveSheet = forwardRef<MatchSaveSheetHandle, MatchSaveSheetProps>(fun
             <button
               type="button"
               onClick={() => onClose(withStats(null))}
-              className="mb-3 flex w-full items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-2 text-left transition-colors active:bg-sky-500/20"
+              className="mb-3 flex w-full items-center gap-2 rounded-[14px] border border-accent/40 bg-accent-soft px-2.5 py-2 text-left transition-colors active:bg-press/60"
             >
               <span className="min-w-0 flex-1">
-                <span className="block text-[12.5px] font-semibold text-brand">
+                <span className="block text-[12.5px] font-semibold text-accent">
                   {t('save.quick')}
                 </span>
-                <span className="mt-0.5 block text-[10px] leading-snug text-brand/70">
+                <span className="mt-0.5 block text-[10px] leading-snug text-accent/70">
                   {t('save.quickHint')}
                 </span>
               </span>
@@ -601,7 +606,7 @@ const MatchSaveSheet = forwardRef<MatchSaveSheetHandle, MatchSaveSheetProps>(fun
           <button
             type="button"
             onClick={submitAndReview}
-            className="flex h-10 w-full items-center justify-center rounded-lg bg-sky-600 text-[13px] font-semibold text-white transition-colors active:bg-sky-700"
+            className="bg-accent text-accent-on flex h-11 w-full items-center justify-center rounded-[16px] text-[13px] font-semibold transition-opacity active:opacity-80"
           >
             {t('save.saveAndReview')}
           </button>
@@ -627,7 +632,7 @@ function FlagChip({
 }) {
   const activeCls =
     tone === 'sky'
-      ? 'border-sky-500/60 bg-sky-500/15 text-brand'
+      ? 'border-accent/60 bg-accent-soft text-accent'
       : 'border-gold/60 bg-amber-500/15 text-gold';
   return (
     <button

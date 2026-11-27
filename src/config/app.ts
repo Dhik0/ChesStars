@@ -17,6 +17,17 @@ export const GITHUB_REPO = `${GITHUB_OWNER}/${GITHUB_REPO_NAME}`;
 /** 仓库主页：设置页的「开源仓库」入口 */
 export const GITHUB_REPO_URL = `https://github.com/${GITHUB_REPO}`;
 
+/* ------------------------------------------------------------------ *
+ * 开发者（「关于」页的开发者卡片）
+ * ------------------------------------------------------------------ */
+
+/** GitHub Handle（带 @ 的展示形式由界面拼，这里只存原始账号名） */
+export const DEVELOPER_HANDLE = GITHUB_OWNER;
+export const DEVELOPER_NAME = 'Dhiko';
+export const DEVELOPER_URL = `https://github.com/${DEVELOPER_HANDLE}`;
+/** 头像走 GitHub 公共头像，离线时由界面回退成首字母 */
+export const DEVELOPER_AVATAR = `https://github.com/${DEVELOPER_HANDLE}.png?size=160`;
+
 /** 仓库根目录的版本清单（不走 GitHub API，避免 60 次/小时限流） */
 export const VERSION_MANIFEST_PATH = 'version.json';
 

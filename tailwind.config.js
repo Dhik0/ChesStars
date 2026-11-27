@@ -11,6 +11,7 @@ export default {
          */
         app: 'rgb(var(--c-app) / <alpha-value>)',
         surface: 'rgb(var(--c-surface) / <alpha-value>)',
+        card: 'rgb(var(--c-card) / <alpha-value>)',
         raised: 'rgb(var(--c-raised) / <alpha-value>)',
         press: 'rgb(var(--c-press) / <alpha-value>)',
         line: 'rgb(var(--c-line) / <alpha-value>)',
@@ -87,6 +88,27 @@ export default {
           '85%': { opacity: '1' },
           '100%': { opacity: '0' },
         },
+        /*
+         * 滑动切页的入场：从手指滑走的那一侧轻轻推进来。
+         * 只做 26px 的位移 + 一点淡入——跟手位移在 JS 里实时改，
+         * 这里只负责「松手后新页面怎么落位」，位移太大会显得拖沓。
+         */
+        'page-in-next': {
+          '0%': { transform: 'translateX(26px)', opacity: '0.4' },
+          '100%': { transform: 'translateX(0)', opacity: '1' },
+        },
+        'page-in-prev': {
+          '0%': { transform: 'translateX(-26px)', opacity: '0.4' },
+          '100%': { transform: 'translateX(0)', opacity: '1' },
+        },
+        /*
+         * 设置二级子页：整屏从右侧推入覆盖，底层主界面同时左移压暗。
+         * 跟手右滑返回由 useSwipeBack 直写 transform，和这条入场动画互斥。
+         */
+        'subpage-in': {
+          '0%': { transform: 'translateX(100%)' },
+          '100%': { transform: 'translateX(0)' },
+        },
       },
       animation: {
         'slide-up': 'slide-up 160ms ease-out',
@@ -96,6 +118,9 @@ export default {
         'brilliant-ring': 'brilliant-ring 850ms ease-out both',
         'brilliant-flash': 'brilliant-flash 520ms ease-out both',
         'banner-life': 'banner-life 2s ease-out both',
+        'page-in-next': 'page-in-next 200ms cubic-bezier(0.22, 0.8, 0.3, 1)',
+        'page-in-prev': 'page-in-prev 200ms cubic-bezier(0.22, 0.8, 0.3, 1)',
+        'subpage-in': 'subpage-in 260ms cubic-bezier(0.22, 1, 0.36, 1)',
       },
     },
   },

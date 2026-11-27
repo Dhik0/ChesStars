@@ -1,41 +1,58 @@
-import { useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import {
+  ArrowLeft,
+  Check,
   ChevronRight,
+  ChevronsUpDown,
   Database,
   Download,
-  ExternalLink,
-  Github,
-  MessageCircle,
+  EyeOff,
+  Languages,
+  Paintbrush,
+  Palette,
   RefreshCw,
-  Settings,
-  Sparkles,
-  Users,
+  RotateCcw,
+  SlidersHorizontal,
+  Volume2,
 } from 'lucide-react';
-import LanguageAccordion from './LanguageAccordion';
-import { APP_NAME, APP_VERSION, DISCORD_INVITE_URL, GITHUB_REPO, GITHUB_REPO_URL, QQ_GROUP_ID } from '../config/app';
-import { bundledQqGroupUrl } from '../config/bundledManifest';
-import { IS_NATIVE_APP, IS_WEB } from '../config/platform';
-import { useTranslation } from '../i18n';
+import { PageVeil } from './PageHeader';
+import { LANG_CHOICES, LANG_LABEL, useTranslation, type LangChoice } from '../i18n';
 import { pullMessage } from '../i18n/format';
+import {
+  browserPrefsStorage,
+  resetPreferences,
+  type DisplayPrefs,
+} from '../services/prefsStore';
 import type { MetaSnapshot, PullResult } from '../services/metaStore';
-import type { UpdateInfo } from '../services/updateChecker';
-import { mirrorDownloadUrl } from '../services/updateChecker';
-import type { UpdateCheckOutcome } from '../services/webUpdate';
-import type { DarkPalette, ThemeMode } from '../services/themeStore';
-import { openExternal } from '../utils/openExternal';
+import type { ThemeMode } from '../services/themeStore';
+import { isSfxMuted, setSfxMuted } from '../services/reviewSfx';
 import { useTheme } from '../utils/useTheme';
+import { SWIPE_BACK_EASE, SWIPE_BACK_MS, useSwipeBack } from '../utils/useSwipeBack';
+
+/** 「设置」页里三个推入式二级子页 */
+export type SettingsPage = 'appearance' | 'draft' | 'data';
 
 interface SettingsViewProps {
   snapshot: MetaSnapshot;
+  /** 有子页推入时，底层主界面微微左移 */
+  subpageOpen: boolean;
+  languageOpen: boolean;
+  onLanguageOpenChange: (open: boolean) => void;
+  onOpenPage: (page: SettingsPage) => void;
+  onOpenThemeColor: () => void;
+}
+
+interface SettingsSubpageProps {
+  page: SettingsPage;
+  onBack: () => void;
+  snapshot: MetaSnapshot;
   onPull: () => Promise<PullResult>;
-  /** 已发现的新版本（启动检测或手动检测得出）；null = 没有更新 */
-  updateInfo: UpdateInfo | null;
-  /** 远程清单里的 QQ 群链接；null = 用打包内置的 version.json */
-  qqGroupUrl: string | null;
-  /** 手动检查更新（原生壳问 GitHub 清单，网页端问线上 version.json），返回统一结果 */
-  onCheckUpdate: () => Promise<UpdateCheckOutcome>;
-  /** 打开更新说明弹窗 */
-  onShowUpdate: () => void;
+  displayPrefs: DisplayPrefs;
+  onDisplayPrefsChange: (prefs: DisplayPrefs) => void;
+  blockedCount: number;
+  onOpenBlocked: () => void;
+  onOpenThemeColor: () => void;
 }
 
 const SOURCE_KEY: Record<MetaSnapshot['source'], string> = {
@@ -45,124 +62,541 @@ const SOURCE_KEY: Record<MetaSnapshot['source'], string> = {
 };
 
 const SOURCE_STYLE: Record<MetaSnapshot['source'], string> = {
-  builtin: 'bg-press/60 text-body',
-  cache: 'bg-sky-500/20 text-brand',
+  builtin: 'bg-raised text-body',
+  cache: 'bg-accent-soft text-accent',
   remote: 'bg-strong/20 text-strong',
 };
 
-/**
- * 外观模式的三段式选择：深色 / 浅色 / 跟随系统。
- * 顺序固定——「深色」是默认值，放第一位，用户不用滑到后面找。
- */
+/** 三段式切换胶囊：跟随系统 / 浅色 / 深色（与参考的原生设置页同序） */
 const THEME_MODES: ReadonlyArray<{ key: ThemeMode; labelKey: string }> = [
-  { key: 'dark', labelKey: 'settings.themeDark' },
-  { key: 'light', labelKey: 'settings.themeLight' },
   { key: 'system', labelKey: 'settings.themeSystem' },
+  { key: 'light', labelKey: 'settings.themeLight' },
+  { key: 'dark', labelKey: 'settings.themeDark' },
 ];
 
-/** 深色主题色：色标颜色与 index.css 里各主题的 `--c-app` 一致 */
-const DARK_PALETTES: ReadonlyArray<{ key: DarkPalette; labelKey: string; swatch: string }> = [
-  { key: 'oled', labelKey: 'settings.paletteOled', swatch: '#000000' },
-  { key: 'navy', labelKey: 'settings.paletteNavy', swatch: '#020617' },
-];
-
-interface CheckMessage {
-  tone: 'ok' | 'warn' | 'error';
-  text: string;
-}
-
-const CHECK_TONE: Record<CheckMessage['tone'], string> = {
-  ok: 'bg-strong/10 text-strong',
-  warn: 'bg-sky-500/10 text-brand',
-  error: 'bg-red-500/10 text-danger',
+const SUBPAGE_TITLE_KEY: Record<SettingsPage, string> = {
+  appearance: 'settings.pageAppearance',
+  draft: 'settings.pageDraft',
+  data: 'settings.pageData',
 };
 
-/** 小节标题：一条细线 + 标签，把「数据」与「关于」两块分开 */
-function SectionLabel({ children }: { children: string }) {
-  return (
-    <div className="mb-2 flex items-center gap-2">
-      <span className="text-[10px] font-semibold tracking-wide text-subtle">{children}</span>
-      <span className="h-px flex-1 bg-line" />
-    </div>
-  );
-}
+/* ------------------------------------------------------------------ *
+ * 共用小组件
+ * ------------------------------------------------------------------ */
 
-/** 「关于」区的行式入口：图标 + 标题 + 小字 + 外链箭头 */
-function LinkRow({
+/** 卡片内的一行导航 / 开关入口：统一 64px 触控比例 */
+function ListRow({
   icon,
   title,
   subtitle,
   onClick,
+  trailing,
+  rowRef,
 }: {
-  icon: ReactNode;
+  icon?: ReactNode;
   title: string;
-  subtitle: string;
-  onClick: () => void;
+  subtitle?: string;
+  onClick?: () => void;
+  trailing?: ReactNode;
+  rowRef?: RefObject<HTMLButtonElement>;
 }) {
   return (
     <button
       type="button"
+      ref={rowRef}
       onClick={onClick}
-      className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2 text-left shadow-card transition-colors active:bg-press"
+      className="list-row"
     >
-      <span className="shrink-0 text-body">{icon}</span>
+      {icon && <span className="list-icon">{icon}</span>}
       <span className="min-w-0 flex-1">
-        <span className="block text-[12px] font-medium text-body">{title}</span>
-        <span className="block truncate text-[10px] text-subtle">{subtitle}</span>
+        <span className="list-title truncate">{title}</span>
+        {subtitle && <span className="list-subtitle truncate">{subtitle}</span>}
       </span>
-      <ExternalLink size={13} className="shrink-0 text-subtle" />
+      {trailing ?? <ChevronRight size={20} className="shrink-0 text-faint" />}
     </button>
   );
 }
 
+/** 内缩胶囊开关：50×28 外轨 + 20px 圆点四周留 4px，比例由 .switch-track 统一定义 */
+function Toggle({
+  checked,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  label: string;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className="switch-track"
+    >
+      <span className="switch-thumb" />
+    </button>
+  );
+}
+
+function ToggleRow({
+  icon,
+  title,
+  subtitle,
+  checked,
+  onChange,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle?: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div className="list-row">
+      <span className="list-icon">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="list-title truncate">{title}</span>
+        {subtitle && <span className="list-subtitle">{subtitle}</span>}
+      </span>
+      <Toggle checked={checked} label={title} onChange={onChange} />
+    </div>
+  );
+}
+
+/** 分组卡片：小标题恒在卡片上方 10px，用 --accent */
+function Group({
+  label,
+  children,
+  className = '',
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`mb-7 ${className}`}>
+      <h2 className="section-label">{label}</h2>
+      <div className="list-card">{children}</div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 锚定悬浮语言选单
+ * ------------------------------------------------------------------ */
+
+/** placement 决定卷轴从锚点的哪一侧揭开，由触发行在视口里的剩余空间算出 */
+type MenuAnchor = { left: number; top: number; placement: 'up' | 'down' };
+
+function LanguageMenu({
+  anchor,
+  closing,
+  onClose,
+}: {
+  anchor: MenuAnchor;
+  closing: boolean;
+  onClose: () => void;
+}) {
+  const { t, langChoice, setLangChoice } = useTranslation();
+  const up = anchor.placement === 'up';
+  const panelMotion = up
+    ? closing
+      ? 'lang-menu-up-out'
+      : 'lang-menu-up-in'
+    : closing
+      ? 'lang-menu-down-out'
+      : 'lang-menu-down-in';
+
+  const choose = (choice: LangChoice) => {
+    setLangChoice(choice);
+    onClose();
+  };
+
+  return createPortal(
+    <>
+      {/* 微暗遮罩：点空白处收起，列表本身不发生任何排版位移 */}
+      <div
+        className={`scrim fixed inset-0 z-40 ${
+          closing ? 'lang-scrim-out pointer-events-none' : 'lang-scrim-in'
+        }`}
+        onClick={onClose}
+        aria-hidden
+      />
+      {/* 外层只管定位与投影，卷轴裁切放在内层，阴影不会被 clip-path 切掉 */}
+      <div
+        className={`fixed z-[45] min-w-[230px] w-[248px] max-w-[calc(100vw-24px)] ${
+          closing ? 'pointer-events-none' : ''
+        }`}
+        style={{
+          left: anchor.left,
+          top: anchor.top,
+          filter: 'var(--menu-filter)',
+        }}
+      >
+        <div
+          role="menu"
+          aria-label={t('settings.language')}
+          aria-hidden={closing || undefined}
+          className={`${panelMotion} rounded-[20px] border border-line-strong/40 p-1.5`}
+          style={{
+            transformOrigin: up ? '85% 100%' : '85% 0%',
+            backgroundColor: 'var(--menu-bg)',
+          }}
+        >
+          {LANG_CHOICES.map((choice) => {
+            const active = choice === langChoice;
+            const label = choice === 'system' ? t('settings.languageSystem') : LANG_LABEL[choice];
+            return (
+              <button
+                key={choice}
+                type="button"
+                role="menuitemradio"
+                aria-checked={active}
+                onClick={() => choose(choice)}
+                className={`flex w-full items-center gap-2 rounded-[14px] px-5 py-3.5 text-left text-[16px] font-medium transition-colors active:bg-white/[0.06] ${
+                  active ? 'text-[color:var(--menu-selected-fg)]' : 'text-body'
+                }`}
+              >
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                {active && <Check size={18} strokeWidth={2.6} className="shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 设置主界面：干净的三组导航列表
+ * ------------------------------------------------------------------ */
+
 /**
- * 设置页（一级页面，由底部导航右侧 Tab 进入）。
+ * 设置页（一级页面）。
  *
- * 面向普通用户：只讲「数据是哪天的、能不能更新、去哪下载、怎么换语言」，
- * 算法细节与网络链路一律不在这里展示（见 .workbuddy-ai/memory/MEMORY.md 的长期规范）。
+ * 主界面只做导航：外观 / 偏好 / 通用三组，点一行推入二级子页；
+ * 语言是入口附近弹出的悬浮选单，不占文档流，切换零排版抖动。
+ * 面向普通用户：不展示算法、网络链路与技术参数（见项目长期 UI 文案规范）。
  */
 export default function SettingsView({
   snapshot,
-  onPull,
-  updateInfo,
-  qqGroupUrl,
-  onCheckUpdate,
-  onShowUpdate,
+  subpageOpen,
+  languageOpen,
+  onLanguageOpenChange,
+  onOpenPage,
 }: SettingsViewProps) {
-  const { t, lang, num, tier } = useTranslation();
-  const { mode, darkPalette, setMode, setDarkPalette } = useTheme();
-  const [pulling, setPulling] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  const [checkMsg, setCheckMsg] = useState<CheckMessage | null>(null);
+  const { t, lang } = useTranslation();
+  const { mode, darkPalette, monetEnabled } = useTheme();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const langRowRef = useRef<HTMLButtonElement | null>(null);
+  const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
+  /** 关闭时先留一帧播放反向卷轴，约 180ms 后再真正卸载 */
+  const [menuMounted, setMenuMounted] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const closeTimer = useRef<number | null>(null);
 
-  /**
-   * 国内镜像下载入口：只有简中界面才渲染。
-   * 繁中 / 英文用户看不到任何镜像相关元素，主入口统一是 GitHub Release 页。
-   */
-  const mirrorUrl =
-    lang === 'zh-CN' && updateInfo
-      ? mirrorDownloadUrl(updateInfo.mirrorPrefixes, updateInfo.apkUrl)
-      : null;
+  /** 外观行的动态副标题：纯黑 OLED · 色彩微染关 */
+  const appearanceSummary = (() => {
+    const base =
+      mode === 'light'
+        ? t('settings.themeLight')
+        : darkPalette === 'oled'
+          ? t('settings.paletteOled')
+          : t('settings.paletteNavy');
+    const tint = monetEnabled ? t('settings.monetOnLabel') : t('settings.monetOffLabel');
+    return `${base} · ${tint}`;
+  })();
 
-  /** QQ 群：远程清单优先，没有就用打包内置的 version.json（非空即常驻） */
-  const qqLink = qqGroupUrl ?? bundledQqGroupUrl;
+  /** 数据行的副标题：只回答「数据是哪天的」 */
+  const dataSummary = `${t('settings.dataDate')} ${snapshot.dataDate ?? t('settings.unknown')}`;
 
-  /** 数据时间：按当前语言格式化，避免英文界面里出现「2026/11/24 22:18」的中文顺序 */
-  const formatTime = (iso: string): string => {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString(lang, {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
+  const openLanguage = () => {
+    const row = langRowRef.current;
+    const width = 248;
+    const height = 208;
+    const gap = 8;
+    const rect = row?.getBoundingClientRect();
+    if (!rect) {
+      setAnchor({ left: 20, top: 120, placement: 'down' });
+      onLanguageOpenChange(true);
+      return;
+    }
+    const left = Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12));
+    const spaceBelow = window.innerHeight - rect.bottom;
+    // 下方放不下且上方更宽裕时向上弹，否则向下弹
+    const placement: MenuAnchor['placement'] =
+      spaceBelow < height + gap && rect.top > spaceBelow ? 'up' : 'down';
+    const top =
+      placement === 'up'
+        ? Math.max(12, rect.top - height - gap)
+        : Math.max(12, Math.min(rect.bottom + gap, window.innerHeight - height - 12));
+    setAnchor({ left, top, placement });
+    onLanguageOpenChange(true);
   };
 
-  /** 段位门槛：后端 tier_audit 里带段位标签时优先用它（如「传奇 I」），否则退回数值 */
+  /** 选单内部触发的关闭：先切退场态，再让外层状态翻转 */
+  const requestClose = () => {
+    setClosing(true);
+    onLanguageOpenChange(false);
+  };
+
+  /**
+   * languageOpen 由外层持有（Esc / 返回键也会直接改它），
+   * 所以这里按 prop 滞后 180ms 卸载，保证所有关闭路径都能播完反向卷轴。
+   */
+  useEffect(() => {
+    if (languageOpen) {
+      if (closeTimer.current !== null) {
+        window.clearTimeout(closeTimer.current);
+        closeTimer.current = null;
+      }
+      setClosing(false);
+      setMenuMounted(true);
+      return;
+    }
+    if (!menuMounted) return;
+    setClosing(true);
+    closeTimer.current = window.setTimeout(() => {
+      setMenuMounted(false);
+      setClosing(false);
+      setAnchor(null);
+      closeTimer.current = null;
+    }, 180);
+  }, [languageOpen, menuMounted]);
+
+  useEffect(
+    () => () => {
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    },
+    [],
+  );
+
+  /** 列表滚动 / 窗口变化时收起选单，避免悬浮层停在错误的锚点 */
+  useEffect(() => {
+    if (!languageOpen) return;
+    const close = () => onLanguageOpenChange(false);
+    const scroller = scrollRef.current;
+    window.addEventListener('resize', close);
+    scroller?.addEventListener('scroll', close, { passive: true });
+    return () => {
+      window.removeEventListener('resize', close);
+      scroller?.removeEventListener('scroll', close);
+    };
+  }, [languageOpen, onLanguageOpenChange]);
+
+  return (
+    <div
+      className={`settings-page relative flex h-full min-h-0 flex-col bg-app ${
+        subpageOpen ? 'settings-underlay' : ''
+      }`}
+    >
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-8">
+        <header className="page-head settings-page-head">
+          <h1 className="page-title font-medium">{t('settings.title')}</h1>
+        </header>
+
+        <Group label={t('settings.sectionAppearance')}>
+          <ListRow
+            icon={<Palette size={22} />}
+            title={t('settings.navAppearance')}
+            subtitle={appearanceSummary}
+            onClick={() => onOpenPage('appearance')}
+          />
+        </Group>
+
+        <Group label={t('settings.sectionPreference')}>
+          <ListRow
+            icon={<SlidersHorizontal size={22} />}
+            title={t('settings.navDraft')}
+            subtitle={t('settings.navDraftHint')}
+            onClick={() => onOpenPage('draft')}
+          />
+        </Group>
+
+        <Group label={t('settings.sectionGeneral')}>
+          <ListRow
+            rowRef={langRowRef}
+            icon={<Languages size={22} />}
+            title={t('settings.language')}
+            subtitle={t('settings.languageHint')}
+            onClick={openLanguage}
+            trailing={
+              <span className="list-trailing">
+                {LANG_LABEL[lang]}
+                <ChevronsUpDown size={16} className="text-accent" />
+              </span>
+            }
+          />
+          <ListRow
+            icon={<Database size={22} />}
+            title={t('settings.navData')}
+            subtitle={dataSummary}
+            onClick={() => onOpenPage('data')}
+          />
+        </Group>
+      </div>
+
+      <PageVeil />
+      {menuMounted && anchor && (
+        <LanguageMenu anchor={anchor} closing={closing} onClose={requestClose} />
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 二级子页
+ * ------------------------------------------------------------------ */
+
+/** 格式化元数据更新时间（按当前语言） */
+function formatTime(iso: string, lang: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(lang, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+/** 主题子页：三段独立模式按钮 + Monet 开关卡 + 主题色调色盘入口 */
+function AppearancePage({ onOpenThemeColor }: Pick<SettingsSubpageProps, 'onOpenThemeColor'>) {
+  const { t } = useTranslation();
+  const { mode, monetEnabled, customAccent, setMode, setMonetEnabled } = useTheme();
+
+  return (
+    <div className="space-y-5">
+      {/* 三段模式：独立等宽按钮，上方不再放分组小标题 */}
+      <div
+        className="grid grid-cols-3 gap-2.5"
+        role="radiogroup"
+        aria-label={t('settings.themeMode')}
+      >
+        {THEME_MODES.map(({ key, labelKey }) => {
+          const active = mode === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => setMode(key)}
+              className="theme-mode-btn h-12 min-w-0 rounded-[15px] px-1 text-[15px] font-medium"
+            >
+              <span className="block truncate">{t(labelKey)}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 卡片一：Monet 开关 + 主题色入口 */}
+      <div className="theme-card card py-2">
+        <ToggleRow
+          icon={<Paintbrush size={22} />}
+          title={t('settings.monetTitle')}
+          subtitle={t('settings.monetDesc')}
+          checked={monetEnabled}
+          onChange={setMonetEnabled}
+        />
+        {/* 随 Monet 开关手风琴展开：关闭时整行完全收起，不占位也不响应点击 */}
+        <div className="theme-color-reveal" data-open={monetEnabled}>
+          <div>
+            <ListRow
+              icon={<Palette size={22} />}
+              title={t('settings.themeColorTitle')}
+              subtitle={t('settings.themeColorDesc')}
+              onClick={onOpenThemeColor}
+              trailing={
+                <span className="list-trailing">
+                  <span
+                    className="theme-swatch h-5 w-5 rounded-full border border-line-strong"
+                    style={{
+                      backgroundColor: `rgb(${customAccent.r} ${customAccent.g} ${customAccent.b} / ${customAccent.a})`,
+                    }}
+                  />
+                  <ChevronRight size={18} className="text-faint" />
+                </span>
+              }
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DraftPage({
+  displayPrefs,
+  onDisplayPrefsChange,
+  blockedCount,
+  onOpenBlocked,
+}: Pick<SettingsSubpageProps, 'displayPrefs' | 'onDisplayPrefsChange' | 'blockedCount' | 'onOpenBlocked'>) {
+  const { t } = useTranslation();
+  const [sfxOn, setSfxOn] = useState(() => !isSfxMuted());
+
+  const toggleSfx = (next: boolean) => {
+    setSfxOn(next);
+    setSfxMuted(!next);
+  };
+
+  return (
+    <>
+      <Group label={t('settings.draftSectionBlocked')} className="mt-2">
+        <ListRow
+          icon={<EyeOff size={22} />}
+          title={t('settings.draftBlocked')}
+          subtitle={t('settings.draftBlockedHint')}
+          onClick={onOpenBlocked}
+          trailing={
+            <span className="list-trailing">
+              {t('settings.draftBlockedCount', { n: blockedCount })}
+              <ChevronRight size={18} className="text-faint" />
+            </span>
+          }
+        />
+        <ToggleRow
+          icon={<EyeOff size={22} />}
+          title={t('settings.draftHideBlocked')}
+          subtitle={t('settings.draftHideBlockedHint')}
+          checked={displayPrefs.hideBlocked}
+          onChange={(hideBlocked) => onDisplayPrefsChange({ ...displayPrefs, hideBlocked })}
+        />
+      </Group>
+
+      <Group label={t('settings.draftSectionReview')}>
+        <ToggleRow
+          icon={<Volume2 size={22} />}
+          title={t('settings.draftSfx')}
+          subtitle={t('settings.draftSfxHint')}
+          checked={sfxOn}
+          onChange={toggleSfx}
+        />
+        <ToggleRow
+          icon={<SlidersHorizontal size={22} />}
+          title={t('settings.draftAdvanced')}
+          subtitle={t('settings.draftAdvancedHint')}
+          checked={displayPrefs.advancedTools}
+          onChange={(advancedTools) => onDisplayPrefsChange({ ...displayPrefs, advancedTools })}
+        />
+      </Group>
+    </>
+  );
+}
+
+function DataPage({ snapshot, onPull }: Pick<SettingsSubpageProps, 'snapshot' | 'onPull'>) {
+  const { t, lang, num, tier } = useTranslation();
+  const [pulling, setPulling] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+
   const tierText = (() => {
     const min = snapshot.meta.min_tier;
     const hit = snapshot.meta.tier_audit?.distribution.find((d) => d.tier === min);
@@ -177,315 +611,203 @@ export default function SettingsView({
     setPulling(false);
   };
 
-  const handleCheckUpdate = async () => {
-    setChecking(true);
-    setCheckMsg(null);
-    try {
-      const res = await onCheckUpdate();
-      if (res.status === 'update' && res.version) {
-        // 网页端没有安装包，「去上方下载」会误导，换成「点顶部提示条」
-        setCheckMsg({
-          tone: 'warn',
-          text: t(IS_WEB ? 'settings.checkFoundWeb' : 'settings.checkFound', { v: res.version }),
-        });
-      } else if (res.status === 'latest') {
-        setCheckMsg({ tone: 'ok', text: t('settings.checkLatest', { v: res.current }) });
-      } else {
-        setCheckMsg({ tone: 'error', text: t('settings.checkFailed') });
-      }
-    } catch {
-      setCheckMsg({ tone: 'error', text: t('settings.checkFailed') });
-    } finally {
-      setChecking(false);
-    }
+  const handleReset = () => {
+    resetPreferences(browserPrefsStorage());
+    setConfirmReset(false);
+    setMessage({ ok: true, text: t('settings.resetDone') });
+    // 偏好分别住在主题单例、i18n 上下文与组件 state 里，刷新是最稳的一条同步路径
+    window.setTimeout(() => window.location.reload(), 700);
   };
 
-  /** 社区入口分流：简中主推 QQ 群 + Discord；英文与繁中只推 Discord */
-  const showQq = lang === 'zh-CN';
-
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app">
-      {/* 页头：与选图页同款细边框 + 安全区留白 */}
-      <header className="shrink-0 border-b border-line px-3 pb-2 pt-2 safe-top">
-        <h1 className="flex items-center gap-1.5 text-[14px] font-semibold text-fg">
-          <Settings size={15} className="text-brand" />
-          {t('settings.title')}
-        </h1>
-        <p className="mt-0.5 text-[10px] leading-tight text-subtle">
-          {APP_NAME} v{APP_VERSION}
-        </p>
-      </header>
-
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-5 pt-3">
-        {/*
-          外观与主题：放在最顶部——它是「整页长什么样」的开关，
-          比数据与版本信息更常被翻。
-          深色主题色只影响两套深色；浅色模式下列表整体置灰并给出原因。
-        */}
-        <SectionLabel>{t('settings.sectionAppearance')}</SectionLabel>
-
-        <div className="mb-3 rounded-lg border border-line bg-surface p-2.5 shadow-card">
-          <span className="block text-[11.5px] font-semibold text-fg">
-            {t('settings.themeMode')}
+    <>
+      <h2 className="section-label mt-2">{t('settings.sectionData')}</h2>
+      <div className="card px-5 py-4">
+        <div className="mb-3 flex items-center gap-2">
+          <span className={`rounded-full px-2.5 py-1 text-[12px] font-semibold ${SOURCE_STYLE[snapshot.source]}`}>
+            {t(SOURCE_KEY[snapshot.source])}
           </span>
-
-          <div
-            className="mt-1.5 grid grid-cols-3 gap-1 rounded-lg bg-app/70 p-0.5"
-            role="radiogroup"
-            aria-label={t('settings.themeMode')}
-          >
-            {THEME_MODES.map(({ key, labelKey }) => {
-              const active = mode === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  onClick={() => setMode(key)}
-                  className={`flex h-8 items-center justify-center rounded-md text-[11.5px] transition-colors ${
-                    active
-                      ? 'bg-raised font-semibold text-fg'
-                      : 'text-muted active:bg-press'
-                  }`}
-                >
-                  {t(labelKey)}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="mt-2.5 flex items-baseline justify-between gap-2">
-            <span className="text-[11.5px] font-semibold text-fg">
-              {t('settings.darkPalette')}
-            </span>
-            {mode === 'light' && (
-              <span className="text-[9.5px] leading-none text-subtle">
-                {t('settings.paletteOnlyDark')}
-              </span>
-            )}
-          </div>
-
-          <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-            {DARK_PALETTES.map(({ key, labelKey, swatch }) => {
-              const active = darkPalette === key;
-              const disabled = mode === 'light';
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={active}
-                  aria-label={t(labelKey)}
-                  disabled={disabled}
-                  onClick={() => setDarkPalette(key)}
-                  className={`flex h-9 items-center gap-1.5 rounded-lg border px-2 text-[11px] transition-colors ${
-                    active && !disabled
-                      ? 'border-brand/60 bg-brand/10 font-semibold text-fg'
-                      : 'border-line bg-app/50 text-muted active:bg-press'
-                  } ${disabled ? 'cursor-not-allowed' : ''}`}
-                >
-                  {/* 色标始终满色：它本身就是「这个主题长什么样」的样本，不跟着置灰 */}
-                  <span
-                    className="h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-line-strong"
-                    style={{ backgroundColor: swatch }}
-                    aria-hidden
-                  />
-                  <span className={`min-w-0 truncate ${disabled ? 'opacity-50' : ''}`}>
-                    {t(labelKey)}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <span className="text-[12px] text-muted">
+            {t('settings.updatedAt', { time: formatTime(snapshot.updatedAt, lang) })}
+          </span>
         </div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-[13px]">
+          <span className="text-muted">
+            {t('settings.dataDate')}{' '}
+            <span className="tabular-nums text-body">{snapshot.dataDate ?? t('settings.unknown')}</span>
+          </span>
+          <span className="text-muted">
+            {t('settings.totalBattles')}{' '}
+            <span className="tabular-nums text-body">{num(snapshot.totalBattles)}</span>
+          </span>
+          <span className="text-muted">
+            {t('settings.minTier')} <span className="text-body">{tierText}</span>
+          </span>
+          <span className="text-muted">
+            {t('settings.maps')}{' '}
+            <span className="tabular-nums text-body">{snapshot.meta.maps.length}</span>
+          </span>
+          <span className="text-muted">
+            {t('settings.brawlers')}{' '}
+            <span className="tabular-nums text-body">{snapshot.meta.brawlers.length}</span>
+          </span>
+        </div>
+      </div>
 
-        {/* 语言：切换后立即全局生效并记住选择 */}
-        <LanguageAccordion />
+      <button
+        type="button"
+        onClick={() => void handlePull()}
+        disabled={pulling}
+        className="bg-accent text-accent-on mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-[18px] text-[15px] font-semibold transition-opacity active:opacity-80 disabled:opacity-60"
+      >
+        {pulling ? <RefreshCw size={17} className="animate-spin" /> : <Download size={17} />}
+        {pulling ? t('settings.pulling') : t('settings.pull')}
+      </button>
 
-        {/*
-          新版本提示：留在设置页内，不做全局弹窗。
-          主入口固定为 GitHub Release 页；国内镜像只对简中用户显示，且只做小字备用入口。
-          仅原生壳渲染——Web / PWA 用户不该看到安卓安装包下载引导。
-        */}
-        {IS_NATIVE_APP && updateInfo && (
-          <div className="mb-3 rounded-lg border border-sky-500/30 bg-sky-500/[0.09] px-2.5 py-2">
-            <div className="flex items-start gap-2">
-              <Sparkles size={14} className="mt-0.5 shrink-0 text-brand" />
-              <div className="min-w-0 flex-1 leading-tight">
-                <p className="truncate text-[11.5px] font-semibold text-brand">
-                  {t('settings.newVersion', { v: updateInfo.version })}
-                </p>
-                <p className="text-[10px] text-brand/70">
-                  {t('update.current', { v: APP_VERSION })}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={onShowUpdate}
-                className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-brand/80 active:bg-sky-500/15"
-              >
-                {t('settings.updateNotes')}
-                <ChevronRight size={12} />
-              </button>
-            </div>
+      {message && (
+        <p
+          className={`mt-3 rounded-[16px] px-3.5 py-2.5 text-[13px] leading-snug ${
+            message.ok ? 'bg-strong/10 text-strong' : 'bg-red-500/10 text-danger'
+          }`}
+        >
+          {message.text}
+        </p>
+      )}
 
+      <h2 className="section-label mt-8">{t('settings.resetSection')}</h2>
+      <div className="list-card">
+        <ListRow
+          icon={<RotateCcw size={22} />}
+          title={t('settings.reset')}
+          subtitle={t('settings.resetHint')}
+          onClick={() => setConfirmReset(true)}
+          trailing={<ChevronRight size={20} className="shrink-0 text-faint" />}
+        />
+        {confirmReset && (
+          <div className="flex items-center gap-2 px-5 py-4">
+            <span className="min-w-0 flex-1 text-[13px] leading-snug text-body">
+              {t('settings.resetConfirmHint')}
+            </span>
             <button
               type="button"
-              onClick={() => openExternal(updateInfo.htmlUrl)}
-              className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-sky-600 text-[12.5px] font-semibold text-white transition-colors active:bg-sky-700"
+              onClick={() => setConfirmReset(false)}
+              className="h-10 shrink-0 rounded-[14px] bg-raised px-3 text-[13px] font-medium text-body active:bg-press"
             >
-              <Download size={13} />
-              {t('update.downloadGithub')}
+              {t('settings.resetCancel')}
             </button>
-
-            {mirrorUrl && (
-              <div className="mt-1.5 text-center">
-                <button
-                  type="button"
-                  onClick={() => openExternal(mirrorUrl)}
-                  className="text-[10px] text-muted underline decoration-line-strong underline-offset-2 active:text-fg"
-                >
-                  {t('update.mirror')}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        <SectionLabel>{t('settings.sectionData')}</SectionLabel>
-
-        {/* 当前数据状态 */}
-        <div className="mb-3 rounded-lg border border-line bg-surface p-2.5 shadow-card">
-          <div className="mb-1.5 flex items-center gap-1.5">
-            <span
-              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${SOURCE_STYLE[snapshot.source]}`}
+            <button
+              type="button"
+              onClick={handleReset}
+              className="bg-accent text-accent-on h-10 shrink-0 rounded-[14px] px-3 text-[13px] font-semibold active:opacity-80"
             >
-              {t(SOURCE_KEY[snapshot.source])}
-            </span>
-            <span className="text-[10px] text-subtle">
-              {t('settings.updatedAt', { time: formatTime(snapshot.updatedAt) })}
-            </span>
+              {t('settings.resetConfirm')}
+            </button>
           </div>
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
-            <span className="text-subtle">
-              {t('settings.dataDate')}{' '}
-              <span className="tabular-nums text-body">
-                {snapshot.dataDate ?? t('settings.unknown')}
-              </span>
-            </span>
-            <span className="text-subtle">
-              {t('settings.totalBattles')}{' '}
-              <span className="tabular-nums text-body">{num(snapshot.totalBattles)}</span>
-            </span>
-            <span className="text-subtle">
-              {t('settings.minTier')} <span className="text-body">{tierText}</span>
-            </span>
-            <span className="text-subtle">
-              {t('settings.maps')}{' '}
-              <span className="tabular-nums text-body">{snapshot.meta.maps.length}</span>
-            </span>
-            <span className="text-subtle">
-              {t('settings.brawlers')}{' '}
-              <span className="tabular-nums text-body">{snapshot.meta.brawlers.length}</span>
-            </span>
-          </div>
-        </div>
-
-        {/* 唯一的数据操作：强制拉一次最新数据 */}
-        <button
-          type="button"
-          onClick={handlePull}
-          disabled={pulling}
-          className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-sky-600 text-[13px] font-semibold text-white transition-colors active:bg-sky-700 disabled:opacity-60"
-        >
-          {pulling ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
-          {pulling ? t('settings.pulling') : t('settings.pull')}
-        </button>
-
-        {message && (
-          <p
-            className={`mt-2 rounded-lg px-2 py-1.5 text-[11px] leading-snug ${
-              message.ok ? 'bg-strong/10 text-strong' : 'bg-red-500/10 text-danger'
-            }`}
-          >
-            {message.text}
-          </p>
         )}
+      </div>
+    </>
+  );
+}
 
-        {/* 关于：版本 / 检查更新 / 开源仓库 / 社区 */}
-        <div className="mt-4">
-          <SectionLabel>{t('settings.sectionAbout')}</SectionLabel>
+/**
+ * 推入式二级子页：整屏从右侧滑入，底层设置页左移压暗。
+ * 返回箭头 / 跟手右滑都用同一条 260ms 曲线；松手越过 30% 屏宽即弹出返回。
+ */
+export function SettingsSubpage({
+  page,
+  onBack,
+  snapshot,
+  onPull,
+  displayPrefs,
+  onDisplayPrefsChange,
+  blockedCount,
+  onOpenBlocked,
+  onOpenThemeColor,
+}: SettingsSubpageProps) {
+  const { t } = useTranslation();
+  const pageRef = useRef<HTMLDivElement | null>(null);
+  const scrimRef = useRef<HTMLDivElement | null>(null);
+  const closeTimer = useRef<number | null>(null);
+  const finished = useRef(false);
 
-          <div className="mb-2 flex items-center justify-between rounded-lg border border-line bg-surface px-2.5 py-2 shadow-card">
-            <span className="flex items-center gap-1.5 text-[11px] text-muted">
-              <Database size={13} className="text-subtle" />
-              {t('settings.currentVersion')}
-            </span>
-            <span className="text-[12px] font-semibold tabular-nums text-body">
-              v{APP_VERSION}
-            </span>
-          </div>
+  const commitClose = useCallback(() => {
+    if (finished.current) return;
+    finished.current = true;
+    onBack();
+  }, [onBack]);
 
-          {/*
-            检查更新：原生壳查的是 APK 版本，网页端查的是线上 version.json，
-            两者都走同一个按钮与同一套反馈文案。
-          */}
+  useEffect(
+    () => () => {
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    },
+    [],
+  );
+
+  /** 返回箭头：整块滑出右侧后再让 App 卸载子页 */
+  const requestClose = () => {
+    const pageEl = pageRef.current;
+    const scrim = scrimRef.current;
+    const easing = `transform ${SWIPE_BACK_MS}ms ${SWIPE_BACK_EASE}`;
+    if (pageEl) {
+      pageEl.style.animation = 'none';
+      pageEl.style.transition = easing;
+      pageEl.style.transform = 'translate3d(100%, 0, 0)';
+    }
+    if (scrim) {
+      scrim.style.transition = `opacity ${SWIPE_BACK_MS}ms ${SWIPE_BACK_EASE}`;
+      scrim.style.opacity = '0';
+    }
+    closeTimer.current = window.setTimeout(commitClose, SWIPE_BACK_MS);
+  };
+
+  const swipeHandlers = useSwipeBack({
+    enabled: true,
+    pageRef,
+    scrimRef,
+    onBack: commitClose,
+  });
+
+  return (
+    <div className="absolute inset-0 z-40">
+      <div
+        ref={scrimRef}
+        className="absolute inset-0 bg-black/45"
+        style={{ opacity: 1 }}
+        onClick={requestClose}
+        aria-hidden
+      />
+      <div
+        ref={pageRef}
+        className="absolute inset-0 flex flex-col bg-app animate-subpage-in"
+        style={{ touchAction: 'pan-y' }}
+        {...swipeHandlers}
+      >
+        <header className="subpage-head">
           <button
             type="button"
-            onClick={handleCheckUpdate}
-            disabled={checking}
-            className="mb-1.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-line text-[12px] text-body active:bg-press disabled:opacity-60"
+            onClick={requestClose}
+            className="subpage-back"
+            aria-label={t('picker.back')}
           >
-            <RefreshCw size={13} className={checking ? 'animate-spin' : ''} />
-            {checking ? t('settings.checking') : t('settings.checkUpdate')}
+            <ArrowLeft size={22} strokeWidth={2.2} />
           </button>
-
-          {checkMsg && (
-            <p
-              className={`mb-1.5 rounded-lg px-2 py-1.5 text-[11px] leading-snug ${CHECK_TONE[checkMsg.tone]}`}
-            >
-              {checkMsg.text}
-            </p>
+          <h1 className="subpage-title">{t(SUBPAGE_TITLE_KEY[page])}</h1>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-8">
+          {page === 'appearance' && (
+            <AppearancePage onOpenThemeColor={onOpenThemeColor} />
           )}
-
-          <LinkRow
-            icon={<Github size={16} />}
-            title={t('settings.github')}
-            subtitle={`github.com/${GITHUB_REPO}`}
-            onClick={() => openExternal(GITHUB_REPO_URL)}
-          />
-
-          {/* 合规兜底：英雄头像与（可选的）Fan Kit 音效都属于 Supercell 的玩家内容 */}
-          <p className="mt-2 px-0.5 text-[9.5px] leading-relaxed text-faint">
-            {t('settings.disclaimer')}
-          </p>
-        </div>
-
-        <div className="mt-4">
-          <SectionLabel>{t('settings.sectionCommunity')}</SectionLabel>
-
-          {showQq && qqLink && (
-            <div className="mb-1.5">
-              <LinkRow
-                icon={<Users size={16} />}
-                title={t('settings.qq')}
-                subtitle={t('settings.qqHint', { id: QQ_GROUP_ID })}
-                onClick={() => openExternal(qqLink)}
-              />
-            </div>
+          {page === 'draft' && (
+            <DraftPage
+              displayPrefs={displayPrefs}
+              onDisplayPrefsChange={onDisplayPrefsChange}
+              blockedCount={blockedCount}
+              onOpenBlocked={onOpenBlocked}
+            />
           )}
-
-          <LinkRow
-            icon={<MessageCircle size={16} />}
-            title={t('settings.discord')}
-            subtitle={t('settings.discordHint')}
-            onClick={() => openExternal(DISCORD_INVITE_URL)}
-          />
-
-          <p className="mt-3 text-center text-[10px] leading-relaxed text-faint">
-            {APP_NAME} v{APP_VERSION}
-          </p>
+          {page === 'data' && <DataPage snapshot={snapshot} onPull={onPull} />}
         </div>
+        <PageVeil />
       </div>
     </div>
   );

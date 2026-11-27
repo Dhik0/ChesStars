@@ -7,7 +7,15 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { detectLang, saveLang, type Lang } from './langs';
+import {
+  clearSavedLang,
+  detectLang,
+  readLangChoice,
+  saveLang,
+  systemLang,
+  type Lang,
+  type LangChoice,
+} from './langs';
 import { translate, type TParams, type Translator } from './translate';
 import {
   brawlerName,
@@ -26,7 +34,11 @@ import {
  */
 export interface I18n {
   lang: Lang;
-  /** 切换语言：立即全局生效并写入 localStorage */
+  /** 语言选单的当前项：`system` = 跟随系统，其余为手动指定 */
+  langChoice: LangChoice;
+  /** 选单入口：切语言立即全局生效并记住；选 system 则清掉记忆回到系统语言 */
+  setLangChoice: (choice: LangChoice) => void;
+  /** 直接指定一门语言（等价于 setLangChoice 的非 system 分支） */
   setLang: (lang: Lang) => void;
   t: Translator;
   /** 英雄显示名（传英文原名） */
@@ -47,17 +59,30 @@ const I18nContext = createContext<I18n | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   // 首次渲染就用检测结果，避免「先中文再闪成英文」
-  const [lang, setLangState] = useState<Lang>(() => detectLang());
+  const [state, setState] = useState<{ lang: Lang; choice: LangChoice }>(() => ({
+    lang: detectLang(),
+    choice: readLangChoice(),
+  }));
+  const lang = state.lang;
 
-  const setLang = useCallback((next: Lang) => {
-    setLangState(next);
-    saveLang(next);
+  const setLangChoice = useCallback((choice: LangChoice) => {
+    if (choice === 'system') {
+      clearSavedLang();
+      setState({ lang: systemLang(), choice: 'system' });
+      return;
+    }
+    saveLang(choice);
+    setState({ lang: choice, choice });
   }, []);
+
+  const setLang = useCallback((next: Lang) => setLangChoice(next), [setLangChoice]);
 
   const value = useMemo<I18n>(() => {
     const t: Translator = (key: string, params?: TParams) => translate(lang, key, params);
     return {
       lang,
+      langChoice: state.choice,
+      setLangChoice,
       setLang,
       t,
       brawler: (englishName) => brawlerName(lang, englishName),
@@ -67,7 +92,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       tier: (rawLabel) => tierLabel(lang, rawLabel),
       num: (value) => value.toLocaleString(lang),
     };
-  }, [lang, setLang]);
+  }, [lang, state.choice, setLangChoice, setLang]);
 
   // 同步 <html lang> 与标题：系统朗读、浏览器翻译提示、分享卡片都读这两个
   useEffect(() => {
@@ -86,4 +111,11 @@ export function useTranslation(): I18n {
   return ctx;
 }
 
-export { LANGS, LANG_LABEL, type Lang } from './langs';
+export {
+  LANGS,
+  LANG_LABEL,
+  LANG_CHOICES,
+  isLangChoice,
+  type Lang,
+  type LangChoice,
+} from './langs';

@@ -380,11 +380,5 @@ export function brawlerSearchNames(englishName: string): string[] {
   return row ? [row[0], row[1], row[2], ...aliases] : [englishName, ...aliases];
 }
 
-/** 地图搜索词：英文原名 + 简体 + 繁体 */
-export function mapSearchNames(englishMapName: string): string[] {
-  const row = MAPS[englishMapName];
-  return row ? [englishMapName, row[0], row[1]] : [englishMapName];
-}
-
 /** 表里收录的英雄数（供测试断言覆盖率） */
 export const BRAWLER_NAME_COUNT = Object.keys(BRAWLERS).length;

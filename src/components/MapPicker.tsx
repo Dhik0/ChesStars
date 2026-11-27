@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronDown, Search, X } from 'lucide-react';
+import { useState } from 'react';
+import { Check, ChevronDown, X } from 'lucide-react';
 import type { MapEntry } from '../types/meta';
 import { MODE_ORDER, modeColor } from '../data/localization';
-import { mapSearchNames } from '../i18n/gameData';
 import { useTranslation } from '../i18n';
-import { useBackGuard } from '../utils/backGuards';
 import { themeAccent } from '../utils/display';
 import { useTheme } from '../utils/useTheme';
 import MapThumb from './MapThumb';
@@ -19,21 +17,6 @@ interface MapPickerProps {
   onClose?: () => void;
 }
 
-/** 搜索命中片段上色：把匹配到的字符挑出来，长列表里一眼看到为什么这张图被留下 */
-function Highlight({ text, query }: { text: string; query: string }) {
-  const q = query.trim().toLowerCase();
-  if (!q) return <>{text}</>;
-  const at = text.toLowerCase().indexOf(q);
-  if (at < 0) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, at)}
-      <span className="text-brand">{text.slice(at, at + q.length)}</span>
-      {text.slice(at + q.length)}
-    </>
-  );
-}
-
 /**
  * 选择地图页。
  *
@@ -46,33 +29,17 @@ function Highlight({ text, query }: { text: string; query: string }) {
  * 默认只展开「当前已选地图」所属的模式——六个模式全摊开会把首屏撑成一条长列表，
  * 想找别的模式反而要滑很久。
  *
- * 搜索保留：输入关键词后自动展开命中的分组并过滤，命中的字符在名称里上色。
- *
  * 它是「BP 助手」这个一级 Tab 下的一个页面（不是浮层）：撑满内容区，
  * 底部由 App 统一挂底部导航栏。内容区独立滚动，横屏矮屏幕下不会溢出截断。
  */
 export default function MapPicker({ maps, current, onSelect, onClose }: MapPickerProps) {
   const { t, map: mapLabel, mode: modeLabel } = useTranslation();
   const { resolved: theme } = useTheme();
-  const [query, setQuery] = useState('');
 
-  /** 搜索框有内容时，系统返回键先清空搜索，而不是直接离开选图页 */
-  useBackGuard(query !== '', () => setQuery(''));
-
-  const grouped = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    // 同时匹配英文原名与三种语言译名：换到英文界面后仍能按中文习惯找图
-    const matched = maps.filter(
-      (m) => !q || mapSearchNames(m.map_name).some((name) => name.toLowerCase().includes(q)),
-    );
-    return MODE_ORDER.map((mode) => ({
-      mode,
-      items: matched.filter((m) => m.mode === mode),
-    })).filter((g) => g.items.length > 0);
-  }, [maps, query]);
-
-  const searching = query.trim().length > 0;
-  const hitCount = grouped.reduce((n, g) => n + g.items.length, 0);
+  const grouped = MODE_ORDER.map((mode) => ({
+    mode,
+    items: maps.filter((m) => m.mode === mode),
+  })).filter((g) => g.items.length > 0);
 
   /**
    * 展开状态（多开，非手风琴）：用户可以同时摊开几个模式对比着看。
@@ -89,22 +56,6 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
     return initial;
   });
 
-  /** 搜索时自动展开所有命中分组（用户随后手动收起的不再强行打开） */
-  useEffect(() => {
-    if (!searching) return;
-    setOpenModes((prev) => {
-      let changed = false;
-      const next = new Set(prev);
-      for (const g of grouped) {
-        if (!next.has(g.mode)) {
-          next.add(g.mode);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [searching, grouped]);
-
   const toggleMode = (mode: string) => {
     setOpenModes((prev) => {
       const next = new Set(prev);
@@ -117,42 +68,18 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
   return (
     <div className="flex h-full min-h-0 flex-col bg-app animate-fade-in">
       <div className="shrink-0 border-b border-line px-2 pb-2 pt-2 safe-top">
-        {/* 竖屏：标题一行 + 搜索一行；横屏：标题 / 搜索 / 关闭 同一行，省出的高度全给地图列表 */}
-        <div className="grid grid-flow-row-dense grid-cols-[minmax(0,1fr)_auto] items-center gap-2 landscape:grid-cols-[auto_minmax(0,1fr)_auto] landscape:gap-3">
-          <div className="min-w-0 landscape:flex landscape:items-baseline landscape:gap-2">
-            <h2 className="text-[14px] font-semibold text-fg">{t('picker.title')}</h2>
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex items-baseline gap-2">
+            <h2 className="shrink-0 text-[14px] font-semibold text-fg">{t('picker.title')}</h2>
             <p className="truncate text-[10px] text-subtle">
-              {searching
-                ? t('picker.matched', { n: hitCount })
-                : t('picker.total', { n: maps.length })}
+              {t('picker.total', { n: maps.length })}
             </p>
-          </div>
-          <div className="relative col-span-2 landscape:col-span-1 landscape:col-start-2 landscape:row-start-1">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-subtle" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t('picker.search')}
-              className="h-9 w-full rounded-lg border border-line bg-raised pl-8 pr-8 text-[13px] text-fg placeholder:text-faint focus:border-line-strong focus:outline-none"
-              spellCheck={false}
-              autoComplete="off"
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => setQuery('')}
-                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-subtle active:bg-press"
-                aria-label={t('picker.clear')}
-              >
-                <X size={13} />
-              </button>
-            )}
           </div>
           {onClose && (
             <button
               type="button"
               onClick={onClose}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted active:bg-press landscape:col-start-3 landscape:row-start-1"
+              className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted active:bg-press"
               aria-label={t('picker.back')}
             >
               <X size={16} />
@@ -163,9 +90,6 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
 
       {/* 内容区独立滚动：折叠后列表可能仍然很长，横屏矮屏幕也只滚这一块 */}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2">
-        {grouped.length === 0 && (
-          <p className="py-10 text-center text-[12px] text-subtle">{t('picker.empty')}</p>
-        )}
         {grouped.map(({ mode, items }) => {
           const accent = themeAccent(modeColor(mode), theme);
           const open = openModes.has(mode);
@@ -177,7 +101,7 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
                 onClick={() => toggleMode(mode)}
                 aria-expanded={open}
                 aria-controls={`map-group-${mode}`}
-                className="flex w-full items-center gap-2 rounded-md border-l-[3px] px-2 py-1.5 text-left transition-colors active:bg-press/60"
+                className="flex w-full items-center gap-2 rounded-[14px] border-l-[3px] px-2 py-1.5 text-left transition-colors active:bg-press/60"
                 style={{ borderColor: accent, backgroundColor: `${accent}14` }}
               >
                 <ModeIcon mode={mode} size={26} />
@@ -211,10 +135,10 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
                         key={m.map_name}
                         type="button"
                         onClick={() => onSelect(m.map_name, m.mode)}
-                        className={`flex flex-col overflow-hidden rounded-lg border text-left transition-colors ${
+                        className={`flex flex-col overflow-hidden rounded-[18px] border text-left transition-colors ${
                           active
-                            ? 'border-sky-500/70 bg-sky-500/10'
-                            : 'border-line bg-surface/70 shadow-card active:bg-press'
+                            ? 'border-accent/70 bg-accent-soft'
+                            : 'border-line bg-card/70 shadow-card active:bg-press'
                         }`}
                       >
                         {/* 上图：整张竖向地图按原比例完整显示，不裁切；横屏压矮一点少滚动 */}
@@ -229,13 +153,13 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
                         <div className="w-full px-1.5 pb-1.5 pt-1">
                           <span className="flex items-center gap-1">
                             <span className="truncate text-[13px] font-semibold leading-tight text-fg">
-                              <Highlight text={mapLabel(m.map_name)} query={query} />
+                              {mapLabel(m.map_name)}
                             </span>
-                            {active && <Check size={11} className="shrink-0 text-brand" />}
+                            {active && <Check size={11} className="shrink-0 text-accent" />}
                           </span>
                           <span className="mt-0.5 flex items-baseline justify-between gap-1">
                             <span className="truncate text-[9.5px] leading-tight text-subtle">
-                              <Highlight text={m.map_name} query={query} />
+                              {m.map_name}
                             </span>
                             <span className="shrink-0 text-[9.5px] leading-tight text-faint">
                               {t('common.games', { n: m.total_games })}

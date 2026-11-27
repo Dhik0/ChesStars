@@ -6,6 +6,7 @@ import { unlockSfx } from '../services/reviewSfx';
 import type { Lang } from '../i18n';
 import Avatar from './Avatar';
 import ModeIcon from './ModeIcon';
+import { PageTitle, PageVeil } from './PageHeader';
 
 interface HistoryViewProps {
   /** 已按 createdAt 倒序 */
@@ -110,7 +111,7 @@ function MatchCard({
   const markedHero = marked ? heroOf(marked.brawlerId) : null;
 
   return (
-    <article className="rounded-lg border border-line bg-surface/50 p-2 shadow-card">
+    <article className="card p-3.5">
       {/* 地图 + 模式 + 时间 */}
       <div className="flex items-center gap-1.5">
         <ModeIcon mode={record.mode} size={14} />
@@ -170,7 +171,7 @@ function MatchCard({
       {markedHasData && marked && markedHero && (
         <div className="mt-1.5 flex items-center gap-1 text-[10px] leading-none">
           {selfMarked ? (
-            <span className="shrink-0 rounded bg-sky-500/15 px-1 py-0.5 text-[9px] font-semibold text-brand">
+            <span className="bg-accent-soft shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold text-accent">
               {t('history.selfTag')}
             </span>
           ) : (
@@ -202,7 +203,7 @@ function MatchCard({
 
       {/* 操作：补录 / 编辑 + 删除（删除要二次确认） */}
       {confirming ? (
-        <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-red-500/10 px-2 py-1.5">
+        <div className="mt-2 flex items-center gap-1.5 rounded-[14px] bg-red-500/10 px-2 py-1.5">
           <span className="min-w-0 flex-1 leading-tight">
             <span className="block text-[11px] font-semibold text-danger">
               {t('history.deleteTitle')}
@@ -233,7 +234,7 @@ function MatchCard({
               unlockSfx();
               onReview(record);
             }}
-            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-sky-500/40 bg-sky-500/10 text-[11px] font-semibold text-brand transition-colors active:bg-sky-500/20"
+            className="flex h-10 items-center justify-center gap-1 rounded-[14px] border border-accent/40 bg-accent-soft text-[12px] font-semibold text-accent transition-colors active:bg-press/60"
           >
             <BarChart3 size={11} />
             {t('review.cta')}
@@ -241,7 +242,7 @@ function MatchCard({
           <button
             type="button"
             onClick={() => onEdit(record)}
-            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-line text-[11px] font-medium text-body transition-colors active:bg-press"
+            className="flex h-10 items-center justify-center gap-1 rounded-[14px] border border-line text-[11px] font-medium text-body transition-colors active:bg-press"
           >
             <Pencil size={11} />
             {record.result === 'pending' ? t('history.record') : t('history.edit')}
@@ -249,7 +250,7 @@ function MatchCard({
           <button
             type="button"
             onClick={() => setConfirming(true)}
-            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-line text-[11px] font-medium text-subtle transition-colors active:bg-press"
+            className="flex h-10 items-center justify-center gap-1 rounded-[14px] border border-line text-[11px] font-medium text-subtle transition-colors active:bg-press"
           >
             <Trash2 size={11} />
             {t('history.delete')}
@@ -278,24 +279,21 @@ export default function HistoryView({
   const summary = summarizeHistory(records);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app animate-fade-in">
-      <header className="shrink-0 border-b border-line px-3 pb-2 pt-2 safe-top">
-        {/* 横屏时内容区限宽居中，页头跟着一起收，避免标题贴在屏幕最左 */}
-        <div className="mx-auto flex w-full max-w-[640px] items-baseline justify-between gap-2">
-          <h1 className="flex items-center gap-1.5 text-[14px] font-semibold text-fg">
-            <HistoryIcon size={15} className="text-brand" />
-            {t('history.title')}
-          </h1>
-          <span className="shrink-0 text-[10px] tabular-nums text-subtle">
-            {t('history.count', { n: summary.total })}
-          </span>
-        </div>
-      </header>
-
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-5 pt-2.5">
+    <div className="relative flex h-full min-h-0 flex-col bg-app animate-fade-in">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-8">
+        {/* 横屏时内容区限宽居中，大标题跟着一起收，避免标题贴在屏幕最左 */}
         <div className="mx-auto flex w-full max-w-[640px] flex-col">
+          <PageTitle
+            title={t('history.title')}
+            trailing={
+              <span className="shrink-0 pb-1 text-[13px] tabular-nums text-muted">
+                {t('history.count', { n: summary.total })}
+              </span>
+            }
+          />
+          <div className="px-4">
           {/* 概览条 */}
-          <div className="grid grid-cols-3 gap-1.5 rounded-lg border border-line bg-surface px-2 py-2 shadow-card">
+          <div className="card grid grid-cols-3 gap-1.5 px-4 py-4">
             <OverviewCell label={t('history.statTotal')} value={String(summary.total)} />
             <OverviewCell
               label={t('history.statWinRate')}
@@ -328,7 +326,7 @@ export default function HistoryView({
               <button
                 type="button"
                 onClick={onGoDraft}
-                className="mt-1 flex h-9 items-center gap-1.5 rounded-lg bg-sky-600 px-3 text-[12px] font-semibold text-white transition-colors active:bg-sky-700"
+                className="bg-accent text-accent-on mt-1 flex h-11 items-center gap-1.5 rounded-[16px] px-4 text-[13px] font-semibold transition-opacity active:opacity-80"
               >
                 <Swords size={13} />
                 {t('history.emptyAction')}
@@ -348,8 +346,10 @@ export default function HistoryView({
               ))}
             </div>
           )}
+          </div>
         </div>
       </div>
+      <PageVeil />
     </div>
   );
 }
