@@ -32,20 +32,21 @@
  *   --shadow-card    卡片阴影：深色下没有，浅色下给一层克制的微阴影
  */
 @layer base {
-  /* 默认 = 纯黑（OLED）：即使 data-theme 还没写上也直接是纯黑，不闪深蓝 */
+  /* 默认 = Tonal 深色：即使 data-theme 还没写上也直接是 #101418，不闪白 */
   :root,
-  [data-theme='oled'] {
+  [data-theme='dark'] {
     color-scheme: dark;
 
-    --c-app: 0 0 0;
-    /* 卡片灰阶：#1C1C1E 与纯黑底板拉开一整档明度，靠块面对比分层，不再靠描边 */
-    --c-surface: 28 28 30;
-    --c-card: 28 28 30;
-    /* 二级胶囊 / 内嵌底色：#222427，与卡片之间还有一级可辨的台阶 */
-    --c-raised: 34 36 39;
-    --c-press: 46 48 52;
-    --c-line: 34 36 39;
-    --c-line-strong: 56 58 62;
+    /* surface #101418 / surface-container #1B2026 / surface-container-high #262D36 */
+    --c-app: 16 20 24;
+    /* 卡片灰阶：#1B2026 与底板拉开一整档明度，靠块面对比分层，不再靠描边 */
+    --c-surface: 27 32 38;
+    --c-card: 27 32 38;
+    /* 二级胶囊 / 内嵌底色：#262D36，与卡片之间还有一级可辨的台阶 */
+    --c-raised: 38 45 54;
+    --c-press: 51 59 70;
+    --c-line: 38 45 54;
+    --c-line-strong: 68 78 92;
 
     /* #F0F0F3：柔和白，标题与列表项不再被纯白压得太狠 */
     --c-fg: 240 240 243;
@@ -85,46 +86,30 @@
     --draft-gap: 6px; /* BP 区内部行间距 */
   }
 
-  /* 经典深蓝：与改造前的 slate 色阶一一对应，切过来视觉零变化 */
-  [data-theme='navy'] {
+  /*
+   * OLED 纯黑：底板严格 #000000，卡片 / 浮层靠两档灰阶自己分层。
+   * 只覆盖表面阶梯，文字与业务语义色沿用上面的深色档。
+   */
+  [data-theme='oled'] {
     color-scheme: dark;
 
-    --c-app: 2 6 23;
-    --c-surface: 24 33 54;
-    --c-card: 24 33 54;
-    --c-raised: 38 49 72;
-    --c-press: 51 65 90;
-    --c-line: 38 49 72;
-    --c-line-strong: 62 76 102;
-
-    --c-fg: 240 240 243;
-    --c-body: 203 213 225;
-    /* 深蓝卡片底上重新拉开 muted > subtle > faint 三档，三档都过 4.5:1 */
-    --c-muted: 170 182 199;
-    --c-subtle: 148 163 184;
-    --c-faint: 132 147 170;
-
-    --c-brand: 91 141 239;
-    --c-strong: 34 197 94;
-    --c-danger: 248 113 113;
-    --c-gold: 252 211 77;
-    --c-brilliant: 34 211 238;
-    --c-mark: 196 181 253;
-
-    --c-ally: 59 130 246;
-    --c-enemy: 239 68 68;
-
-    --shadow-card: none;
+    --c-app: 0 0 0;
+    --c-surface: 22 24 28; /* #16181C */
+    --c-card: 22 24 28;
+    --c-raised: 32 36 42; /* #20242A */
+    --c-press: 42 47 55;
+    --c-line: 32 36 42;
+    --c-line-strong: 62 68 78;
   }
 
-  /* 浅色：底色略灰、卡片纯白，靠一层微阴影分出层级 */
+  /* 浅色：底板 #F7F9FC 略灰、卡片纯白，靠一层微阴影分出层级 */
   [data-theme='light'] {
     color-scheme: light;
 
-    --c-app: 244 246 249;
+    --c-app: 247 249 252;
     --c-surface: 255 255 255;
     --c-card: 255 255 255;
-    --c-raised: 238 242 246;
+    --c-raised: 237 241 247;
     --c-press: 226 232 240;
     --c-line: 219 226 234;
     --c-line-strong: 195 204 216;
@@ -150,23 +135,19 @@
   }
 
   /*
-   * 深色两套：卡片只留一道极弱的顶边微光；行内分割线、底栏顶边同样是低对比白。
+   * 深色两套：卡片只留一道极弱的顶边微光；行内分割线同样是低对比白。
    * 浅色主题反过来用极弱的墨色，否则白线在白底上等于不存在。
    */
   :root,
-  [data-theme='oled'],
-  [data-theme='navy'] {
+  [data-theme='dark'],
+  [data-theme='oled'] {
     --card-top: rgba(255, 255, 255, 0.05);
     --row-divider: rgba(255, 255, 255, 0.06);
-    --nav-line: rgba(255, 255, 255, 0.06);
-    --switch-thumb: #ffffff;
-    --switch-off: #4a4a4e;
     /* 深色主题的强调色都是亮色，实心按钮上必须配深色文字 */
     --accent-on: #0d1117;
   }
 
   /* 纯黑 OLED：顶边微光压到 3%，卡片块面自己说话 */
-  :root,
   [data-theme='oled'] {
     --card-top: rgba(255, 255, 255, 0.03);
   }
@@ -174,9 +155,6 @@
   [data-theme='light'] {
     --card-top: rgba(15, 23, 42, 0.045);
     --row-divider: rgba(15, 23, 42, 0.07);
-    --nav-line: rgba(15, 23, 42, 0.08);
-    --switch-thumb: #ffffff;
-    --switch-off: #d1d1d6;
     /* 浅色主题会把强调色压深，实心按钮换回白字 */
     --accent-on: #ffffff;
   }
@@ -209,6 +187,41 @@
     --app-bg: rgb(var(--c-app));
 
     --card-bg: rgb(var(--c-card));
+  }
+
+  /*
+   * ------------------------------------------------------------------ *
+   * M3 Expressive 语义角色（迁移第二步）
+   * ------------------------------------------------------------------ *
+   * 新组件只认 --m3-*，不关心当前是哪套主题、微染开没开。
+   * 关闭微染 = Tonal Slate Blue 冷灰蓝盘；开启微染 = 从 --accent-rgb 派生。
+   * 业务语义色（阵营 / 评级 / !! / 金标）不在这里，保持原样。
+   * surface 系列沿用现有主题 Token，迁移期与老页面保持同一套明度阶梯。
+   */
+  :root {
+    --m3-surface: var(--app-bg);
+    --m3-surface-container: var(--card-bg);
+    --m3-surface-container-high: rgb(var(--c-raised));
+    --m3-surface-container-highest: rgb(var(--c-press));
+
+    --m3-primary: #aecbfa;
+    --m3-on-primary: #0a2545;
+    --m3-primary-container: #1b3a5c;
+    --m3-on-primary-container: #d7e3ff;
+    --m3-secondary-container: #2e3a4a;
+    --m3-on-secondary-container: #c9d6e8;
+    --m3-outline: #8a94a6;
+    --m3-outline-variant: #414755;
+  }
+  [data-theme='light'] {
+    --m3-primary: #24548f;
+    --m3-on-primary: #ffffff;
+    --m3-primary-container: #d7e3ff;
+    --m3-on-primary-container: #0a2e5c;
+    --m3-secondary-container: #dde3ed;
+    --m3-on-secondary-container: #2b3543;
+    --m3-outline: #747f91;
+    --m3-outline-variant: #c4cad5;
   }
 
   /*
@@ -266,7 +279,6 @@
     --menu-bg: color-mix(in srgb, #242426 92%, rgb(var(--accent-rgb)) 8%);
     /* 粉彩底上必须用深色文字，禁止高饱和色块配白字 */
     --accent-on: #101319;
-    --switch-thumb: #101319;
     /* 微染开启时标题、图标与语言选单选中态才回到强调色 */
     --section-label-fg: var(--accent);
     --list-icon-fg: var(--accent);
@@ -275,6 +287,22 @@
     --control-selected-bg: var(--accent-soft);
     --control-selected-fg: var(--accent);
     --control-selected-shadow: none;
+
+    /*
+     * M3 角色：主色 / 文字色直接跟随强调色（自定义色与浅色压深自动生效）；
+     * 容器与描边用 color-mix 派生，每行前面的纯色是老 WebView 兜底。
+     */
+    --m3-primary: var(--accent);
+    --m3-on-primary: var(--accent-on);
+    --m3-primary-container: #1b3a5c;
+    --m3-primary-container: color-mix(in srgb, rgb(var(--accent-rgb)) 22%, var(--m3-surface-container));
+    --m3-on-primary-container: var(--accent);
+    --m3-secondary-container: var(--m3-primary-container);
+    --m3-on-secondary-container: var(--m3-on-primary-container);
+    --m3-outline: #8a94a6;
+    --m3-outline: color-mix(in srgb, rgb(var(--accent-rgb)) 35%, rgb(var(--c-fg)));
+    --m3-outline-variant: #414755;
+    --m3-outline-variant: color-mix(in srgb, rgb(var(--accent-rgb)) 20%, var(--m3-surface-container-highest));
   }
 
   /* 强调色预设：只在微染开启时接管 --accent-rgb，关闭时一律回到主题自带系统蓝 */
@@ -320,14 +348,29 @@
     --menu-bg: color-mix(in srgb, #ffffff 94%, rgb(var(--accent-rgb)) 6%);
     /* 压深后的强调色仍是暗色，文字回到白色 */
     --accent-on: #ffffff;
-    --switch-thumb: #ffffff;
     --accent-soft: rgb(var(--accent-rgb) / 0.12);
+
+    /* 浅色 M3：容器是浅色调、描边跟随压深后的强调色，同样保留纯色兜底 */
+    --m3-primary-container: #d7e3ff;
+    --m3-primary-container: color-mix(in srgb, rgb(var(--accent-rgb)) 22%, var(--m3-surface-container));
+    --m3-outline: #747f91;
+    --m3-outline: color-mix(in srgb, rgb(var(--accent-rgb)) 35%, rgb(var(--c-fg)));
+    --m3-outline-variant: #c4cad5;
+    --m3-outline-variant: color-mix(in srgb, rgb(var(--accent-rgb)) 20%, var(--m3-surface-container-highest));
   }
 
   /* 自定义色不套预设的压深逻辑：用户选的就是最终色，对比度由 --custom-accent-on 兜底 */
   [data-theme='light'][data-monet='on'][data-accent='custom'] {
     --accent: rgb(var(--accent-rgb) / var(--accent-alpha));
     --accent-on: var(--custom-accent-on, #ffffff);
+  }
+
+  /*
+   * OLED 纯黑 + 微染：底板严格保持 #000000——「绝对黑」就是这套主题的全部意义，
+   * 只让卡片容器吃同色系微染。特异性 0,3,0 压过上面的通用微染规则。
+   */
+  :root[data-theme='oled'][data-monet='on'] {
+    --app-bg: #000000;
   }
 
   /*
@@ -639,34 +682,160 @@
   }
 
   /*
-   * 全局开关：50×28 内缩胶囊轨 + 20px 圆点四周留 4px（开启时右移 22px）。
-   * 关闭轨中性灰、开启轨跟随焦点色；色值全部走 Token。
+   * 全局 M3 Switch：52×32 全圆角轨 + 24px 圆点。
+   * 关 = highest 轨 + outline 描边 + outline 圆点内嵌 ×；
+   * 开 = primary 实底无描边 + on-primary 圆点内嵌 ✓；
+   * ::before 把纵向热区补到 48px，视觉尺寸不变。
    */
-  .switch-track {
+  .m3-switch {
     position: relative;
     display: block;
-    width: 50px;
-    height: 28px;
-    flex: 0 0 50px;
+    box-sizing: border-box;
+    width: 52px;
+    height: 32px;
+    flex: 0 0 52px;
+    border: 2px solid var(--m3-outline);
     border-radius: 9999px;
-    background-color: var(--switch-off);
-    transition: background-color 200ms ease;
+    background-color: var(--m3-surface-container-highest);
+    transition:
+      background-color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 220ms cubic-bezier(0.22, 1, 0.36, 1);
   }
-  .switch-track[aria-checked='true'] {
-    background-color: var(--accent);
-  }
-  .switch-thumb {
+  .m3-switch::before {
+    content: '';
     position: absolute;
-    top: 4px;
-    left: 4px;
-    width: 20px;
-    height: 20px;
-    border-radius: 9999px;
-    background-color: var(--switch-thumb);
-    transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    inset: -8px 0;
   }
-  .switch-track[aria-checked='true'] .switch-thumb {
-    transform: translateX(22px);
+  .m3-switch[aria-checked='true'] {
+    border-color: transparent;
+    background-color: var(--m3-primary);
+  }
+  .m3-switch-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    display: flex;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background-color: var(--m3-outline);
+    transition:
+      transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .m3-switch[aria-checked='true'] .m3-switch-thumb {
+    transform: translateX(20px);
+    background-color: var(--m3-on-primary);
+  }
+  /* 按下时圆点微弹性放大，位移按状态分别写，避免覆盖 translateX */
+  .m3-switch:active .m3-switch-thumb {
+    transform: scale(1.12);
+  }
+  .m3-switch[aria-checked='true']:active .m3-switch-thumb {
+    transform: translateX(20px) scale(1.12);
+  }
+  .m3-switch-icon {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .m3-switch-icon-off {
+    opacity: 1;
+    color: var(--m3-surface-container-highest);
+  }
+  .m3-switch-icon-on {
+    opacity: 0;
+    color: var(--m3-primary);
+  }
+  .m3-switch[aria-checked='true'] .m3-switch-icon-off {
+    opacity: 0;
+  }
+  .m3-switch[aria-checked='true'] .m3-switch-icon-on {
+    opacity: 1;
+  }
+
+  /*
+   * M3 Navigation Bar：68px + 底部安全区，无顶线，靠 surface-container 与底板分层。
+   * 选中药丸 64×32，切换时横向展开淡入；未选中图标与标签走 outline。
+   */
+  .m3-nav {
+    position: relative;
+    z-index: 30;
+    box-sizing: border-box;
+    flex-shrink: 0;
+    height: calc(68px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background-color: var(--m3-surface-container);
+  }
+  .m3-nav-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    height: 68px;
+  }
+  .m3-nav-tab {
+    display: flex;
+    min-width: 0;
+    min-height: 48px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+  .m3-nav-icon-wrap {
+    position: relative;
+    display: flex;
+    box-sizing: border-box;
+    width: 64px;
+    height: 32px;
+    /* 父级是纵向 flex：主轴是高度，这里必须写 32px。写 64px 会把药丸撑成大方圆 */
+    flex: 0 0 32px;
+    align-items: center;
+    justify-content: center;
+  }
+  .m3-nav-pill {
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background-color: var(--m3-secondary-container);
+    opacity: 0;
+  }
+  .m3-nav-pill[data-active='true'] {
+    opacity: 1;
+    animation: m3-nav-pill-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .m3-nav-icon {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--m3-outline);
+  }
+  .m3-nav-tab[aria-current='page'] .m3-nav-icon {
+    color: var(--m3-on-secondary-container);
+  }
+  .m3-nav-label {
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    color: var(--m3-outline);
+  }
+  .m3-nav-tab[aria-current='page'] .m3-nav-label {
+    color: var(--m3-on-secondary-container);
+  }
+  .m3-nav-dot {
+    position: absolute;
+    top: 2px;
+    right: 12px;
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background-color: var(--m3-primary);
+    box-shadow: 0 0 0 2px var(--m3-surface-container);
   }
 
   /* 主题子页独立卡片：20px 圆角 */
@@ -697,6 +866,33 @@
     pointer-events: auto;
   }
   .theme-color-reveal > div {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /*
+   * 首页模式手风琴：与主题色入口同一套 grid 高度过渡，时长按 DESIGN.md 的 260ms。
+   * 内容常驻 DOM，收起时靠 0fr + overflow 归零，展开/收起都是同一条曲线；
+   * 内层留一个 overflow 壳，grid 行高动画才不会被引擎跳过。
+   */
+  .map-reveal {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transform: translate3d(0, -4px, 0);
+    pointer-events: none;
+    transition:
+      grid-template-rows 260ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .map-reveal[data-open='true'] {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    pointer-events: auto;
+  }
+  .map-reveal > div {
     min-height: 0;
     overflow: hidden;
   }
@@ -771,31 +967,6 @@
     transform: scale(0.95);
   }
 
-  /* 主题三按钮：独立等宽胶囊，选中实底、未选透明细描边 */
-  .theme-mode-btn {
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background-color: transparent;
-    color: #a1a1aa;
-    transition:
-      background-color 160ms ease,
-      color 160ms ease,
-      border-color 160ms ease;
-  }
-  [data-theme='light'] .theme-mode-btn {
-    border-color: rgba(0, 0, 0, 0.12);
-    color: #52525b;
-  }
-  .theme-mode-btn[aria-checked='true'] {
-    border-color: transparent;
-    background-color: #2c2c2e;
-    color: #f5f5f7;
-  }
-  [data-theme='light'] .theme-mode-btn[aria-checked='true'] {
-    background-color: #ffffff;
-    color: rgb(var(--c-fg));
-    box-shadow: var(--control-selected-shadow);
-  }
-
   /* 原生大标题页头：安全区留白由页头自己吃掉，标题随列表一起上滑 */
   .page-head {
     padding: calc(env(safe-area-inset-top, 0px) + 26px) 20px 20px;
@@ -832,6 +1003,60 @@
       transparent 100%
     );
   }
+  /* 关于主 Tab 让顶部氛围光直达屏幕边缘；子页和其他 Tab 保留通用遮罩。 */
+  .about-main-tab .page-veil {
+    display: none;
+  }
+
+  /* 触顶下拉时，前景与光晕一起拉伸；松手遵循 M3 Emphasized 曲线回弹。 */
+  .about-pull-layer {
+    transform-origin: top center;
+    transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .about-pull-layer.about-pull-active {
+    transition: none;
+  }
+
+  /* Canvas 插值负责柔焦；蒙版仅负责下沿向当前底板退场。 */
+  .about-hero-glow {
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 58%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 58%, transparent 100%);
+    /* 当自定义属性返回 color-mix() 表达式时，从这个实色属性读取浏览器解析后的 sRGB。 */
+    color: var(--m3-primary);
+  }
+  [data-theme='light'] .about-hero-glow {
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 42%, transparent 96%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 42%, transparent 96%);
+  }
+  .about-hero {
+    color: var(--about-hero-ink, rgb(var(--c-fg)));
+  }
+  .about-hero-icon {
+    background: rgba(255, 255, 255, 0.12);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  }
+  .about-hero-version {
+    color: var(--about-version-ink, rgb(var(--c-muted)));
+    opacity: 0.85;
+  }
+  [data-theme='light'] .about-hero-icon {
+    background: rgba(255, 255, 255, 0.24);
+    border-color: rgba(255, 255, 255, 0.45);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+    color: rgba(255, 255, 255, 0.96);
+  }
+  [data-theme='light'] .about-hero > h1 {
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.14);
+  }
+  [data-theme='light'] .about-hero-version {
+    opacity: 1;
+  }
+  [data-theme='light'] .about-foreground .section-label {
+    color: rgb(18 24 38);
+  }
 
   /* 设置二级子页：两行式页头——首行 40px 返回热区，次行 32px 大标题左对齐卡片 */
   .subpage-head {
@@ -860,7 +1085,7 @@
   }
   .subpage-title {
     font-size: 32px;
-    font-weight: 550;
+    font-weight: 500;
     line-height: 1.18;
     letter-spacing: -0.02em;
     color: rgb(var(--c-fg));
@@ -869,31 +1094,6 @@
   .settings-underlay {
     transform: translate3d(-22px, 0, 0);
     transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  /* 「关于」页顶部：深海蓝垫底 + 主题色径向光晕，往下自然融入底板 */
-  .about-hero-glow {
-    background-image:
-      radial-gradient(
-        130% 96% at 50% -8%,
-        color-mix(in srgb, var(--accent) 30%, transparent) 0%,
-        transparent 68%
-      ),
-      radial-gradient(
-        150% 110% at 50% -18%,
-        rgba(16, 42, 92, 0.55) 0%,
-        transparent 70%
-      );
-  }
-  /* 浅色主题：深海蓝那层换成很淡的冷灰蓝，白底上不会压出一块暗斑 */
-  [data-theme='light'] .about-hero-glow {
-    background-image:
-      radial-gradient(
-        130% 96% at 50% -8%,
-        color-mix(in srgb, var(--accent) 14%, transparent) 0%,
-        transparent 68%
-      ),
-      radial-gradient(150% 110% at 50% -18%, rgba(178, 199, 232, 0.3) 0%, transparent 70%);
   }
 }
 
@@ -936,24 +1136,11 @@
   }
 
   /*
-   * 微染关闭：列表尾部的语言双箭头跟随卡片图标回中性色；底栏严格单色。
-   * 深色选中纯白 / 未选 #7D8187；浅色选中 #111113 / 未选走 --c-subtle。
-   * 开启微染时两者都继续跟随 --accent。
+   * 微染关闭：列表尾部的语言双箭头跟随卡片图标回中性色。
+   * 底栏选中 / 未选配色已统一由 .m3-nav 的 M3 角色 Token 接管。
    */
   :root:not([data-monet='on']) .list-trailing .text-accent {
     color: var(--list-icon-fg);
-  }
-  :root:not([data-monet='on']):not([data-theme='light']) nav button[aria-current='page'] {
-    color: #ffffff;
-  }
-  :root:not([data-monet='on']):not([data-theme='light']) nav button:not([aria-current='page']) {
-    color: #7d8187;
-  }
-  [data-theme='light']:not([data-monet='on']) nav button[aria-current='page'] {
-    color: #111113;
-  }
-  [data-theme='light']:not([data-monet='on']) nav button:not([aria-current='page']) {
-    color: rgb(var(--c-subtle));
   }
 }
 
@@ -1027,6 +1214,132 @@
   }
   [data-theme='light'] .scrim-strong {
     background-color: rgb(15 23 42 / 0.45);
+  }
+}
+
+/*
+ * Expressive 分段组合卡片：3px 缝、组内 4px 内角、组外 20px 圆角，
+ * 每项独立成卡不画分割线。按压只叠一层 State Layer，不加描边或高光。
+ * 刻意不进 @layer components——下一轮逐屏替换时才会用到，进层会被 Tailwind 当作未引用清掉。
+ */
+.m3-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.m3-item {
+  position: relative;
+  background-color: var(--card-bg);
+  border-radius: 4px;
+  overflow: hidden;
+  transition: box-shadow 140ms ease;
+}
+/*
+ * 组内嵌行（主题色入口 / 展开的致谢正文）：贴在父项内部向下展开，
+ * 不再单独成卡——去掉自己的底色与内圆角，只保留按压层。
+ */
+.m3-item .m3-item {
+  background-color: transparent;
+  border-radius: 0;
+}
+/* 关于页前景卡片必须完全不透明，确保掠过 Hero 时文字与图标被干净遮住。 */
+.about-foreground .m3-item {
+  background-color: var(--card-bg);
+}
+/* 首末项按「在组里的真实位置」收 20px 圆角，中间项保持 4px */
+.m3-group > .m3-item:first-child {
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+}
+/*
+ * 末项：展开区（如地图网格）会作为兄弟节点插在行之间，
+ * 所以「后面不再有 .m3-item」同样算组尾——末行圆角不会因为展开区而丢。
+ */
+.m3-group > .m3-item:last-child,
+.m3-group > .m3-item:not(:last-child):not(:has(~ .m3-item)) {
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+.m3-group > .m3-item:only-child {
+  border-radius: 20px;
+}
+/* State Layer：只给可点击行（button），信息块 / 开关行按下时不会整块泛白 */
+@media (hover: none) {
+  button.m3-item:active {
+    box-shadow: inset 0 0 0 9999px rgb(255 255 255 / 0.06);
+  }
+  [data-theme='light'] button.m3-item:active {
+    box-shadow: inset 0 0 0 9999px rgb(var(--c-press) / 0.45);
+  }
+}
+
+/*
+ * M3 Expressive 连接分段按钮（四档主题切换）：
+ * 组内 3px 缝、组首尾 20px 圆角、相邻边 4px，不画外描边；
+ * 选中项圆角过渡成整块药丸，用 primary-container 填充表达「当前生效」。
+ * 同样不进 @layer components，避免被 Tailwind 当作未引用样式清掉。
+ */
+.m3-segment-group {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+}
+.m3-segment {
+  display: flex;
+  min-width: 0;
+  min-height: 64px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 2px;
+  border-radius: 4px;
+  background-color: var(--m3-surface-container);
+  color: rgb(var(--c-fg));
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.15;
+  white-space: nowrap;
+  transition:
+    border-radius 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* 组首尾收 20px，中间相邻边保持 4px */
+.m3-segment:first-child {
+  border-top-left-radius: 20px;
+  border-bottom-left-radius: 20px;
+}
+.m3-segment:last-child {
+  border-top-right-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+/* 选中：整格收成药丸（写在首末项之后，靠源码顺序盖掉单边圆角） */
+.m3-segment[aria-checked='true'] {
+  border-radius: 9999px;
+  background-color: var(--m3-primary-container);
+  color: var(--m3-on-primary-container);
+}
+@media (hover: none) {
+  .m3-segment:active {
+    box-shadow: inset 0 0 0 9999px rgb(255 255 255 / 0.06);
+  }
+  [data-theme='light'] .m3-segment:active {
+    box-shadow: inset 0 0 0 9999px rgb(var(--c-press) / 0.45);
+  }
+}
+
+/*
+ * 底栏选中药丸：横向展开 + 淡入。只动 transform / opacity，走合成层。
+ */
+@keyframes m3-nav-pill-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.45);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
   }
 }
 
@@ -1190,6 +1503,153 @@
 }
 
 /*
+ * BP 助手「选择地图 ↔ 对局」互切：
+ * 进场 280ms Emphasized（轻位移 + 微缩放落位），退场 180ms 干脆收走。
+ * 只动 transform / opacity，留在合成层上；退场期间整块不再接收点击。
+ */
+@keyframes m3-view-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+@keyframes m3-view-out {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.99);
+  }
+}
+.animate-bp-view-in {
+  animation: m3-view-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.animate-bp-view-out {
+  animation: m3-view-out 180ms cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+
+/*
+ * 通用底部抽屉 / 居中弹窗：进场带一点过冲再稳落，退场统一向下缩回。
+ * 抽屉与弹窗分开写位移量——底部抽屉贴着屏边，落点可以更大；
+ * 居中弹窗位移过大会看着像掉下去。
+ */
+@keyframes m3-sheet-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 32px, 0) scale(0.96);
+  }
+  72% {
+    opacity: 1;
+    transform: translate3d(0, -3px, 0) scale(1.006);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+@keyframes m3-sheet-out {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, 28px, 0) scale(0.96);
+  }
+}
+@keyframes m3-dialog-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0) scale(0.94);
+  }
+  72% {
+    opacity: 1;
+    transform: translate3d(0, -2px, 0) scale(1.006);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+@keyframes m3-dialog-out {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0) scale(0.96);
+  }
+}
+@keyframes m3-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes m3-scrim-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.m3-sheet-in {
+  animation: m3-sheet-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: bottom center;
+}
+.m3-sheet-out {
+  animation: m3-sheet-out 180ms cubic-bezier(0.4, 0, 1, 1) both;
+  transform-origin: bottom center;
+}
+.m3-dialog-in {
+  animation: m3-dialog-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.m3-dialog-out {
+  animation: m3-dialog-out 180ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+.m3-scrim-in {
+  animation: m3-scrim-in 220ms ease-out both;
+}
+.m3-scrim-out {
+  animation: m3-scrim-out 180ms ease-in both;
+  pointer-events: none;
+}
+
+/*
+ * BP 落子：头像挂载时轻弹一下，按下一手立刻有反馈；
+ * 用 key 强制重挂，换英雄/撤回重选都会重新播，不会在无关重渲染时抖。
+ */
+@keyframes m3-slot-drop {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  65% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.animate-slot-drop {
+  animation: m3-slot-drop 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: center;
+}
+
+/*
  * 妙手（`!!`）联动特效：流光 / 波纹 / 闪光 / 播报条。
  * 系统开启「减少动态效果」时整体关停，只保留常驻的青蓝描边（静态，不晃眼）。
  * 这里用媒体查询兜底，不依赖 Tailwind 的 motion-reduce 变体是否被 JIT 命中。
@@ -1211,10 +1671,25 @@
   .theme-color-in,
   .theme-color-out,
   .theme-color-scrim-in,
-  .theme-color-scrim-out {
+  .theme-color-scrim-out,
+  .m3-nav-pill,
+  .animate-bp-view-in,
+  .animate-bp-view-out,
+  .m3-sheet-in,
+  .m3-sheet-out,
+  .m3-dialog-in,
+  .m3-dialog-out,
+  .m3-scrim-in,
+  .m3-scrim-out,
+  .animate-slot-drop {
     animation: none !important;
   }
-  .theme-color-reveal {
+  .theme-color-reveal,
+  .map-reveal,
+  .about-pull-layer,
+  .m3-switch,
+  .m3-switch-thumb,
+  .m3-switch-icon {
     transition: none !important;
   }
 }

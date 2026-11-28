@@ -36,6 +36,9 @@ const REVEAL_STEP_FAST_MS = 260;
 /** 顶部高光播报条停留时长（与 banner-life 动画时长一致） */
 const BANNER_LIFE_MS = 2000;
 
+/** 与 index.css 的 m3-sheet-out 一致：退场播完再通知外层卸载 */
+const SHEET_EXIT_MS = 180;
+
 /**
  * 评级配色（对齐 Chess.com 的记谱习惯）：
  * `!!` 青蓝 / `!` 蓝 / `★` 亮绿 / `✓` 淡绿 / `📖` 棕 / `?!` 黄 / `?` 橙 / `×` 浅红 / `??` 深红
@@ -121,12 +124,12 @@ function StatCell({
   );
 }
 
-/** 分区标题：阵营色点 + 名称 + 人数 */
-function TeamHeader({ side, count }: { side: ReviewSide; count: number }) {
+/** 分区标题：阵营色点 + 名称 */
+function TeamHeader({ side }: { side: ReviewSide }) {
   const { t } = useTranslation();
   const ally = side === 'ally';
   return (
-    <div className="mb-1.5 flex items-center gap-1.5">
+    <div className="mb-1.5 flex items-center gap-1.5 landscape:mb-0">
       <span
         className={`h-1.5 w-1.5 shrink-0 rounded-full ${ally ? 'bg-ally' : 'bg-enemy'}`}
         aria-hidden
@@ -134,7 +137,6 @@ function TeamHeader({ side, count }: { side: ReviewSide; count: number }) {
       <h3 className={`text-[11px] font-bold tracking-wide ${ally ? 'text-ally' : 'text-enemy'}`}>
         {t(ally ? 'review.allyTeam' : 'review.enemyTeam')}
       </h3>
-      <span className="text-[9px] tabular-nums text-faint">{count}</span>
       <span className="h-px flex-1 bg-line" />
     </div>
   );
@@ -265,7 +267,7 @@ function ReviewCard({
     <article
       data-card-key={cardKeyOf(player)}
       data-fx={fxNonce}
-      className={`relative overflow-hidden rounded-lg border border-line border-l-2 bg-app p-2 transition-shadow duration-300 ${
+      className={`relative overflow-hidden rounded-lg border border-line border-l-2 bg-app p-1.5 transition-shadow duration-300 ${
         ally ? 'border-l-ally/70' : 'border-l-enemy/70'
       } ${glowing ? 'brilliant-glow' : ''}`}
     >
@@ -342,7 +344,7 @@ function ReviewCard({
 
       {player.metrics && totals ? (
         <>
-          <div className="relative mt-2 grid grid-cols-4 gap-1">
+          <div className="relative mt-1.5 grid grid-cols-4 gap-1">
             <StatCell label={t('review.kd')} value={player.metrics.displayKd ?? '—'} />
             <StatCell
               label={t('review.statKills')}
@@ -387,23 +389,6 @@ function ReviewCard({
               </span>
             </div>
           )}
-
-          <p className="relative mt-1.5 text-[10.5px] leading-relaxed text-muted">
-            {t(player.comment.key, player.comment.params)}
-          </p>
-
-          {player.notes.length > 0 && (
-            <div className="relative mt-1 flex flex-wrap items-center gap-1">
-              {player.notes.map((note) => (
-                <span
-                  key={note.key}
-                  className="rounded bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-semibold text-gold"
-                >
-                  {t(note.key, note.params)}
-                </span>
-              ))}
-            </div>
-          )}
         </>
       ) : (
         <p className="relative mt-1.5 text-[10.5px] leading-relaxed text-faint">
@@ -432,16 +417,33 @@ export default function MatchReviewSheet({
   onEdit,
   onClose,
 }: MatchReviewSheetProps) {
-  const { t, lang, brawler, map: mapLabel, mode: modeLabel } = useTranslation();
+  const { t, brawler, map: mapLabel, mode: modeLabel } = useTranslation();
   const { muted, toggle } = useSfxMuted();
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalFocus(dialogRef);
+  const [closing, setClosing] = useState(false);
+  const finished = useRef(false);
+  const closeTimer = useRef<number | null>(null);
 
-  // 评语里的伤害用本地化单位（万 / k），不输出裸整数
-  const review = useMemo(
-    () => reviewMatch(idx, record, { formatBig: (v) => formatBigNumber(v, lang) }),
-    [idx, record, lang],
+  useEffect(
+    () => () => {
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    },
+    [],
   );
+
+  /** 关闭 / 改战绩都先播退场；finished 让遮罩、×、返回键只消费一次 */
+  const beginClose = (action: () => void) => {
+    if (finished.current) return;
+    finished.current = true;
+    setClosing(true);
+    closeTimer.current = window.setTimeout(() => {
+      action();
+      closeTimer.current = null;
+    }, SHEET_EXIT_MS);
+  };
+
+  const review = useMemo(() => reviewMatch(idx, record), [idx, record]);
 
   /** 有评级的英雄，按我方 → 敌方排列 */
   const rated = useMemo(
@@ -544,8 +546,10 @@ export default function MatchReviewSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end scrim animate-fade-in"
-      onClick={onClose}
+      className={`fixed inset-0 z-50 flex items-end scrim ${
+        closing ? 'm3-scrim-out' : 'm3-scrim-in'
+      }`}
+      onClick={() => beginClose(onClose)}
       role="presentation"
     >
       <div
@@ -554,7 +558,9 @@ export default function MatchReviewSheet({
         role="dialog"
         aria-modal="true"
         aria-label={t('review.title')}
-        className="mx-auto flex max-h-dvh-88 w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border-t border-line-strong bg-surface shadow-card animate-slide-up landscape:max-w-[760px] safe-bottom"
+        className={`mx-auto flex max-h-dvh-88 w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border-t border-line-strong bg-surface shadow-card landscape:max-w-[760px] safe-bottom ${
+          closing ? 'm3-sheet-out' : 'm3-sheet-in'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 顶部：地图 / 模式 / 比分 / 音效开关 */}
@@ -566,7 +572,7 @@ export default function MatchReviewSheet({
                 {mapLabel(record.mapId)}
               </h2>
               <p className="mt-0.5 truncate text-[10px] text-subtle">
-                {modeLabel(record.mode)} · {t('review.title')}
+                {modeLabel(record.mode)}
               </p>
             </div>
 
@@ -594,7 +600,7 @@ export default function MatchReviewSheet({
 
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => beginClose(onClose)}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-subtle active:bg-press"
               aria-label={t('common.close')}
             >
@@ -704,19 +710,23 @@ export default function MatchReviewSheet({
             这里也不能加 overflow-hidden——那是卡片裁剪流光专用的。
           */}
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-2.5">
-            <div className="grid gap-2.5 landscape:grid-cols-2 landscape:items-start">
-              <section>
-                <TeamHeader side="ally" count={review.allyReviews.length} />
-                <div className="flex flex-col gap-1.5">{review.allyReviews.map(cardOf)}</div>
+            <div className="grid gap-2.5 landscape:grid-cols-2 landscape:grid-flow-col landscape:grid-rows-[auto_auto_auto_auto] landscape:gap-1.5 landscape:items-stretch">
+              <section className="landscape:contents">
+                <TeamHeader side="ally" />
+                <div className="flex flex-col gap-1.5 landscape:contents">
+                  {review.allyReviews.map(cardOf)}
+                </div>
               </section>
 
-              <section>
-                <TeamHeader side="enemy" count={review.enemyReviews.length} />
+              <section className="landscape:contents">
+                <TeamHeader side="enemy" />
                 {enemyHasData ? (
-                  <div className="flex flex-col gap-1.5">{review.enemyReviews.map(cardOf)}</div>
+                  <div className="flex flex-col gap-1.5 landscape:contents">
+                    {review.enemyReviews.map(cardOf)}
+                  </div>
                 ) : (
                   // 敌方完全没录：收起成一行的提示，别留一大片空白
-                  <p className="rounded-lg border border-dashed border-line px-2.5 py-2 text-[10px] leading-relaxed text-subtle">
+                  <p className="rounded-lg border border-dashed border-line px-2.5 py-2 text-[10px] leading-relaxed text-subtle landscape:self-start">
                     {t('review.enemyEmpty')}
                   </p>
                 )}
@@ -729,7 +739,7 @@ export default function MatchReviewSheet({
         <div className="shrink-0 border-t border-line px-3 py-2">
           <button
             type="button"
-            onClick={onEdit}
+            onClick={() => beginClose(onEdit)}
             className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-line bg-surface/80 text-[12.5px] font-semibold text-body transition-colors active:bg-press"
           >
             <Pencil size={13} />

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_DISPLAY_PREFS,
   PREFERENCE_KEYS,
-  PREFS_ADVANCED_TOOLS_KEY,
   PREFS_HIDE_BLOCKED_KEY,
   readDisplayPrefs,
   resetPreferences,
@@ -28,25 +27,21 @@ function fakeStorage(initial: Record<string, string> = {}): PrefsStorage & {
 }
 
 describe('界面偏好读写', () => {
-  it('没存过时保持原行为：隐藏已屏蔽英雄 + 进阶入口常开', () => {
+  it('没存过时保持原行为：隐藏已屏蔽英雄', () => {
     expect(readDisplayPrefs(null)).toEqual(DEFAULT_DISPLAY_PREFS);
-    expect(readDisplayPrefs(fakeStorage())).toEqual({ hideBlocked: true, advancedTools: true });
+    expect(readDisplayPrefs(fakeStorage())).toEqual({ hideBlocked: true });
   });
 
   it('写入后能原样读回', () => {
     const storage = fakeStorage();
-    writeDisplayPrefs(storage, { hideBlocked: false, advancedTools: false });
+    writeDisplayPrefs(storage, { hideBlocked: false });
     expect(storage.getItem(PREFS_HIDE_BLOCKED_KEY)).toBe('false');
-    expect(storage.getItem(PREFS_ADVANCED_TOOLS_KEY)).toBe('false');
-    expect(readDisplayPrefs(storage)).toEqual({ hideBlocked: false, advancedTools: false });
+    expect(readDisplayPrefs(storage)).toEqual({ hideBlocked: false });
   });
 
   it('脏值不会被 Boolean() 陷阱读成 true', () => {
-    const storage = fakeStorage({
-      [PREFS_HIDE_BLOCKED_KEY]: 'false',
-      [PREFS_ADVANCED_TOOLS_KEY]: 'yes',
-    });
-    expect(readDisplayPrefs(storage)).toEqual({ hideBlocked: false, advancedTools: true });
+    const storage = fakeStorage({ [PREFS_HIDE_BLOCKED_KEY]: 'false' });
+    expect(readDisplayPrefs(storage)).toEqual({ hideBlocked: false });
   });
 });
 

@@ -1,6 +1,6 @@
 /**
- * 主题状态：外观模式（深色 / 浅色 / 跟随系统）+ 深色主题色（纯黑 OLED / 经典深蓝）
- * + Monet 色彩微染（开关 + 强调色预设）。
+ * 主题状态：四档外观模式（自动 / 浅色 / Tonal 深色 / OLED 纯黑）+ Monet 色彩微染
+ * （开关 + 强调色预设）。
  *
  * 设计要点：
  *   1. **纯函数优先**：`resolveTheme` / `readThemeConfig` / `applyResolvedTheme` 都不读全局，
@@ -15,10 +15,18 @@
  *      组件不需要知道「现在是不是微染模式」，样式自然跟着走。
  */
 
-export type ThemeMode = 'dark' | 'light' | 'system';
-export type DarkPalette = 'oled' | 'navy';
-/** 实际落到 `data-theme` 上的值：两套深色 + 一套浅色 */
-export type ResolvedTheme = 'oled' | 'navy' | 'light';
+export type ThemeMode = 'system' | 'light' | 'dark' | 'oled';
+/**
+ * 旧版「深色主题色」枚举（四档主题之前）。
+ *
+ * 现在深色档由 `ThemeMode` 直接表达，这个类型只为两件事保留：
+ *   1. 读旧本地存储 / 旧备份文件——`'navy'` 读入即并入 `'dark'`，`'oled'` 仍是纯黑；
+ *   2. 备份文件里的 `prefs.darkPalette` 字段（`backupStore` 依赖它）。
+ * 界面不再让用户单独选深色盘。
+ */
+export type DarkPalette = 'oled' | 'navy' | 'dark';
+/** 实际落到 `data-theme` 上的值：Tonal 深色 / OLED 纯黑 / 浅色 */
+export type ResolvedTheme = 'dark' | 'oled' | 'light';
 
 /**
  * Monet 微染的强调色预设。
@@ -69,30 +77,28 @@ export const MONET_ENABLED_KEY = 'brawl.draft.monetEnabled';
 export const ACCENT_COLOR_KEY = 'brawl.draft.accentColor';
 export const CUSTOM_ACCENT_KEY = 'brawl.draft.customAccent';
 
-/** 老用户升级后直接进纯黑：两个默认值都必须与 index.html 的内联脚本一致 */
+/** 首次启动的默认档：Tonal 深色。必须与 index.html 的内联脚本一致 */
 export const DEFAULT_THEME_MODE: ThemeMode = 'dark';
-export const DEFAULT_DARK_PALETTE: DarkPalette = 'oled';
-/** 微染默认关闭：纯黑 OLED 的「绝对中性」是默认观感，彩色需要用户自己打开 */
+/** 微染默认关闭：中性灰阶是默认观感，彩色需要用户自己打开 */
 export const DEFAULT_MONET_ENABLED = false;
 export const DEFAULT_ACCENT_COLOR: AccentColor = 'sky';
 
 /** 状态栏 / 浏览器顶栏底色（与 index.css 里各主题的 `--c-app` 同值） */
 export const THEME_COLORS: Record<ResolvedTheme, string> = {
+  dark: '#101418',
   oled: '#000000',
-  navy: '#020617',
-  light: '#f8fafc',
+  light: '#f7f9fc',
 };
 
 /** `color-scheme` 跟着生效主题走：浅色主题下原生控件（滚动条 / 输入光标）才不会黑底 */
 export const THEME_COLOR_SCHEME: Record<ResolvedTheme, 'light' | 'dark'> = {
+  dark: 'dark',
   oled: 'dark',
-  navy: 'dark',
   light: 'light',
 };
 
 export interface ThemeState {
   mode: ThemeMode;
-  darkPalette: DarkPalette;
   monetEnabled: boolean;
   accentColor: AccentColor;
   customAccent: CustomAccent;
@@ -100,11 +106,11 @@ export interface ThemeState {
 }
 
 export function isThemeMode(value: unknown): value is ThemeMode {
-  return value === 'dark' || value === 'light' || value === 'system';
+  return value === 'dark' || value === 'light' || value === 'system' || value === 'oled';
 }
 
 export function isDarkPalette(value: unknown): value is DarkPalette {
-  return value === 'oled' || value === 'navy';
+  return value === 'oled' || value === 'navy' || value === 'dark';
 }
 
 export function isAccentColor(value: unknown): value is AccentColor {
@@ -154,17 +160,13 @@ export function customAccentOn(accent: CustomAccent): string {
  * 生效主题的唯一判定入口。
  *
  *   - 显式浅色 → light
- *   - 跟随系统且系统不是深色 → light
- *   - 其余（深色 / 跟随系统且系统是深色）→ 按 darkPalette 取 oled 或 navy
+ *   - 跟随系统 → 系统深色取 Tonal 深色，系统浅色取 light
+ *   - 显式深色 / 纯黑 → 原样
  */
-export function resolveTheme(
-  mode: ThemeMode,
-  darkPalette: DarkPalette,
-  systemPrefersDark: boolean,
-): ResolvedTheme {
+export function resolveTheme(mode: ThemeMode, systemDark: boolean): ResolvedTheme {
   if (mode === 'light') return 'light';
-  if (mode === 'system' && !systemPrefersDark) return 'light';
-  return darkPalette === 'navy' ? 'navy' : 'oled';
+  if (mode === 'system') return systemDark ? 'dark' : 'light';
+  return mode === 'oled' ? 'oled' : 'dark';
 }
 
 /* ------------------------------------------------------------------ *
@@ -243,13 +245,29 @@ export function browserThemeEnv(): ThemeEnv {
 
 export interface ThemeConfig {
   mode: ThemeMode;
-  darkPalette: DarkPalette;
   monetEnabled: boolean;
   accentColor: AccentColor;
   customAccent: CustomAccent;
 }
 
-/** 读持久化配置：缺失或非法一律回落到默认值（老用户升级即纯黑深色 + 无微染） */
+/**
+ * 旧值迁移。
+ *
+ * 四档主题之前，「深色」还分纯黑与经典深蓝两套，分别存在 `themeMode` 与
+ * `darkPalette` 两个键里。这里按老键的组合还原用户当时看到的样子：
+ *   - `navy` → Tonal 深色（经典深蓝已并入 `dark`）
+ *   - `dark` + `oled` → 仍然是纯黑
+ * 新版本每次切换都会把 `darkPalette` 写成镜像值，所以这两条只对旧存档生效。
+ */
+function readMode(rawMode: string | null, rawPalette: string | null): ThemeMode {
+  if (rawMode === 'system' || rawMode === 'light' || rawMode === 'oled') return rawMode;
+  if (rawMode === 'dark' || rawMode === null) {
+    return rawPalette === 'oled' ? 'oled' : 'dark';
+  }
+  return DEFAULT_THEME_MODE;
+}
+
+/** 读持久化配置：缺失或非法一律回落到默认值（首次启动即 Tonal 深色 + 无微染） */
 export function readThemeConfig(storage: ThemeStorage | null): ThemeConfig {
   const rawMode = storage?.getItem(THEME_MODE_KEY) ?? null;
   const rawPalette = storage?.getItem(DARK_PALETTE_KEY) ?? null;
@@ -258,8 +276,7 @@ export function readThemeConfig(storage: ThemeStorage | null): ThemeConfig {
   const parsedCustom = parseCustomAccent(storage?.getItem(CUSTOM_ACCENT_KEY) ?? null);
   const accentColor = isAccentColor(rawAccent) ? rawAccent : DEFAULT_ACCENT_COLOR;
   return {
-    mode: isThemeMode(rawMode) ? rawMode : DEFAULT_THEME_MODE,
-    darkPalette: isDarkPalette(rawPalette) ? rawPalette : DEFAULT_DARK_PALETTE,
+    mode: readMode(rawMode, rawPalette),
     // 只认字符串 'true' / 'false'：其它任何脏值都当没设置过，不要用 Boolean('false') 那种陷阱
     monetEnabled: rawMonet === 'true' ? true : rawMonet === 'false' ? false : DEFAULT_MONET_ENABLED,
     // custom 但没有合法的自定义值 → 回落到预设，避免渲染出 --custom-accent-rgb 空串
@@ -331,6 +348,10 @@ export interface ThemeStore {
   /** 挂载：落一次主题 + 开始监听系统配色变化（可重复调用，内部只生效一次） */
   init(): void;
   setMode(mode: ThemeMode): void;
+  /**
+   * @deprecated 深色档已并入 `setMode`（`'oled'` / `'dark'`）。
+   * 只为旧调用点（备份还原、老组件）保留：`'navy'` 与 `'dark'` 都落到 Tonal 深色。
+   */
   setDarkPalette(palette: DarkPalette): void;
   setMonetEnabled(enabled: boolean): void;
   setAccentColor(color: AccentColor): void;
@@ -343,17 +364,15 @@ export interface ThemeStore {
 export function createThemeStore(env: ThemeEnv = browserThemeEnv()): ThemeStore {
   const config = readThemeConfig(env.storage);
   let mode = config.mode;
-  let darkPalette = config.darkPalette;
   let monetEnabled = config.monetEnabled;
   let accentColor = config.accentColor;
   let customAccent = config.customAccent;
-  let resolved = resolveTheme(mode, darkPalette, systemPrefersDark(env));
+  let resolved = resolveTheme(mode, systemPrefersDark(env));
 
   const listeners = new Set<(state: ThemeState) => void>();
   /** 快照对象要缓存：`useSyncExternalStore` 靠引用相等判断是否重渲染 */
   let snapshot: ThemeState = {
     mode,
-    darkPalette,
     monetEnabled,
     accentColor,
     customAccent,
@@ -362,17 +381,25 @@ export function createThemeStore(env: ThemeEnv = browserThemeEnv()): ThemeStore 
   let started = false;
 
   const onSystemChange = (): void => {
-    // 只有「跟随系统」需要实时响应；显式深色 / 浅色不受系统影响
+    // 只有「自动」需要实时响应；显式深色 / 纯黑 / 浅色不受系统影响
     if (mode !== 'system') return;
     paint();
   };
 
   /** 统一出口：重算生效主题 → 落 DOM → 通知订阅者 */
   function paint(): void {
-    resolved = resolveTheme(mode, darkPalette, systemPrefersDark(env));
-    snapshot = { mode, darkPalette, monetEnabled, accentColor, customAccent, resolved };
+    resolved = resolveTheme(mode, systemPrefersDark(env));
+    snapshot = { mode, monetEnabled, accentColor, customAccent, resolved };
     applyResolvedTheme(resolved, env.document, { monetEnabled, accentColor, customAccent });
     for (const listener of listeners) listener(snapshot);
+  }
+
+  /** 切档的统一入口：同时把旧的深色盘键写成镜像，旧备份 / 回滚老版本仍能还原同一套深色 */
+  function applyMode(next: ThemeMode): void {
+    env.storage?.setItem(THEME_MODE_KEY, next);
+    env.storage?.setItem(DARK_PALETTE_KEY, next === 'oled' ? 'oled' : 'dark');
+    mode = next;
+    paint();
   }
 
   return {
@@ -401,16 +428,12 @@ export function createThemeStore(env: ThemeEnv = browserThemeEnv()): ThemeStore 
 
     setMode(next) {
       if (!isThemeMode(next)) return;
-      env.storage?.setItem(THEME_MODE_KEY, next);
-      mode = next;
-      paint();
+      applyMode(next);
     },
 
     setDarkPalette(next) {
       if (!isDarkPalette(next)) return;
-      env.storage?.setItem(DARK_PALETTE_KEY, next);
-      darkPalette = next;
-      paint();
+      applyMode(next === 'oled' ? 'oled' : 'dark');
     },
 
     setMonetEnabled(next) {

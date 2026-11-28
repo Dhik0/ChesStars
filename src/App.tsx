@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { App as NativeApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
-import { Ban as EmptyBanIcon, ClipboardCheck, EyeOff, Flame, Loader2, RefreshCw, Save, Swords } from 'lucide-react';
-import AboutView from './components/AboutView';
+import { Ban as EmptyBanIcon, ClipboardCheck, Flame, Loader2, RefreshCw, Save, Swords } from 'lucide-react';
+import AboutView, { AboutSubpage } from './components/AboutView';
 import BottomNav, { MAIN_TABS, type MainTab } from './components/BottomNav';
-import BlockedBrawlersSheet from './components/BlockedBrawlersSheet';
 import BrawlerDetail from './components/BrawlerDetail';
 import BrawlerTile from './components/BrawlerTile';
 import DraftBar from './components/DraftBar';
@@ -27,6 +26,7 @@ import { metaStore, type MetaSnapshot } from './services/metaStore';
 import {
   browserPrefsStorage,
   readDisplayPrefs,
+  writeBlockedIds,
   writeDisplayPrefs,
   type DisplayPrefs,
 } from './services/prefsStore';
@@ -74,6 +74,9 @@ const LS_MAP = 'brawl.draft.map';
 
 /** 网页端版本检测的启动延迟：避开首屏数据加载，2.5 秒后静默执行 */
 const WEB_UPDATE_DELAY_MS = 2500;
+
+/** BP 选人页退出到地图选择的退场时长（与 index.css 的 m3-view-out 一致） */
+const BP_SCREEN_EXIT_MS = 180;
 
 /** 「BP 助手」Tab 内的二级页面：首屏是「选择地图」，选完才进 BP 面板 */
 type Screen = 'select' | 'draft';
@@ -140,8 +143,19 @@ export default function App() {
   const [swipeDir, setSwipeDir] = useState<SwipeDirection | null>(null);
   /** BP 助手内的二级页面：启动时停在选图页，选定地图后才进 BP */
   const [screen, setScreen] = useState<Screen>('select');
+  /** 选图 ↔ BP 的过渡阶段：进场 / 退场都留在 DOM 里播完再换内容 */
+  const [screenPhase, setScreenPhase] = useState<'idle' | 'entering' | 'leaving'>('idle');
+  const screenRef = useRef<Screen>(screen);
+  screenRef.current = screen;
+  const screenTimerRef = useRef<number | null>(null);
+  /** 设置二级子页的退场入口（返回键 / Escape 也要先播动画再卸载） */
+  const settingsSubpageRef = useRef<{ requestClose: () => void } | null>(null);
   /** 「设置」页推入的二级子页（null = 停在设置主界面） */
   const [settingsPage, setSettingsPage] = useState<SettingsPage | null>(null);
+  /** 「关于」页推入的二级子页（null = 停在关于主界面） */
+  const [aboutPage, setAboutPage] = useState<'credits' | null>(null);
+  /** 关于二级子页的退场入口（返回键 / Escape 也要先播动画再卸载） */
+  const aboutSubpageRef = useRef<{ requestClose: () => void } | null>(null);
   /** 锚定在「语言」行附近的悬浮选单 */
   const [languageOpen, setLanguageOpen] = useState(false);
   /** 主题色调色盘（设置 → 主题子页 → 主题色） */
@@ -158,10 +172,10 @@ export default function App() {
   /** 英雄池的职业筛选（'ALL' = 不筛选）；只影响列表展示，不参与任何算分 */
   const [classFilter, setClassFilter] = useState<BrawlerClass | 'ALL'>('ALL');
   /** 个人「不喜欢 / 屏蔽」名单：只影响选人推荐栏的展示，Ban 推荐与全英雄池照旧 */
-  const { ids: blockedIds, blocked: blockedSet, toggle: toggleBlocked, clear: clearBlocked } =
-    useBlockedBrawlers();
-  /** 「已屏蔽」集中管理弹层 */
-  const [blockedOpen, setBlockedOpen] = useState(false);
+  const { ids: blockedIds, blocked: blockedSet, toggle: toggleBlocked } = useBlockedBrawlers();
+  /** 屏蔽名单的最新值：批量设置时按它和传入值的差集同步内存状态 */
+  const blockedIdsRef = useRef(blockedIds);
+  blockedIdsRef.current = blockedIds;
   /** 发现的新版本（null = 没有更新或检查失败） */
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   /** 更新弹窗开关（启动自动检查命中且未被忽略时打开） */
@@ -224,7 +238,6 @@ export default function App() {
   if (reviewOpen) layers.push('review');
   if (matchSheet) layers.push('matchSheet');
   if (matchupId !== null) layers.push('matchup');
-  if (blockedOpen) layers.push('blocked');
   if (detailId !== null) layers.push('detail');
   if (updateOpen && updateInfo !== null) layers.push('update');
   // 语言悬浮选单永远是最顶层：返回键 / Escape 先收它
@@ -235,7 +248,8 @@ export default function App() {
     tab,
     screen,
     hasDraft: draft !== null,
-    settingsPageOpen: settingsPage !== null,
+    // 「设置」与「关于」的推入式子页共用这一层优先级（返回栈是冻结文件，不新增层）
+    settingsPageOpen: settingsPage !== null || aboutPage !== null,
   };
 
   /** 弹一条 2 秒后自动消失的底部提示（不拦截点击） */
@@ -258,17 +272,68 @@ export default function App() {
     setTab(next);
   }, []);
 
+  /**
+   * 进 BP：新视图直接挂载并播 280ms 进场动画。
+   * 若上一次退场定时器还没走完，先取消——连续点选图 / 返回不会留下半个动画。
+   */
+  const enterDraft = useCallback(() => {
+    if (screenTimerRef.current !== null) {
+      window.clearTimeout(screenTimerRef.current);
+      screenTimerRef.current = null;
+    }
+    setScreen('draft');
+    screenRef.current = 'draft';
+    setScreenPhase('entering');
+  }, []);
+
+  /**
+   * 退到选图：先让 BP 视图播完退场，再切换内容并给选图页播进场。
+   * 定时器本身兼作幂等锁，返回键连按不会连跳两层。
+   */
+  const leaveDraft = useCallback(() => {
+    if (screenRef.current !== 'draft' || screenTimerRef.current !== null) return;
+    setScreenPhase('leaving');
+    screenTimerRef.current = window.setTimeout(() => {
+      screenTimerRef.current = null;
+      setScreen('select');
+      screenRef.current = 'select';
+      setScreenPhase('entering');
+    }, BP_SCREEN_EXIT_MS);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (screenTimerRef.current !== null) window.clearTimeout(screenTimerRef.current);
+    },
+    [],
+  );
+
   /** 偏好改动：先落盘，再同步给 BP 页；写入失败也不影响本次会话 */
   const handleDisplayPrefsChange = useCallback((next: DisplayPrefs) => {
     writeDisplayPrefs(browserPrefsStorage(), next);
     setDisplayPrefs(next);
   }, []);
 
+  /**
+   * 设置页批量勾选屏蔽名单：先整份落盘，再把内存状态对齐到同一份名单。
+   * toggle 是函数式更新，同一批次里多次调用也不会互相覆盖。
+   */
+  const applyBlockedIds = useCallback(
+    (next: number[]) => {
+      writeBlockedIds(browserPrefsStorage(), next);
+      const current = blockedIdsRef.current;
+      const target = new Set(next);
+      for (const id of current) if (!target.has(id)) toggleBlocked(id);
+      for (const id of next) if (!current.includes(id)) toggleBlocked(id);
+    },
+    [toggleBlocked],
+  );
+
   /* ---------------- 左右滑动切页 ----------------
    * 只有四个一级页面之间可以滑，而且必须让路给下面这些场景：
    *   1. BP 详细选人界面（已选定地图、进入 Ban/Pick 操作态）——选人时手指划过英雄池
    *      太常见了，这里滑一下就翻页会直接毁掉一局 BP；地图选择首页不受影响；
-   *   2. 任意弹窗 / 抽屉打开时（复盘、保存、对位、英雄详情、更新说明、屏蔽名单）；
+   *   2. 任意弹窗 / 抽屉打开时（复盘、保存、对位、英雄详情、更新说明）；
    *   3. 手指落在屏幕左右 28px 内（安卓全面屏侧滑返回的手势区）；
    *   4. 落在可横向滚动的子容器里（职业筛选标签栏、横向卡片列表）；
    *   5. 竖向位移占优或横向不足 56px（在滚列表 / 只是点了一下）。
@@ -277,7 +342,7 @@ export default function App() {
   const overlayOpen = layers.length > 0;
   const draftLocked = tab === 'draft' && screen === 'draft' && draft !== null;
   const swipeHandlers = useSwipePager({
-    enabled: !overlayOpen && !draftLocked && settingsPage === null,
+    enabled: !overlayOpen && !draftLocked && settingsPage === null && aboutPage === null,
     onSwipe: (direction) => {
       const next = MAIN_TABS[MAIN_TABS.indexOf(tab) + (direction === 'next' ? 1 : -1)];
       // 已经在最左 / 最右：不动，页面自己回弹
@@ -301,7 +366,6 @@ export default function App() {
       case 'closeLayer':
         if (decision.action.layer === 'update') setUpdateOpen(false);
         else if (decision.action.layer === 'detail') setDetailId(null);
-        else if (decision.action.layer === 'blocked') setBlockedOpen(false);
         else if (decision.action.layer === 'matchSheet') {
           // 与点 × 完全同一条路径：脏数据先落库再关
           if (matchSheetRef.current) matchSheetRef.current.requestClose();
@@ -312,7 +376,12 @@ export default function App() {
         else setMatchupId(null);
         break;
       case 'closeSettingsPage':
-        setSettingsPage(null);
+        // 按当前 Tab 分派：设置页与关于页各自回退自己的子页
+        if (backStateRef.current.tab === 'about') {
+          if (aboutSubpageRef.current) aboutSubpageRef.current.requestClose();
+          else setAboutPage(null);
+        } else if (settingsSubpageRef.current) settingsSubpageRef.current.requestClose();
+        else setSettingsPage(null);
         break;
       case 'runGuard':
         runTopBackGuard();
@@ -321,7 +390,7 @@ export default function App() {
         goTab('draft');
         break;
       case 'leaveDraft':
-        setScreen('select');
+        leaveDraft();
         break;
       case 'showExitHint':
         showToast(t('app.exitHint'));
@@ -330,7 +399,7 @@ export default function App() {
         void NativeApp.exitApp();
         break;
     }
-  }, [goTab, showToast, t]);
+  }, [goTab, leaveDraft, showToast, t]);
 
   /** 仅在原生壳里接管返回键；桌面浏览器 npm run dev 不注册任何监听 */
   useEffect(() => {
@@ -368,7 +437,11 @@ export default function App() {
       }
       if (top !== null) return;
       if (state.settingsPageOpen) {
-        setSettingsPage(null);
+        if (state.tab === 'about') {
+          if (aboutSubpageRef.current) aboutSubpageRef.current.requestClose();
+          else setAboutPage(null);
+        } else if (settingsSubpageRef.current) settingsSubpageRef.current.requestClose();
+        else setSettingsPage(null);
         event.preventDefault();
       }
     };
@@ -571,13 +644,13 @@ export default function App() {
     localStorage.setItem(LS_MAP, mapName);
     // 从 BP 顶栏进来又选了同一张图：只回到 BP，不打断当前进度
     if (draft && draft.mapName === mapName) {
-      setScreen('draft');
+      enterDraft();
       return;
     }
     // 换图等于开新局：历史清空，先手方回到「未选择」前置态
     setHistory([]);
     setDraft(createDraft(mapName, mode));
-    setScreen('draft');
+    enterDraft();
   };
 
   const handleActivate = (slot: ActiveSlot) => {
@@ -874,16 +947,6 @@ export default function App() {
         />
       )}
 
-      {blockedOpen && (
-        <BlockedBrawlersSheet
-          ids={blockedIds}
-          nameOf={(id) => snap.index.brawlerById.get(id)?.name}
-          onUnblock={toggleBlocked}
-          onClear={clearBlocked}
-          onClose={() => setBlockedOpen(false)}
-        />
-      )}
-
       {detailCandidate && (
         <BrawlerDetail
           candidate={detailCandidate}
@@ -899,17 +962,11 @@ export default function App() {
           mapName={draft.mapName}
           mode={draft.mode}
           brawlerId={matchupId}
-          blocked={blockedSet.has(matchupId)}
-          onToggleBlock={() => toggleBlocked(matchupId)}
           onClose={() => setMatchupId(null)}
-          onOpenBreakdown={
-            displayPrefs.advancedTools
-              ? () => {
-                  setDetailId(matchupId);
-                  setMatchupId(null);
-                }
-              : undefined
-          }
+          onOpenBreakdown={() => {
+            setDetailId(matchupId);
+            setMatchupId(null);
+          }}
         />
       )}
     </>
@@ -927,6 +984,14 @@ export default function App() {
       : swipeDir === 'prev'
         ? 'animate-page-in-prev'
         : 'animate-fade-in';
+
+  /** BP 助手内的选图 / 对局互切动效，挂在各自视图根节点上，不与一级切页争用 transform */
+  const screenAnim =
+    screenPhase === 'leaving'
+      ? 'animate-bp-view-out'
+      : screenPhase === 'entering'
+        ? 'animate-bp-view-in'
+        : '';
 
   /**
    * 最外层壳：外层是主题暗色背景，内层是限宽的「手机面板」。
@@ -948,14 +1013,17 @@ export default function App() {
               ''
             : // 竖屏与桌面：大于 440px 时居中成紧凑面板，PC 上不会被横向拉伸
               'sm:max-w-[440px] sm:shadow-2xl sm:shadow-black/60 sm:ring-1 sm:ring-line/70'
-        } ${navVisible ? 'has-bottom-nav' : ''} ${webUpdateBanner ? 'has-update-banner' : ''}`}
+        } ${navVisible ? 'has-bottom-nav' : ''} ${webUpdateBanner ? 'has-update-banner' : ''} ${
+          tab === 'about' && aboutPage === null ? 'about-main-tab' : ''
+        }`}
       >
         {webUpdateBanner}
-        {/* 滑动切页的跟手位移直接写在这一层上（见 useSwipePager），不动任何业务状态 */}
+        {/* 滑动切页的跟手位移直接写在这一层上（见 useSwipePager），不动任何业务状态。
+            touch-pan-y 把横向手势留给 JS，否则 WebView 会先抢走 touchmove 并取消手势。 */}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <div
             key={tab}
-            className={`flex min-h-0 flex-1 flex-col overflow-hidden ${pageAnim}`}
+            className={`flex min-h-0 flex-1 flex-col overflow-hidden touch-pan-y ${pageAnim}`}
             {...swipeHandlers}
           >
             {content}
@@ -1003,14 +1071,17 @@ export default function App() {
       settingsPage ? (
         <SettingsSubpage
           key={settingsPage}
+          ref={settingsSubpageRef}
           page={settingsPage}
-          onBack={() => setSettingsPage(null)}
+          onBack={() => setSettingsPage(settingsPage === 'blocked' ? 'draft' : null)}
           snapshot={snap}
           onPull={() => metaStore.pullNow()}
           displayPrefs={displayPrefs}
           onDisplayPrefsChange={handleDisplayPrefsChange}
           blockedCount={blockedIds.length}
-          onOpenBlocked={() => setBlockedOpen(true)}
+          blockedIds={blockedIds}
+          onApplyBlockedIds={applyBlockedIds}
+          onOpenPage={setSettingsPage}
           onOpenThemeColor={() => setThemeColorOpen(true)}
         />
       ) : null,
@@ -1025,11 +1096,16 @@ export default function App() {
         records={matches}
         updateInfo={updateInfo}
         qqGroupUrl={qqGroupUrl}
+        subpageOpen={aboutPage !== null}
         onCheckUpdate={handleCheckUpdate}
         onShowUpdate={() => setUpdateOpen(true)}
+        onOpenCredits={() => setAboutPage('credits')}
         onImported={handleImportedBackup}
       />,
       true,
+      aboutPage === 'credits' ? (
+        <AboutSubpage key={aboutPage} ref={aboutSubpageRef} onBack={() => setAboutPage(null)} />
+      ) : null,
     );
   }
 
@@ -1054,12 +1130,14 @@ export default function App() {
   // 首屏选图：尚未建局（draft 为 null）时没有返回按钮
   if (!draft || screen === 'select') {
     return shell(
-      <MapPicker
-        maps={snap.meta.maps}
-        current={draft?.mapName ?? ''}
-        onSelect={handleSelectMap}
-        onClose={draft ? () => setScreen('draft') : undefined}
-      />,
+      <div className={`flex h-full min-h-0 flex-col ${screenAnim}`}>
+        <MapPicker
+          maps={snap.meta.maps}
+          current={draft?.mapName ?? ''}
+          onSelect={handleSelectMap}
+          onClose={draft ? enterDraft : undefined}
+        />
+      </div>,
       true,
     );
   }
@@ -1124,14 +1202,14 @@ export default function App() {
    * 「空 Ban」入口：放在选人面板最前面，Ban 阶段常驻。
    * 点它 = 这个 Ban 位不 Ban 人（盲 Ban 时对面没被 Ban 到 / 双方撞车都算常见）。
    */
-  const emptyBanEntry = banPhase && displayPrefs.advancedTools ? (
+  const emptyBanEntry = banPhase ? (
     <button
       type="button"
       onClick={handleEmptyBan}
-      className="mx-1 mb-1.5 flex items-center gap-2 rounded-lg border border-dashed border-line-strong/70 bg-surface/60 px-2 py-1.5 text-left transition-colors active:bg-press"
+      className="mx-1 mb-1.5 flex items-center gap-2 rounded-lg bg-[var(--card-bg)] px-2 py-1.5 text-left transition-colors active:bg-press"
       aria-label={t('pool.emptyBanDesc')}
     >
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-line-strong/80 bg-app/70 text-muted">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-raised/70 text-muted">
         <EmptyBanIcon size={14} />
       </span>
       <span className="min-w-0 flex-1 leading-tight">
@@ -1180,11 +1258,9 @@ export default function App() {
           {topPicks.length > 0 && (
           <section
             ref={topSectionRef}
-            className={`mx-1 mb-1.5 rounded-[18px] border px-1.5 pb-1.5 pt-1 ${
-              head.enemy ? 'border-enemy/40 bg-enemy/[0.08]' : 'border-accent/30 bg-accent-soft'
-            }`}
+            className="mx-1 mb-1.5 rounded-[18px] bg-[var(--card-bg)] px-1.5 pb-1.5 pt-1"
           >
-            <header className="mb-1 flex items-baseline justify-between gap-2">
+            <header className="mb-1 flex items-baseline">
               <span className="flex items-center gap-1">
                 {head.enemy ? (
                   <Swords size={11} className="shrink-0 text-enemy" />
@@ -1206,9 +1282,6 @@ export default function App() {
                   {topPicks.length}
                 </span>
               </span>
-              <span className="shrink-0 text-[9px] text-subtle">
-                {draft.firstPick ? t('pool.hintPick') : t('pool.hintLongPress')}
-              </span>
             </header>
             {/* Top 区比稀有度区更大：实战秒选更好点，也把稀有度分区推到折叠线附近 */}
             <div className={topGridCls} style={gridStyle}>
@@ -1227,44 +1300,28 @@ export default function App() {
           </section>
           )}
 
-          {/* 职业筛选 + 「已屏蔽」入口：标签横向滚动、不换行；屏蔽胶囊钉在右侧始终可见 */}
-          <div className="mx-1 mb-1.5 flex items-center gap-1.5">
-            <div
-              className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain"
-              role="group"
-              aria-label={t('pool.classFilter')}
-            >
+          {/* 职业筛选：标签横向滚动、不换行 */}
+          <div
+            className="no-scrollbar mx-1 mb-1.5 flex items-center gap-1 overflow-x-auto overscroll-x-contain"
+            role="group"
+            aria-label={t('pool.classFilter')}
+          >
+            <ClassChip
+              label={t('pool.classAll')}
+              active={classFilter === 'ALL'}
+              color={themeAccent('#38BDF8', theme)}
+              accent
+              onClick={() => setClassFilter('ALL')}
+            />
+            {CLASS_ORDER.map((k) => (
               <ClassChip
-                label={t('pool.classAll')}
-                active={classFilter === 'ALL'}
-                color={themeAccent('#38BDF8', theme)}
-                accent
-                onClick={() => setClassFilter('ALL')}
+                key={k}
+                label={t(`class.${k}`)}
+                active={classFilter === k}
+                color={themeAccent(CLASS_COLOR[k], theme)}
+                onClick={() => setClassFilter(classFilter === k ? 'ALL' : k)}
               />
-              {CLASS_ORDER.map((k) => (
-                <ClassChip
-                  key={k}
-                  label={t(`class.${k}`)}
-                  active={classFilter === k}
-                  color={themeAccent(CLASS_COLOR[k], theme)}
-                  onClick={() => setClassFilter(classFilter === k ? 'ALL' : k)}
-                />
-              ))}
-            </div>
-            {/* 未屏蔽任何英雄时弱化显示：入口还在，但不抢视觉 */}
-            <button
-              type="button"
-              onClick={() => setBlockedOpen(true)}
-              className={`flex h-[var(--chip-h)] shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 text-[10.5px] font-medium transition-colors ${
-                blockedSet.size > 0
-                  ? 'border-gold/50 bg-amber-500/15 text-gold active:bg-amber-500/25'
-                  : 'border-line bg-surface/60 text-subtle active:bg-press'
-              }`}
-              aria-label={t('blocked.chip', { n: blockedSet.size })}
-            >
-              <EyeOff size={10} className="shrink-0" />
-              {t('blocked.chip', { n: blockedSet.size })}
-            </button>
+            ))}
           </div>
 
           {/* 下方全英雄池：按官方稀有度从低到高分栏，**不剔除**顶部已上榜的英雄 */}
@@ -1320,7 +1377,7 @@ export default function App() {
   /* ---------------- 横屏：左战局固定 + 右英雄池通栏 ---------------- */
   if (landscape) {
     return shell(
-      <div className="flex h-full flex-row overflow-hidden">
+      <div className={`flex h-full flex-row overflow-hidden ${screenAnim}`}>
         <aside className="flex w-[43%] min-w-[220px] max-w-[350px] shrink-0 flex-col border-r border-line/80 bg-app">
           <TopBar
             variant="strip"
@@ -1329,7 +1386,7 @@ export default function App() {
             mapGames={mapGames}
             tierLabel={tierText}
             dataDate={snap.dataDate}
-            onOpenMap={() => setScreen('select')}
+            onOpenMap={leaveDraft}
           />
           <DraftBar
             variant="landscape"
@@ -1361,7 +1418,7 @@ export default function App() {
 
   /* ---------------- 竖屏：地图卡进滚动流 + 底部 BP 台 ---------------- */
   return shell(
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className={`flex h-full flex-col overflow-hidden ${screenAnim}`}>
       {/* 地图详情卡是滚动容器里的第一块内容，往下滑就滚走（不吸顶） */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-1.5">
         <TopBar
@@ -1371,7 +1428,7 @@ export default function App() {
           mapGames={mapGames}
           tierLabel={tierText}
           dataDate={snap.dataDate}
-          onOpenMap={() => setScreen('select')}
+          onOpenMap={leaveDraft}
         />
         {poolContent}
       </div>

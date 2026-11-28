@@ -1,8 +1,8 @@
 {
-  "version": "1.3.2",
-  "releaseUrl": "https://github.com/Dhik0/ChesStars/releases/tag/v1.3.2",
-  "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v1.3.2/ChesStars-v1.3.2.apk",
+  "version": "2.0.0",
+  "releaseUrl": "https://github.com/Dhik0/ChesStars/releases/tag/v2.0.0",
+  "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v2.0.0/ChesStars-v2.0.0.apk",
   "mirrorPrefixes": ["https://ghfast.top/", "https://gh-proxy.com/"],
   "qqGroupUrl": "https://qm.qq.com/q/yJm7ocJ5fO",
-  "notes": "- 地图选择按模式折叠\n- 选中地图自动展开所属模式\n- 新增屏蔽不喜欢的英雄\n- 屏蔽仅影响选人推荐"
+  "notes": "## 更新\n- 全面升级 Material 3 Expressive 分段卡片界面，精简设置与关于页冗余信息\n- 新增四档主题（自动 / 浅色 / 深色 / 纯黑 OLED），全面适配 Monet 自定义配色\n- 重构关于页：新增动态主题流光、滚动视差与「引用 / 隐私政策」二级子页\n- 移除进阶功能开关，「空 Ban」与「查看算分明细」回归默认常驻\n- 精简战绩复盘卡片，双列高度更紧凑对齐"
 }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { I18nProvider } from '../i18n';
 import { LANG_STORAGE_KEY } from '../i18n/langs';
 import { createMatchRecord, type MatchRecord } from '../services/matchHistoryStore';
@@ -18,13 +18,26 @@ import MatchSaveSheet, { type MatchSaveSheetHandle } from './MatchSaveSheet';
 beforeEach(() => {
   // 固定语言，断言文案才稳定（默认会跟着 navigator 走英文）
   localStorage.setItem(LANG_STORAGE_KEY, 'zh-CN');
+  // 只接管 setTimeout：退场动画靠它推进，其余计时器留给 React 调度
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 });
 
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
+
+/** 与组件里的 SHEET_EXIT_MS 一致：退场动画播完才真正落库 / 关闭 */
+const EXIT_MS = 180;
+
+/** 推进退场动画计时器，让关闭动作真正执行 */
+function flushExit() {
+  act(() => {
+    vi.advanceTimersByTime(EXIT_MS);
+  });
+}
 
 function makeRecord(over: Partial<MatchRecord> = {}): MatchRecord {
   const record = createMatchRecord({
@@ -100,6 +113,10 @@ describe('关闭手势自动保存', () => {
     fireEvent.change(firstRowInputs()[0]!, { target: { value: '5' } });
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
 
+    // 退场动画期间只播动画，回调等动画结束才执行
+    expect(onClose).not.toHaveBeenCalled();
+    flushExit();
+
     expect(onSaveAndReview).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledTimes(1);
     const saved = onClose.mock.calls[0]![0] as MatchRecord;
@@ -111,6 +128,7 @@ describe('关闭手势自动保存', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: '我' })[0]!);
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    flushExit();
 
     const saved = onClose.mock.calls[0]![0] as MatchRecord;
     expect(saved).not.toBeNull();
@@ -122,6 +140,7 @@ describe('关闭手势自动保存', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /2:1/ }));
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    flushExit();
 
     const saved = onClose.mock.calls[0]![0] as MatchRecord;
     expect(saved.score).toBe('2:1');
@@ -132,6 +151,7 @@ describe('关闭手势自动保存', () => {
     const { onClose } = renderSheet();
 
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    flushExit();
 
     expect(onClose).toHaveBeenCalledWith(null);
   });
@@ -140,6 +160,7 @@ describe('关闭手势自动保存', () => {
     const { onClose, record } = renderSheet({ isNew: false });
 
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    flushExit();
 
     const saved = onClose.mock.calls[0]![0] as MatchRecord;
     expect(saved).not.toBeNull();
@@ -147,15 +168,20 @@ describe('关闭手势自动保存', () => {
   });
 
   it('Esc 与点击遮罩走同一条保存路径', () => {
-    const { onClose, container } = renderSheet();
+    const viaEsc = renderSheet();
 
     fireEvent.change(firstRowInputs()[0]!, { target: { value: '3' } });
     fireEvent.keyDown(window, { key: 'Escape' });
-    expect((onClose.mock.calls[0]![0] as MatchRecord).allyStats[0]!.kills).toBe(3);
+    flushExit();
+    expect((viaEsc.onClose.mock.calls[0]![0] as MatchRecord).allyStats[0]!.kills).toBe(3);
 
-    onClose.mockClear();
-    fireEvent.click(container.firstElementChild!);
-    expect((onClose.mock.calls[0]![0] as MatchRecord).allyStats[0]!.kills).toBe(3);
+    // 遮罩点击另开一张抽屉：关闭一次后 finished 已置位，同一实例不再响应第二次
+    cleanup();
+    const viaScrim = renderSheet();
+    fireEvent.change(firstRowInputs()[0]!, { target: { value: '3' } });
+    fireEvent.click(viaScrim.container.firstElementChild!);
+    flushExit();
+    expect((viaScrim.onClose.mock.calls[0]![0] as MatchRecord).allyStats[0]!.kills).toBe(3);
   });
 
   it('返回键句柄与 × 等价（脏数据先落库）', () => {
@@ -163,6 +189,7 @@ describe('关闭手势自动保存', () => {
 
     fireEvent.change(firstRowInputs()[3]!, { target: { value: '1.2' } });
     ref.current?.requestClose();
+    flushExit();
 
     const saved = onClose.mock.calls[0]![0] as MatchRecord;
     expect(saved.allyStats[0]!.healing).toBe(12000);
@@ -177,6 +204,7 @@ describe('保存并复盘', () => {
     fireEvent.change(firstRowInputs()[0]!, { target: { value: '7' } });
     fireEvent.change(firstRowInputs()[2]!, { target: { value: '2.4' } });
     fireEvent.click(screen.getByRole('button', { name: '保存并复盘' }));
+    flushExit();
 
     expect(onClose).not.toHaveBeenCalled();
     expect(onSaveAndReview).toHaveBeenCalledTimes(1);

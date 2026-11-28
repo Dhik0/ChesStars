@@ -100,6 +100,17 @@ export function hasHorizontalScroller(
   return false;
 }
 
+/**
+ * 手指落在输入控件 / 可编辑区时不接管手势（规范第 5 条的「输入焦点内」）。
+ * 拖选文字、调滑块这类操作要留给控件自己，不能顺手把页面翻走。
+ */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (typeof HTMLElement === 'undefined' || !(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
 export interface SwipePagerOptions {
   /** 当前是否允许切页；false 时连跟手位移都不做 */
   enabled: boolean;
@@ -148,6 +159,7 @@ export function useSwipePager({ enabled, onSwipe }: SwipePagerOptions): SwipePag
       const touch = event.touches[0];
       if (!touch) return;
       if (isEdgeTouch(touch.clientX, window.innerWidth)) return;
+      if (isEditableTarget(event.target)) return;
       if (hasHorizontalScroller(event.target, event.currentTarget)) return;
 
       gesture.current = {

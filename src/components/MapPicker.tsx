@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Check, ChevronDown, X } from 'lucide-react';
 import type { MapEntry } from '../types/meta';
 import { MODE_ORDER, modeColor } from '../data/localization';
 import { useTranslation } from '../i18n';
 import { themeAccent } from '../utils/display';
 import { useTheme } from '../utils/useTheme';
+import { PageVeil } from './PageHeader';
 import MapThumb from './MapThumb';
 import ModeIcon from './ModeIcon';
 
@@ -26,8 +27,7 @@ interface MapPickerProps {
  *
  * 布局是**一二级折叠**：一级按游戏模式分组（图标 + 模式名 + 地图数量 + 展开箭头），
  * 点标题展开该模式下的全部地图；二级是地图网格（缩略图 + 名称）。
- * 默认只展开「当前已选地图」所属的模式——六个模式全摊开会把首屏撑成一条长列表，
- * 想找别的模式反而要滑很久。
+ * 默认全部收起——用户点击某个模式行时才展开该模式下的地图列表。
  *
  * 它是「BP 助手」这个一级 Tab 下的一个页面（不是浮层）：撑满内容区，
  * 底部由 App 统一挂底部导航栏。内容区独立滚动，横屏矮屏幕下不会溢出截断。
@@ -43,18 +43,9 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
 
   /**
    * 展开状态（多开，非手风琴）：用户可以同时摊开几个模式对比着看。
-   * 初始只展开当前地图所属模式；首屏还没选图时展开第一个有地图的模式，避免整页空白。
+   * 初始全部收起，只有用户点击模式行才展开对应地图列表。
    */
-  const [openModes, setOpenModes] = useState<Set<string>>(() => {
-    const initial = new Set<string>();
-    const currentMode = current ? maps.find((m) => m.map_name === current)?.mode : undefined;
-    if (currentMode) initial.add(currentMode);
-    else {
-      const first = MODE_ORDER.find((mode) => maps.some((m) => m.mode === mode));
-      if (first) initial.add(first);
-    }
-    return initial;
-  });
+  const [openModes, setOpenModes] = useState<Set<string>>(() => new Set<string>());
 
   const toggleMode = (mode: string) => {
     setOpenModes((prev) => {
@@ -66,114 +57,126 @@ export default function MapPicker({ maps, current, onSelect, onClose }: MapPicke
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app animate-fade-in">
-      <div className="shrink-0 border-b border-line px-2 pb-2 pt-2 safe-top">
-        <div className="flex items-center gap-2">
-          <div className="min-w-0 flex items-baseline gap-2">
-            <h2 className="shrink-0 text-[14px] font-semibold text-fg">{t('picker.title')}</h2>
-            <p className="truncate text-[10px] text-subtle">
-              {t('picker.total', { n: maps.length })}
-            </p>
-          </div>
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted active:bg-press"
-              aria-label={t('picker.back')}
-            >
-              <X size={16} />
-            </button>
-          )}
-        </div>
-      </div>
+    <div className="relative flex h-full min-h-0 flex-col bg-app animate-fade-in">
+      <PageVeil />
+
+      {/* 一级大标题页头：安全区由 .page-head 自己吃掉，不再叠旧窄栏与底部分割线 */}
+      <header className="page-head flex shrink-0 items-end justify-between gap-3">
+        <h1 className="page-title font-medium">{t('picker.title')}</h1>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted active:bg-press"
+            aria-label={t('picker.back')}
+          >
+            <X size={20} />
+          </button>
+        )}
+      </header>
 
       {/* 内容区独立滚动：折叠后列表可能仍然很长，横屏矮屏幕也只滚这一块 */}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2">
-        {grouped.map(({ mode, items }) => {
-          const accent = themeAccent(modeColor(mode), theme);
-          const open = openModes.has(mode);
-          return (
-            <section key={mode} className="mb-2.5">
-              {/* 一级：模式标题整行可点，展开 / 收起该模式下的地图 */}
-              <button
-                type="button"
-                onClick={() => toggleMode(mode)}
-                aria-expanded={open}
-                aria-controls={`map-group-${mode}`}
-                className="flex w-full items-center gap-2 rounded-[14px] border-l-[3px] px-2 py-1.5 text-left transition-colors active:bg-press/60"
-                style={{ borderColor: accent, backgroundColor: `${accent}14` }}
-              >
-                <ModeIcon mode={mode} size={26} />
-                <h3
-                  className="min-w-0 truncate text-[17px] font-bold leading-none tracking-wide"
-                  style={{ color: accent }}
+      <div className="w-full min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5">
+        <div className="m3-group w-full">
+          {grouped.map(({ mode, items }) => {
+            const accent = themeAccent(modeColor(mode), theme);
+            const open = openModes.has(mode);
+            return (
+              <Fragment key={mode}>
+                {/* 一级：整行分段卡片，只留柔和模式色蒙版，没有左侧竖条 */}
+                <button
+                  type="button"
+                  onClick={() => toggleMode(mode)}
+                  aria-expanded={open}
+                  aria-controls={`map-group-${mode}`}
+                  className="m3-item w-full min-h-[64px] px-4 py-3.5 text-left"
                 >
-                  {modeLabel(mode)}
-                </h3>
-                <span className="ml-auto shrink-0 rounded bg-app/50 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-muted">
-                  {items.length}
-                </span>
-                <ChevronDown
-                  size={16}
-                  className={`shrink-0 text-subtle transition-transform duration-150 ${
-                    open ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
+                  <span
+                    className="pointer-events-none absolute inset-0"
+                    style={{ backgroundColor: `${accent}14` }}
+                    aria-hidden
+                  />
+                  <span className="relative flex w-full items-center gap-3">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center">
+                      <ModeIcon mode={mode} size={32} />
+                    </span>
+                    <span
+                      className="min-w-0 flex-1 truncate text-[17px] font-medium leading-tight"
+                      style={{ color: accent }}
+                    >
+                      {modeLabel(mode)}
+                    </span>
+                    <span className="shrink-0 rounded-full bg-app/50 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-muted">
+                      {items.length}
+                    </span>
+                    <ChevronDown
+                      size={18}
+                      className={`shrink-0 text-subtle transition-transform duration-[250ms] motion-reduce:transition-none ${
+                        open ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </span>
+                </button>
 
-              {/* 二级：地图网格（缩略图 + 名称），当前已选地图高亮 */}
-              {open && (
+                {/* 二级：地图网格（缩略图 + 名称），当前已选地图高亮。
+                    内容常驻 DOM，靠 .map-reveal 的 grid 行高折叠，收起也有完整动画。 */}
                 <div
                   id={`map-group-${mode}`}
-                  className="mt-2 grid grid-cols-2 gap-1.5 landscape:grid-cols-3 landscape:min-[900px]:grid-cols-4"
+                  className="map-reveal"
+                  data-open={open}
+                  aria-hidden={!open}
                 >
-                  {items.map((m) => {
-                    const active = m.map_name === current;
-                    return (
-                      <button
-                        key={m.map_name}
-                        type="button"
-                        onClick={() => onSelect(m.map_name, m.mode)}
-                        className={`flex flex-col overflow-hidden rounded-[18px] border text-left transition-colors ${
-                          active
-                            ? 'border-accent/70 bg-accent-soft'
-                            : 'border-line bg-card/70 shadow-card active:bg-press'
-                        }`}
-                      >
-                        {/* 上图：整张竖向地图按原比例完整显示，不裁切；横屏压矮一点少滚动 */}
-                        <MapThumb
-                          mapName={m.map_name}
-                          mode={m.mode}
-                          variant="contain"
-                          iconSize={22}
-                          className="h-[152px] w-full landscape:h-[112px]"
-                        />
-                        {/* 下文 */}
-                        <div className="w-full px-1.5 pb-1.5 pt-1">
-                          <span className="flex items-center gap-1">
-                            <span className="truncate text-[13px] font-semibold leading-tight text-fg">
-                              {mapLabel(m.map_name)}
-                            </span>
-                            {active && <Check size={11} className="shrink-0 text-accent" />}
-                          </span>
-                          <span className="mt-0.5 flex items-baseline justify-between gap-1">
-                            <span className="truncate text-[9.5px] leading-tight text-subtle">
-                              {m.map_name}
-                            </span>
-                            <span className="shrink-0 text-[9.5px] leading-tight text-faint">
-                              {t('common.games', { n: m.total_games })}
-                            </span>
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
+                  <div>
+                    <div className="mt-2 grid grid-cols-2 gap-1.5 landscape:grid-cols-3 landscape:min-[900px]:grid-cols-4">
+                      {items.map((m) => {
+                        const active = m.map_name === current;
+                        return (
+                          <button
+                            key={m.map_name}
+                            type="button"
+                            tabIndex={open ? undefined : -1}
+                            onClick={() => onSelect(m.map_name, m.mode)}
+                            className={`flex flex-col overflow-hidden rounded-[18px] border text-left transition-[transform,background-color,border-color] duration-150 motion-reduce:transition-none active:scale-[0.97] ${
+                              active
+                                ? 'border-accent/70 bg-accent-soft'
+                                : 'border-line bg-card/70 shadow-card active:bg-press'
+                            }`}
+                          >
+                            {/* 上图：整张竖向地图按原比例完整显示，不裁切；横屏压矮一点少滚动 */}
+                            <MapThumb
+                              mapName={m.map_name}
+                              mode={m.mode}
+                              variant="contain"
+                              iconSize={22}
+                              className="h-[152px] w-full landscape:h-[112px]"
+                            />
+                            {/* 下文 */}
+                            <div className="w-full px-1.5 pb-1.5 pt-1">
+                              <span className="flex items-center gap-1">
+                                <span className="truncate text-[13px] font-semibold leading-tight text-fg">
+                                  {mapLabel(m.map_name)}
+                                </span>
+                                {active && <Check size={11} className="shrink-0 text-accent" />}
+                              </span>
+                              <span className="mt-0.5 flex items-baseline justify-between gap-1">
+                                <span className="truncate text-[9.5px] leading-tight text-subtle">
+                                  {m.map_name}
+                                </span>
+                                <span className="shrink-0 text-[9.5px] leading-tight text-faint">
+                                  {t('common.games', { n: m.total_games })}
+                                </span>
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-              )}
-            </section>
-          );
-        })}
+              </Fragment>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { History, Info, Settings, Swords } from 'lucide-react';
+import { History, House, Info, Settings } from 'lucide-react';
 import { useTranslation } from '../i18n';
 
 /** 一级页面：BP 助手（选图 + BP 主流程）/ 战绩 / 设置 / 关于 */
@@ -32,55 +32,39 @@ function TabButton({ active, label, dot = false, ariaLabel, onClick, children }:
       onClick={onClick}
       aria-label={ariaLabel}
       aria-current={active ? 'page' : undefined}
-      className={`relative flex h-16 select-none flex-col items-center justify-center gap-1 transition-colors ${
-        active ? 'text-accent' : 'text-subtle active:bg-press/60'
-      }`}
+      className="m3-nav-tab select-none"
     >
-      {/* 干净的选中态：只有图标加粗 + 强调色，不再画顶部短横杠 */}
-      <span className="relative flex items-center justify-center">
-        {children}
-        {dot && (
-          <span
-            className="bg-accent pointer-events-none absolute -right-1 -top-0.5 h-2 w-2 rounded-full ring-2 ring-app"
-            aria-hidden
-          />
-        )}
+      <span className="m3-nav-icon-wrap h-8 w-16 shrink-0">
+        <span className="m3-nav-pill h-8 w-16 rounded-full" data-active={active} aria-hidden />
+        <span className="m3-nav-icon">{children}</span>
+        {dot && <span className="m3-nav-dot" aria-hidden />}
       </span>
-      <span className={`text-[11px] leading-none ${active ? 'font-semibold' : 'font-medium'}`}>
-        {label}
-      </span>
+      <span className="m3-nav-label">{label}</span>
     </button>
   );
 }
 
 /**
- * 底部一级导航（经典贴底实心栏，不是悬浮胶囊）。
+ * 底部一级导航（M3 Navigation Bar，贴底 Tonal 分层，不画顶线）。
  *
  * 四个入口：BP 主流程 / 战绩 / 设置 / 关于。只负责切换一级页面，
  * BP 状态与历史对局都由 App 持有，切走再切回不会丢进度。
  *
- * 64px 栏高 + 22px 图标 + 11px 标签，顶边只有一道 6% 白的低对比线；
- * 底色与分割线都走主题 Token，底部按 `env(safe-area-inset-bottom)` 留安全区。
+ * 68px 栏高 + 底部安全区；选中项图标外包 64×32 药丸，图标与标签走
+ * secondary-container 角色，切换时药丸横向展开淡入。
  */
 export default function BottomNav({ tab, onChange, hasUpdate = false }: BottomNavProps) {
   const { t } = useTranslation();
   return (
-    <nav
-      className="relative z-30 shrink-0 bg-app"
-      style={{
-        borderTop: '1px solid var(--nav-line)',
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-      }}
-      aria-label={t('nav.main')}
-    >
-      <div className="grid grid-cols-4">
+    <nav className="m3-nav" aria-label={t('nav.main')}>
+      <div className="m3-nav-grid">
         <TabButton
           active={tab === 'draft'}
           label={t('nav.draft')}
           ariaLabel={t('nav.draftAria')}
           onClick={() => onChange('draft')}
         >
-          <Swords size={22} strokeWidth={tab === 'draft' ? 2.6 : 2} />
+          <House size={22} strokeWidth={tab === 'draft' ? 2.6 : 2} />
         </TabButton>
 
         <TabButton

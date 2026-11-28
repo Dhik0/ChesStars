@@ -31,6 +31,9 @@ import type { MetricKey } from '../services/reviewEngine';
 import { unlockSfx } from '../services/reviewSfx';
 import Avatar from './Avatar';
 
+/** 与 index.css 的 m3-sheet-out 一致：退场播完再通知外层卸载 */
+const SHEET_EXIT_MS = 180;
+
 /** 抽屉对外暴露的关闭入口（供安卓返回键调用） */
 export interface MatchSaveSheetHandle {
   /** 与点 × 完全同一条路径：脏了就存，没动过就直接关 */
@@ -271,6 +274,28 @@ const MatchSaveSheet = forwardRef<MatchSaveSheetHandle, MatchSaveSheetProps>(fun
   const { t, map: mapLabel, mode: modeLabel, brawler } = useTranslation();
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalFocus(dialogRef);
+  const [closing, setClosing] = useState(false);
+  const finished = useRef(false);
+  const closeTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    },
+    [],
+  );
+
+  /** 所有关闭入口共用：先播退场，再执行落库 / 切页等真正的关闭动作 */
+  const beginClose = (action: () => void) => {
+    if (finished.current) return;
+    finished.current = true;
+    setClosing(true);
+    closeTimer.current = window.setTimeout(() => {
+      action();
+      closeTimer.current = null;
+    }, SHEET_EXIT_MS);
+  };
+
   const objectiveKind = objectiveKindOf(record.mode);
   const [score, setScore] = useState<MatchScore | null>(record.score);
   const [team, setTeam] = useState<Side>('ally');
@@ -419,7 +444,7 @@ const MatchSaveSheet = forwardRef<MatchSaveSheetHandle, MatchSaveSheetProps>(fun
    * 脏数据先落库（不弹复盘），完全没动过的新建局直接关——不写空白条目。
    */
   const requestClose = () => {
-    onClose(isDirty() ? withStats(score) : null);
+    beginClose(() => onClose(isDirty() ? withStats(score) : null));
   };
 
   // 用 ref 转存最新实现，键盘监听与返回键句柄只注册一次，但永远读到当前表单状态
@@ -441,7 +466,7 @@ const MatchSaveSheet = forwardRef<MatchSaveSheetHandle, MatchSaveSheetProps>(fun
   /** 底部唯一主操作：存完直接进复盘；没选比分时只保存并关闭（复盘需要比分才能算） */
   const submitAndReview = () => {
     unlockSfx();
-    onSaveAndReview(withStats(score));
+    beginClose(() => onSaveAndReview(withStats(score)));
   };
 
   const picks = team === 'ally' ? record.allyPicks : record.enemyPicks;
@@ -449,7 +474,9 @@ const MatchSaveSheet = forwardRef<MatchSaveSheetHandle, MatchSaveSheetProps>(fun
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end scrim animate-fade-in"
+      className={`fixed inset-0 z-50 flex items-end scrim ${
+        closing ? 'm3-scrim-out' : 'm3-scrim-in'
+      }`}
       onClick={requestClose}
       role="presentation"
     >
@@ -459,7 +486,9 @@ const MatchSaveSheet = forwardRef<MatchSaveSheetHandle, MatchSaveSheetProps>(fun
         role="dialog"
         aria-modal="true"
         aria-label={isNew ? t('save.title') : t('save.editTitle')}
-        className="mx-auto flex max-h-dvh-88 w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border-t border-line-strong bg-surface shadow-card animate-slide-up landscape:max-w-[720px] safe-bottom"
+        className={`mx-auto flex max-h-dvh-88 w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border-t border-line-strong bg-surface shadow-card landscape:max-w-[720px] safe-bottom ${
+          closing ? 'm3-sheet-out' : 'm3-sheet-in'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部：这一局是哪张图、哪个模式 */}
@@ -487,7 +516,7 @@ const MatchSaveSheet = forwardRef<MatchSaveSheetHandle, MatchSaveSheetProps>(fun
           {isNew && (
             <button
               type="button"
-              onClick={() => onClose(withStats(null))}
+              onClick={() => beginClose(() => onClose(withStats(null)))}
               className="mb-3 flex w-full items-center gap-2 rounded-[14px] border border-accent/40 bg-accent-soft px-2.5 py-2 text-left transition-colors active:bg-press/60"
             >
               <span className="min-w-0 flex-1">

@@ -474,7 +474,7 @@ describe('Pick 阶段动态分', () => {
     expect(['good', 'bad']).toContain(tag.tone);
   });
 
-  it('标签阈值只放行够显著的对位（文案口径 3pp，算分口径仍是 4pp）', () => {
+  it('标签阈值只放行够显著的对位（文案口径 4pp，算分口径 5pp）', () => {
     const at = (delta: number): CounterDetail => ({
       opponentId: 1,
       opponentName: 'BROCK',
@@ -489,7 +489,7 @@ describe('Pick 阶段动态分', () => {
     expect(buildCounterTags([at(-(TAG_LABEL_PP - 0.1))])).toHaveLength(0);
     expect(buildCounterTags([at(TAG_LABEL_PP)])).toHaveLength(1);
     expect(buildCounterTags([at(-TAG_LABEL_PP)])[0]!.tone).toBe('bad');
-    // 算分口径没跟着降，双绿/三绿协同仍按 4pp 判
+    // 算分口径没跟着降，双绿/三绿协同仍按更高一档判
     expect(TAG_THRESHOLD).toBeGreaterThan(TAG_LABEL_PP);
   });
 
@@ -497,7 +497,7 @@ describe('Pick 阶段动态分', () => {
     const abs: number[] = [];
     for (const m of META.maps) for (const row of m.matchup_table) abs.push(Math.abs(row[2]));
     const share = abs.filter((v) => v >= TAG_LABEL_PP).length / abs.length;
-    // 当前数据：3pp 约放行 11%（4pp 只有 5%，标签几乎不出现）
+    // 当前数据（样本 365 万场，|delta| SD≈3.1pp）：4pp 约放行 19%，5pp 约 11%
     expect(share).toBeGreaterThan(0.05);
     expect(share).toBeLessThan(0.2);
   });
@@ -1129,31 +1129,40 @@ describe('Ban 位规则', () => {
 
 describe('后手克制提权', () => {
   it('第 5 手同时克制两名敌方英雄的候选，能进入推荐前列', () => {
-    // 找一张存在「双绿」候选的图：敌方取该图出场率前 2
+    // 找一张存在「双绿」候选的图：敌方从该图出场率前 6 里挑一对。
+    // 不写死 top-2 —— 样本翻倍后 |delta| 变宽，top-2 这一对恰好凑不出双绿，
+    // 那是样本巧合，不是提权逻辑的问题。
     let hit:
       | { mapName: string; mode: string; bestId: number; bestSum: number; enemies: number[] }
       | null = null;
 
     for (const map of META.maps) {
-      const top2 = [...map.brawlers].sort((a, b) => b.use_rate - a.use_rate).slice(0, 2);
-      if (top2.length < 2) continue;
-      let best: { id: number; sum: number } | null = null;
-      for (const c of map.brawlers) {
-        if (top2.some((t) => t.id === c.id)) continue;
-        // 只在本图有足够样本、且基础分不垫底的英雄里找：本图零分的英雄再怎么提权
-        // 也进不了前列，那不是提权逻辑的问题。
-        if (c.games < 30 || c.score < 50) continue;
-        const details = counterDetail(
-          IDX,
-          map.map_name,
-          map.mode,
-          c.id,
-          top2.map((t) => t.id),
-        ).details;
-        const greens = details.filter((d) => d.hasSample && d.delta >= TAG_THRESHOLD);
-        if (greens.length >= 2) {
-          const sum = greens.reduce((s, d) => s + d.delta, 0);
-          if (!best || sum > best.sum) best = { id: c.id, sum };
+      const popular = [...map.brawlers].sort((a, b) => b.use_rate - a.use_rate).slice(0, 6);
+      if (popular.length < 2) continue;
+      let best: { id: number; sum: number; enemies: number[] } | null = null;
+      for (let i = 0; i < popular.length; i += 1) {
+        for (let j = i + 1; j < popular.length; j += 1) {
+          const pair = [popular[i]!, popular[j]!];
+          for (const c of map.brawlers) {
+            if (pair.some((t) => t.id === c.id)) continue;
+            // 只在本图有足够样本、且基础分不垫底的英雄里找：本图零分的英雄再怎么提权
+            // 也进不了前列，那不是提权逻辑的问题。
+            if (c.games < 30 || c.score < 50) continue;
+            const details = counterDetail(
+              IDX,
+              map.map_name,
+              map.mode,
+              c.id,
+              pair.map((t) => t.id),
+            ).details;
+            const greens = details.filter((d) => d.hasSample && d.delta >= TAG_THRESHOLD);
+            if (greens.length >= 2) {
+              const sum = greens.reduce((s, d) => s + d.delta, 0);
+              if (!best || sum > best.sum) {
+                best = { id: c.id, sum, enemies: pair.map((t) => t.id) };
+              }
+            }
+          }
         }
       }
       if (best) {
@@ -1162,7 +1171,7 @@ describe('后手克制提权', () => {
           mode: map.mode,
           bestId: best.id,
           bestSum: best.sum,
-          enemies: top2.map((t) => t.id),
+          enemies: best.enemies,
         };
         break;
       }

@@ -1,23 +1,22 @@
 /**
- * 「BP 与复盘设置」里的两项界面偏好 + 「重置设置」用的偏好清单。
+ * 「BP 与复盘设置」里的界面偏好 + 「重置设置」用的偏好清单。
  *
  * 与 themeStore 同一套约定：读写走纯函数 + 注入 storage，单测不需要 jsdom。
  * 偏好只影响展示层，不碰算分引擎与对局数据。
+ * 旧存储里残留的进阶开关键不再读取，会被直接忽略。
  */
 
 export const PREFS_HIDE_BLOCKED_KEY = 'brawl.draft.prefs.hideBlocked';
-export const PREFS_ADVANCED_TOOLS_KEY = 'brawl.draft.prefs.advancedTools';
+/** 屏蔽名单与 utils/blockedBrawlers 共用同一个键和同一份数据（正整数 ID 数组） */
+export const PREFS_BLOCKED_BRAWLERS_KEY = 'brawl.draft.blockedBrawlers';
 
 export interface DisplayPrefs {
   /** 己方选人阶段，推荐栏是否跳过个人屏蔽名单（默认开 = 保持原行为） */
   hideBlocked: boolean;
-  /** 空 Ban 入口与「查看算分明细」这类进阶入口是否显示（默认开） */
-  advancedTools: boolean;
 }
 
 export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
   hideBlocked: true,
-  advancedTools: true,
 };
 
 export interface PrefsStorage {
@@ -38,10 +37,6 @@ export function readDisplayPrefs(storage: PrefsStorage | null): DisplayPrefs {
   if (!storage) return { ...DEFAULT_DISPLAY_PREFS };
   return {
     hideBlocked: readBool(storage.getItem(PREFS_HIDE_BLOCKED_KEY), DEFAULT_DISPLAY_PREFS.hideBlocked),
-    advancedTools: readBool(
-      storage.getItem(PREFS_ADVANCED_TOOLS_KEY),
-      DEFAULT_DISPLAY_PREFS.advancedTools,
-    ),
   };
 }
 
@@ -49,10 +44,50 @@ export function writeDisplayPrefs(storage: PrefsStorage | null, prefs: DisplayPr
   if (!storage) return;
   try {
     storage.setItem(PREFS_HIDE_BLOCKED_KEY, String(prefs.hideBlocked));
-    storage.setItem(PREFS_ADVANCED_TOOLS_KEY, String(prefs.advancedTools));
   } catch {
     /* 写失败只影响「下次启动还记得」，本次会话照常生效 */
   }
+}
+
+/** 与 utils/blockedBrawlers 的 sanitize 同规则：只留正整数 ID、去重、保序 */
+function sanitizeBlockedIds(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const value of raw) {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
+/** 读取屏蔽名单；JSON 损坏 / 存储不可用时返回空数组 */
+export function readBlockedIds(storage: PrefsStorage | null): number[] {
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(PREFS_BLOCKED_BRAWLERS_KEY);
+    if (!raw) return [];
+    return sanitizeBlockedIds(JSON.parse(raw) as unknown);
+  } catch {
+    return [];
+  }
+}
+
+/** 批量写入屏蔽名单（设置页的批量屏蔽入口用） */
+export function writeBlockedIds(storage: PrefsStorage | null, ids: number[]): void {
+  if (!storage) return;
+  try {
+    storage.setItem(PREFS_BLOCKED_BRAWLERS_KEY, JSON.stringify(sanitizeBlockedIds(ids)));
+  } catch {
+    /* 写失败只影响下次启动，本次会话的内存状态仍然有效 */
+  }
+}
+
+/** 清空屏蔽名单 */
+export function clearBlockedIds(storage: PrefsStorage | null): void {
+  writeBlockedIds(storage, []);
 }
 
 export function browserPrefsStorage(): PrefsStorage | null {
@@ -77,9 +112,8 @@ export const PREFERENCE_KEYS: readonly string[] = [
   'brawl.draft.accentColor',
   'brawl.draft.lang',
   'brawl.draft.sfxMuted',
-  'brawl.draft.blockedBrawlers',
+  PREFS_BLOCKED_BRAWLERS_KEY,
   PREFS_HIDE_BLOCKED_KEY,
-  PREFS_ADVANCED_TOOLS_KEY,
 ];
 
 /** 返回成功清掉的键的数量（存储不可用时为 0） */

@@ -5,7 +5,6 @@ import {
   DARK_PALETTE_KEY,
   DEFAULT_ACCENT_COLOR,
   DEFAULT_CUSTOM_ACCENT,
-  DEFAULT_DARK_PALETTE,
   DEFAULT_MONET_ENABLED,
   DEFAULT_THEME_MODE,
   MONET_ENABLED_KEY,
@@ -113,36 +112,34 @@ function makeEnv(options: { stored?: Record<string, string>; systemDark?: boolea
 }
 
 describe('resolveTheme', () => {
-  it('默认（深色 + 纯黑）落在 oled，且不受系统浅色影响', () => {
-    expect(resolveTheme('dark', 'oled', true)).toBe('oled');
-    expect(resolveTheme('dark', 'oled', false)).toBe('oled');
+  it('显式深色落在 Tonal 深色，且不受系统浅色影响', () => {
+    expect(resolveTheme('dark', true)).toBe('dark');
+    expect(resolveTheme('dark', false)).toBe('dark');
   });
 
-  it('显式浅色优先于深色主题色', () => {
-    expect(resolveTheme('light', 'navy', true)).toBe('light');
-    expect(resolveTheme('light', 'oled', true)).toBe('light');
+  it('显式纯黑 / 浅色原样生效', () => {
+    expect(resolveTheme('oled', true)).toBe('oled');
+    expect(resolveTheme('oled', false)).toBe('oled');
+    expect(resolveTheme('light', true)).toBe('light');
+    expect(resolveTheme('light', false)).toBe('light');
   });
 
-  it('跟随系统：系统深色时按 darkPalette，系统浅色时进浅色', () => {
-    expect(resolveTheme('system', 'navy', true)).toBe('navy');
-    expect(resolveTheme('system', 'oled', true)).toBe('oled');
-    expect(resolveTheme('system', 'navy', false)).toBe('light');
-    expect(resolveTheme('system', 'oled', false)).toBe('light');
+  it('自动：系统深色取 Tonal 深色，系统浅色取浅色', () => {
+    expect(resolveTheme('system', true)).toBe('dark');
+    expect(resolveTheme('system', false)).toBe('light');
   });
 });
 
 describe('默认值', () => {
-  it('没有存储时是 深色 + 纯黑 + 关闭微染', () => {
+  it('没有存储时是 Tonal 深色 + 关闭微染', () => {
     const config = readThemeConfig(null);
     expect(config).toEqual({
       mode: DEFAULT_THEME_MODE,
-      darkPalette: DEFAULT_DARK_PALETTE,
       monetEnabled: DEFAULT_MONET_ENABLED,
       accentColor: DEFAULT_ACCENT_COLOR,
       customAccent: DEFAULT_CUSTOM_ACCENT,
     });
     expect(DEFAULT_THEME_MODE).toBe('dark');
-    expect(DEFAULT_DARK_PALETTE).toBe('oled');
     expect(DEFAULT_MONET_ENABLED).toBe(false);
     expect(DEFAULT_ACCENT_COLOR).toBe('sky');
   });
@@ -156,11 +153,20 @@ describe('默认值', () => {
     });
     expect(readThemeConfig(storage)).toEqual({
       mode: 'dark',
-      darkPalette: 'oled',
       monetEnabled: false,
       accentColor: 'sky',
       customAccent: DEFAULT_CUSTOM_ACCENT,
     });
+  });
+
+  it('旧存档迁移：navy 并入深色，dark + oled 仍是纯黑', () => {
+    expect(readThemeConfig(fakeStorage({ [DARK_PALETTE_KEY]: 'navy' })).mode).toBe('dark');
+    expect(readThemeConfig(fakeStorage({ [DARK_PALETTE_KEY]: 'oled' })).mode).toBe('oled');
+    expect(
+      readThemeConfig(
+        fakeStorage({ [THEME_MODE_KEY]: 'dark', [DARK_PALETTE_KEY]: 'oled' }),
+      ).mode,
+    ).toBe('oled');
   });
 
   it('新建 store 直接把 data-theme / data-monet / data-accent 落好', () => {
@@ -169,20 +175,19 @@ describe('默认值', () => {
     store.init();
     expect(store.getState()).toEqual({
       mode: 'dark',
-      darkPalette: 'oled',
       monetEnabled: false,
       accentColor: 'sky',
       customAccent: DEFAULT_CUSTOM_ACCENT,
-      resolved: 'oled',
+      resolved: 'dark',
     });
-    expect(doc.html.get('data-theme')).toBe('oled');
+    expect(doc.html.get('data-theme')).toBe('dark');
     expect(doc.html.get('data-monet')).toBe('off');
     expect(doc.html.get('data-accent')).toBe('sky');
   });
 });
 
 describe('localStorage 持久化', () => {
-  it('setMode / setDarkPalette 都写进存储，并能被下一个 store 读回来', () => {
+  it('setMode 写进存储，并能被下一个 store 读回来', () => {
     const { env, storage } = makeEnv();
     const store = createThemeStore(env);
     store.init();
@@ -191,24 +196,38 @@ describe('localStorage 持久化', () => {
     expect(storage.getItem(THEME_MODE_KEY)).toBe('light');
     expect(store.getState().resolved).toBe('light');
 
-    store.setDarkPalette('navy');
-    expect(storage.getItem(DARK_PALETTE_KEY)).toBe('navy');
-    // 浅色模式下深色主题色不改变生效主题
-    expect(store.getState().resolved).toBe('light');
+    // 旧的深色盘键同步成镜像，旧备份 / 回滚老版本仍能还原
+    store.setMode('oled');
+    expect(storage.getItem(THEME_MODE_KEY)).toBe('oled');
+    expect(storage.getItem(DARK_PALETTE_KEY)).toBe('oled');
+    expect(store.getState().resolved).toBe('oled');
 
     store.setMode('dark');
-    expect(store.getState().resolved).toBe('navy');
+    expect(storage.getItem(DARK_PALETTE_KEY)).toBe('dark');
+    expect(store.getState().resolved).toBe('dark');
 
     const reopened = createThemeStore(env);
     reopened.init();
     expect(reopened.getState()).toEqual({
       mode: 'dark',
-      darkPalette: 'navy',
       monetEnabled: false,
       accentColor: 'sky',
       customAccent: DEFAULT_CUSTOM_ACCENT,
-      resolved: 'navy',
+      resolved: 'dark',
     });
+  });
+
+  it('setDarkPalette 兼容旧调用点：navy 落到 Tonal 深色', () => {
+    const { env, storage } = makeEnv();
+    const store = createThemeStore(env);
+    store.init();
+
+    store.setDarkPalette('navy');
+    expect(store.getState().mode).toBe('dark');
+    expect(storage.getItem(THEME_MODE_KEY)).toBe('dark');
+
+    store.setDarkPalette('oled');
+    expect(store.getState().resolved).toBe('oled');
   });
 
   it('存储不可用时切换仍然生效，只是记不住', () => {
@@ -230,22 +249,26 @@ describe('跟随系统', () => {
     const store = createThemeStore(env);
     store.init();
 
-    expect(store.getState().resolved).toBe('oled');
-    expect(doc.html.get('data-theme')).toBe('oled');
+    expect(store.getState().resolved).toBe('dark');
+    expect(doc.html.get('data-theme')).toBe('dark');
 
     media.emit(false); // 系统切到浅色
     expect(store.getState().resolved).toBe('light');
     expect(doc.html.get('data-theme')).toBe('light');
 
     media.emit(true); // 系统切回深色
-    expect(store.getState().resolved).toBe('oled');
+    expect(store.getState().resolved).toBe('dark');
   });
 
-  it('显式深色 / 浅色不受系统切换影响', () => {
+  it('显式深色 / 纯黑 / 浅色不受系统切换影响', () => {
     const { env, media } = makeEnv({ stored: { [THEME_MODE_KEY]: 'dark' } });
     const store = createThemeStore(env);
     store.init();
 
+    media.emit(false);
+    expect(store.getState().resolved).toBe('dark');
+
+    store.setMode('oled');
     media.emit(false);
     expect(store.getState().resolved).toBe('oled');
 
@@ -254,7 +277,7 @@ describe('跟随系统', () => {
     expect(store.getState().resolved).toBe('light');
   });
 
-  it('系统浅色 + system 模式启动即进浅色，且跟随 navy 的偏好被浅色覆盖', () => {
+  it('系统浅色 + 自动模式启动即进浅色，且旧深色盘偏好被浅色覆盖', () => {
     const { env } = makeEnv({
       stored: { [THEME_MODE_KEY]: 'system', [DARK_PALETTE_KEY]: 'navy' },
       systemDark: false,
@@ -273,12 +296,12 @@ describe('跟随系统', () => {
     store.dispose();
     expect(media.listenerCount()).toBe(0);
     media.emit(false);
-    expect(store.getState().resolved).toBe('oled');
+    expect(store.getState().resolved).toBe('dark');
   });
 });
 
 describe('meta[name="theme-color"] 同步', () => {
-  it('三套主题各自的顶栏 / 状态栏底色', () => {
+  it('三套实体主题各自的顶栏 / 状态栏底色', () => {
     const { env, doc } = makeEnv();
     const store = createThemeStore(env);
     store.init();
@@ -286,19 +309,19 @@ describe('meta[name="theme-color"] 同步', () => {
     const themeColor = () => doc.metas.get('meta[name="theme-color"]')?.get('content');
     const colorScheme = () => doc.metas.get('meta[name="color-scheme"]')?.get('content');
 
+    expect(themeColor()).toBe('#101418');
+    expect(colorScheme()).toBe('dark');
+
+    store.setMode('oled');
     expect(themeColor()).toBe('#000000');
     expect(colorScheme()).toBe('dark');
 
-    store.setDarkPalette('navy');
-    expect(themeColor()).toBe('#020617');
-    expect(colorScheme()).toBe('dark');
-
     store.setMode('light');
-    expect(themeColor()).toBe('#f8fafc');
+    expect(themeColor()).toBe('#f7f9fc');
     expect(colorScheme()).toBe('light');
 
     // 与 index.html 内联脚本用的是同一份取值表
-    expect(THEME_COLORS).toEqual({ oled: '#000000', navy: '#020617', light: '#f8fafc' });
+    expect(THEME_COLORS).toEqual({ dark: '#101418', oled: '#000000', light: '#f7f9fc' });
   });
 });
 
@@ -314,9 +337,9 @@ describe('订阅', () => {
     store.setMode('light');
     store.setMode('dark');
     unsubscribe();
-    store.setDarkPalette('navy');
+    store.setMode('oled');
 
-    expect(seen).toEqual(['light', 'oled']);
+    expect(seen).toEqual(['light', 'dark']);
   });
 
   it('getState 返回稳定的快照引用（useSyncExternalStore 依赖引用相等）', () => {
@@ -374,14 +397,14 @@ describe('Monet 色彩微染', () => {
     expect(storage.getItem(MONET_ENABLED_KEY)).toBe('false');
   });
 
-  it('微染不改变生效主题（纯黑 / 深蓝 / 浅色照旧）', () => {
+  it('微染不改变生效主题（深色 / 纯黑 / 浅色照旧）', () => {
     const { env, doc } = makeEnv();
     const store = createThemeStore(env);
     store.init();
 
     store.setMonetEnabled(true);
-    expect(doc.html.get('data-theme')).toBe('oled');
-    expect(store.getState().resolved).toBe('oled');
+    expect(doc.html.get('data-theme')).toBe('dark');
+    expect(store.getState().resolved).toBe('dark');
 
     store.setMode('light');
     expect(doc.html.get('data-theme')).toBe('light');

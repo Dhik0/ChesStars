@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, Swords, ShieldAlert, X } from 'lucide-react';
 import type { MetaIndex } from '../data/metaIndex';
 import { getMapStat } from '../data/metaIndex';
@@ -7,16 +7,15 @@ import { orderTag } from '../utils/display';
 import type { PickOrder } from '../types/meta';
 import { useTranslation } from '../i18n';
 import Avatar from './Avatar';
-import BlockedToggle from './BlockedToggle';
+
+/** 与 index.css 的 m3-sheet-out 一致：退场播完再通知外层卸载 */
+const SHEET_EXIT_MS = 180;
 
 interface MatchupSheetProps {
   idx: MetaIndex;
   mapName: string;
   mode: string;
   brawlerId: number;
-  /** 该英雄是否已被本人屏蔽（只影响选人推荐栏的展示） */
-  blocked: boolean;
-  onToggleBlock: () => void;
   onClose: () => void;
   /** 顺带入口：打开该英雄的算分拆解 */
   onOpenBreakdown?: () => void;
@@ -82,13 +81,32 @@ export default function MatchupSheet({
   mapName,
   mode,
   brawlerId,
-  blocked,
-  onToggleBlock,
   onClose,
   onOpenBreakdown,
 }: MatchupSheetProps) {
   const { t, brawler, map: mapLabel, mode: modeLabel } = useTranslation();
   const [tab, setTab] = useState<'weak' | 'strong'>('weak');
+  const [closing, setClosing] = useState(false);
+  const finished = useRef(false);
+  const closeTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    },
+    [],
+  );
+
+  /** 所有关闭入口共用：先切 closing 播退场，再让外层卸载；finished 防连点 */
+  const beginClose = (action: () => void) => {
+    if (finished.current) return;
+    finished.current = true;
+    setClosing(true);
+    closeTimer.current = window.setTimeout(() => {
+      action();
+      closeTimer.current = null;
+    }, SHEET_EXIT_MS);
+  };
 
   const ref = idx.brawlerById.get(brawlerId);
   const stat = getMapStat(idx, mapName, brawlerId);
@@ -106,9 +124,16 @@ export default function MatchupSheet({
   const strongCount = breakdown.strong.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end scrim animate-fade-in" onClick={onClose}>
+    <div
+      className={`fixed inset-0 z-50 flex items-end scrim ${
+        closing ? 'm3-scrim-out' : 'm3-scrim-in'
+      }`}
+      onClick={() => beginClose(onClose)}
+    >
       <div
-        className="flex max-h-dvh-86 w-full max-w-[440px] mx-auto flex-col overflow-hidden rounded-t-2xl border-t border-line-strong bg-surface shadow-card animate-slide-up safe-bottom"
+        className={`mx-auto flex max-h-dvh-86 w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border-t border-line-strong bg-surface shadow-card safe-bottom ${
+          closing ? 'm3-sheet-out' : 'm3-sheet-in'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 顶部：英雄 + 本图评分 + 顺位 */}
@@ -134,7 +159,7 @@ export default function MatchupSheet({
             </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => beginClose(onClose)}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-subtle active:bg-press"
               aria-label={t('common.close')}
             >
@@ -191,18 +216,17 @@ export default function MatchupSheet({
           )}
         </div>
 
-        {/* 底部：数据来源提示（模式级兜底时才出现）+ 屏蔽开关 + 算分明细入口 */}
+        {/* 底部：数据来源提示（模式级兜底时才出现）+ 算分明细入口 */}
         <div className="shrink-0 border-t border-line px-3 py-2">
           {breakdown.source === 'mode' && (
             <p className="mb-1.5 text-[10px] leading-relaxed text-faint">
               {t('matchup.modeNote')}
             </p>
           )}
-          <BlockedToggle blocked={blocked} onToggle={onToggleBlock} />
           {onOpenBreakdown && (
             <button
               type="button"
-              onClick={onOpenBreakdown}
+              onClick={() => onOpenBreakdown && beginClose(onOpenBreakdown)}
               className="mt-1.5 flex w-full items-center justify-center gap-1 rounded-lg bg-raised/80 py-2 text-[11.5px] font-medium text-body active:bg-press"
             >
               {t('matchup.openBreakdown')}

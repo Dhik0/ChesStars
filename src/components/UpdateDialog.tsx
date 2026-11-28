@@ -1,9 +1,12 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Download, Sparkles, X } from 'lucide-react';
 import { useTranslation } from '../i18n';
 import { mirrorDownloadUrl, type UpdateInfo } from '../services/updateChecker';
 import { useModalFocus } from '../utils/modalFocus';
 import { openExternal } from '../utils/openExternal';
+
+/** 与 index.css 的 m3-dialog-out 一致：退场播完再通知外层卸载 */
+const DIALOG_EXIT_MS = 180;
 
 interface UpdateDialogProps {
   info: UpdateInfo;
@@ -46,6 +49,27 @@ export default function UpdateDialog({
   const published = formatDate(info.publishedAt);
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalFocus(dialogRef);
+  const [closing, setClosing] = useState(false);
+  const finished = useRef(false);
+  const closeTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    },
+    [],
+  );
+
+  /** 关闭 / 忽略都先播退场，再让外层卸载；finished 保证只消费一次 */
+  const beginClose = (action: () => void) => {
+    if (finished.current) return;
+    finished.current = true;
+    setClosing(true);
+    closeTimer.current = window.setTimeout(() => {
+      action();
+      closeTimer.current = null;
+    }, DIALOG_EXIT_MS);
+  };
 
   /**
    * 备用下载入口：只有简中界面才出现。
@@ -56,14 +80,18 @@ export default function UpdateDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center scrim-strong px-4 animate-fade-in"
-      onClick={onClose}
+      className={`fixed inset-0 z-[60] flex items-center justify-center scrim-strong px-4 ${
+        closing ? 'm3-scrim-out' : 'm3-scrim-in'
+      }`}
+      onClick={() => beginClose(onClose)}
       role="presentation"
     >
       <div
         ref={dialogRef}
         tabIndex={-1}
-        className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-2xl animate-slide-up"
+        className={`w-full max-w-[360px] overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-2xl ${
+          closing ? 'm3-dialog-out' : 'm3-dialog-in'
+        }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -88,7 +116,7 @@ export default function UpdateDialog({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => beginClose(onClose)}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-subtle active:bg-press"
             aria-label={t('common.close')}
           >
@@ -136,14 +164,14 @@ export default function UpdateDialog({
           <div className="mt-2.5 flex items-center gap-1.5">
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => beginClose(onClose)}
               className="h-9 flex-1 rounded-lg border border-line text-[12px] text-muted active:bg-press"
             >
               {t('update.later')}
             </button>
             <button
               type="button"
-              onClick={onIgnore}
+              onClick={() => beginClose(onIgnore)}
               className="h-9 shrink-0 rounded-lg px-2.5 text-[11px] text-faint active:bg-press"
             >
               {t('update.ignore')}

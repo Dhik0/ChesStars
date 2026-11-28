@@ -78,17 +78,15 @@ describe('词库结构', () => {
   });
 
   it('设置二级子页 / 偏好 / 重置词条三语齐全且不为空', () => {
+    // v2.0.0 精简设置页时删掉的说明行（navDraftHint / languageHint / monetOnLabel 等）
+    // 已从三语词条一并清除，这里只保留仍在 UI 上出现的 key。
     const keys = [
       'settings.sectionPreference',
       'settings.sectionGeneral',
       'settings.navAppearance',
       'settings.navDraft',
-      'settings.navDraftHint',
       'settings.navData',
-      'settings.languageHint',
       'settings.languageSystem',
-      'settings.monetOnLabel',
-      'settings.monetOffLabel',
       'settings.pageAppearance',
       'settings.pageDraft',
       'settings.pageData',
@@ -96,17 +94,11 @@ describe('词库结构', () => {
       'settings.draftSectionBlocked',
       'settings.draftSectionReview',
       'settings.draftBlocked',
-      'settings.draftBlockedHint',
       'settings.draftBlockedCount',
       'settings.draftHideBlocked',
-      'settings.draftHideBlockedHint',
       'settings.draftSfx',
-      'settings.draftSfxHint',
-      'settings.draftAdvanced',
-      'settings.draftAdvancedHint',
       'settings.resetSection',
       'settings.reset',
-      'settings.resetHint',
       'settings.resetConfirmHint',
       'settings.resetConfirm',
       'settings.resetCancel',

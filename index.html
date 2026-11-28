@@ -6,23 +6,24 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#101418" />
     <meta name="color-scheme" content="dark" />
     <!--
       首屏防闪（Anti-FOUC）：在 React 挂载、CSS 生效前就把主题定下来。
 
       这段脚本必须是同步内联的，不能抽成模块——任何异步加载都会先渲染出一帧
       默认配色再跳变。键名与取值必须和 src/services/themeStore.ts 保持一致：
-        brawl.draft.themeMode     dark | light | system   （默认 dark）
-        brawl.draft.darkPalette   oled | navy             （默认 oled）
-        brawl.draft.monetEnabled  true | false            （默认 false）
+        brawl.draft.themeMode     system | light | dark | oled  （默认 dark）
+        brawl.draft.darkPalette   oled | navy | dark            （旧版字段，只用于迁移）
+        brawl.draft.monetEnabled  true | false                  （默认 false）
         brawl.draft.accentColor   mint|sky|violet|amber|sakura|custom（默认 sky）
         brawl.draft.customAccent  {"r":0-255,"g":0-255,"b":0-255,"a":0-1}
-      生效规则也一致：浅色 / 跟随系统且系统是浅色 → light，否则按 darkPalette。
+      生效规则也一致：浅色 → light，自动按 prefers-color-scheme 取深 / 浅，
+      纯黑 → oled；旧存档的 navy 并入 dark，dark + oled 仍回到纯黑。
     -->
     <script>
       (function () {
-        var THEME_COLORS = { oled: '#000000', navy: '#020617', light: '#f8fafc' };
+        var THEME_COLORS = { dark: '#101418', oled: '#000000', light: '#f7f9fc' };
         var ACCENTS = ['mint', 'sky', 'violet', 'amber', 'sakura', 'custom'];
         function validChannel(n) {
           return typeof n === 'number' && n >= 0 && n <= 255 && Math.floor(n) === n;
@@ -34,19 +35,21 @@
           };
           return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
         }
-        var theme = 'oled';
+        var theme = 'dark';
         var monet = 'off';
         var accent = 'sky';
         var custom = null;
         var root = document.documentElement;
         try {
-          var mode = localStorage.getItem('brawl.draft.themeMode') || 'dark';
-          var palette = localStorage.getItem('brawl.draft.darkPalette') || 'oled';
+          var mode = localStorage.getItem('brawl.draft.themeMode');
+          var palette = localStorage.getItem('brawl.draft.darkPalette');
           var systemLight =
             typeof window.matchMedia === 'function' &&
             window.matchMedia('(prefers-color-scheme: dark)').matches === false;
-          var light = mode === 'light' || (mode === 'system' && systemLight);
-          theme = light ? 'light' : palette === 'navy' ? 'navy' : 'oled';
+          if (mode === 'light') theme = 'light';
+          else if (mode === 'system') theme = systemLight ? 'light' : 'dark';
+          else if (mode === 'oled') theme = 'oled';
+          else theme = palette === 'oled' ? 'oled' : 'dark';
           monet = localStorage.getItem('brawl.draft.monetEnabled') === 'true' ? 'on' : 'off';
           var savedAccent = localStorage.getItem('brawl.draft.accentColor');
           if (ACCENTS.indexOf(savedAccent) >= 0) accent = savedAccent;
@@ -71,7 +74,7 @@
           }
           if (accent === 'custom' && !custom) accent = 'sky';
         } catch (e) {
-          /* 存储被禁用：直接按默认纯黑深色渲染 */
+          /* 存储被禁用：直接按默认 Tonal 深色渲染 */
         }
         if (accent === 'custom' && custom) {
           root.style.setProperty('--custom-accent-rgb', custom.r + ' ' + custom.g + ' ' + custom.b);

@@ -170,7 +170,6 @@ describe('边界数据', () => {
     expect(player.grade).toBeNull();
     expect(player.score).toBeNull();
     expect(player.metrics).toBeNull();
-    expect(player.comment.key).toBe('review.comment.noData');
   });
 
   it('只录了一项也参与评级：缺失项为 null 且不参与计分', () => {
@@ -368,7 +367,6 @@ describe('整局复盘', () => {
       expect(player.grade).not.toBeNull();
       expect(player.score!).toBeGreaterThanOrEqual(0);
       expect(player.score!).toBeLessThanOrEqual(100);
-      expect(player.comment.key.startsWith('review.comment.')).toBe(true);
     }
     expect(review.allyReviews.every((p) => p.side === 'ally')).toBe(true);
     expect(review.enemyReviews.every((p) => p.side === 'enemy')).toBe(true);
@@ -681,7 +679,7 @@ describe('模式专属指标（V1）', () => {
 describe('承受伤害的非对称评估', () => {
   const tankStat = { kills: 6, deaths: 2, damage: 25000 };
 
-  it('阵地坦高承伤 + 低死亡 = 有效抗伤，拿到正向加分与高光标签', () => {
+  it('阵地坦高承伤 + 低死亡 = 获得正向加分', () => {
     const tanking = evaluatePlayer(
       baseInput({
         stat: { ...tankStat, damageTaken: 60000 },
@@ -695,7 +693,6 @@ describe('承受伤害的非对称评估', () => {
       }),
     );
     expect(tanking.score!).toBeGreaterThan(light.score!);
-    expect(tanking.notes.some((n) => n.key === 'review.note.tanking')).toBe(true);
   });
 
   it('高承伤 + 高死亡不加分：承伤项被剔除，只剩死亡惩罚', () => {
@@ -711,7 +708,6 @@ describe('承受伤害的非对称评估', () => {
 
     // 承伤完全没参与计分 → 与「没填承伤」同分
     expect(withTaken.score).toBe(withoutTaken.score);
-    expect(withTaken.notes.some((n) => n.key === 'review.note.tanking')).toBe(false);
   });
 
   it('射手吃同样多的伤害完全不计分（承伤项不参与）', () => {
@@ -723,7 +719,6 @@ describe('承受伤害的非对称评估', () => {
       baseInput({ stat, archetype: 'marksman_artillery' }),
     );
     expect(withTaken.score).toBe(withoutTaken.score);
-    expect(withTaken.notes.some((n) => n.key === 'review.note.tanking')).toBe(false);
   });
 
   it('刺客承伤门槛更高（1.3 万），同样单命承伤得分低于阵地坦', () => {
@@ -753,8 +748,7 @@ describe('领跑加分与治疗权重', () => {
     expect(damageLead.score! - plain.score!).toBe(2);
     expect(takenLead.score).toBe(plain.score);
     expect(allLeads.score! - plain.score!).toBe(5);
-    expect(damageLead.notes.some((n) => n.key === 'review.note.topDamage')).toBe(true);
-    expect(allLeads.notes.length).toBeLessThanOrEqual(2);
+    expect(damageLead.highlights).toContain('damage');
   });
 
   it('奶妈画像的治疗权重更高：同样治疗量分数更高', () => {
@@ -764,39 +758,27 @@ describe('领跑加分与治疗权重', () => {
     expect(healer.score!).toBeGreaterThan(damage.score!);
   });
 
-  it('非奶妈：治疗低于 22000/场不计分、不挂续航标签（脱战回血不算功劳）', () => {
+  it('非奶妈：治疗低于 22000/场不计分（脱战回血不算功劳）', () => {
     const stat = { kills: 6, deaths: 3, damage: 26000 };
     const plain = evaluatePlayer(baseInput({ stat }));
     // 20000 总治疗 = 10000/场，低于阈值
     const naturalRegen = evaluatePlayer(baseInput({ stat: { ...stat, healing: 20000 } }));
 
     expect(naturalRegen.score).toBe(plain.score);
-    expect(naturalRegen.notes.some((n) => n.key === 'review.note.sustain')).toBe(false);
   });
 
-  it('非奶妈：治疗 ≥ 22000/场才给轻度加分与续航标签', () => {
+  it('非奶妈：治疗 ≥ 22000/场才给轻度加分', () => {
     const stat = { kills: 6, deaths: 3, damage: 26000 };
     const plain = evaluatePlayer(baseInput({ stat }));
     // 48000 总治疗 = 24000/场，超过阈值
     const realHeal = evaluatePlayer(baseInput({ stat: { ...stat, healing: 48000 } }));
 
     expect(realHeal.score!).toBeGreaterThan(plain.score!);
-    expect(realHeal.notes.some((n) => n.key === 'review.note.sustain')).toBe(true);
-  });
-
-  it('奶妈：治疗 18000/场就够挂续航标签', () => {
-    const healer = evaluatePlayer(
-      baseInput({
-        stat: { kills: 2, deaths: 2, damage: 8000, healing: 36000 },
-        archetype: 'healer',
-      }),
-    );
-    expect(healer.notes.some((n) => n.key === 'review.note.sustain')).toBe(true);
   });
 });
 
 /* ------------------------------------------------------------------ *
- * 10. V2：真实 K/D、总局原值、画像差异、评语单位
+ * 10. V2：真实 K/D、总局原值、画像差异
  * ------------------------------------------------------------------ */
 
 describe('真实 K/D 展示', () => {
@@ -855,21 +837,6 @@ describe('画像差异', () => {
     const assassin = evaluatePlayer(baseInput({ stat, archetype: 'assassin' }));
     const marksman = evaluatePlayer(baseInput({ stat, archetype: 'marksman_artillery' }));
     expect(assassin.score!).toBeGreaterThanOrEqual(marksman.score! - 2);
-  });
-});
-
-describe('评语单位格式化', () => {
-  it('评语里的伤害用总局原值 + 注入的格式化函数，不输出裸整数', () => {
-    const player = evaluatePlayer(
-      baseInput({
-        stat: { kills: 8, deaths: 4, damage: 60000 },
-        formatBig: (v) => `${(v / 10000).toFixed(1)}万`,
-      }),
-    );
-    // 总局 60000（不是场均 30000），与卡片 1:1
-    expect(String(player.comment.params.dmg)).toBe('6.0万');
-    expect(player.comment.params.deaths).toBe(4);
-    expect(player.comment.params.kd).toBe('2.00');
   });
 });
 
@@ -998,8 +965,6 @@ describe('整局净 BP 判定', () => {
     objectiveKind: null,
     metrics: null,
     highlights: [],
-    comment: { key: '', params: {} },
-    notes: [],
     ...over,
   });
 

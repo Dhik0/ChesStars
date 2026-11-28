@@ -18,7 +18,7 @@ import { objectiveKindOf } from './matchHistoryStore';
  * 三层结构不变：
  *   1. BP 难度（逆风 / 均势 / 优势）
  *   2. 场均表现（2:0 按 2 局、2:1 按 3 局归一化；只对录入了的项计分）
- *   3. 9 档国象式评级 + 结构化评语 + 高光标签
+ *   3. 9 档国象式评级 + 高亮数据格
  *
  * V2 相对 V1 的四点变化：
  *   - 评级从 6 档扩到 9 档（新增 great / book / miss），`book` 与 `miss` 是情境专属；
@@ -90,12 +90,6 @@ export const GRADE_ORDER: readonly ReviewGrade[] = [
   'blunder',
 ];
 
-/** 结构化评语：词条 key + 参数，由界面按当前语言渲染 */
-export interface ReviewComment {
-  key: string;
-  params: Record<string, string | number>;
-}
-
 /** 六项总局原值（与游戏结算面板 1:1 对应，界面直接展示它） */
 export interface ReviewTotals {
   kills: number | null;
@@ -155,10 +149,6 @@ export interface PlayerReview {
   metrics: ReviewMetrics | null;
   /** 全场最高项（界面金标；含承伤，但承伤只在画像允许时才加分） */
   highlights: MetricKey[];
-  /** 主评语 */
-  comment: ReviewComment;
-  /** 高光专项（最多 2 条，界面渲染成小标签） */
-  notes: ReviewComment[];
 }
 
 export interface MatchReview {
@@ -370,12 +360,7 @@ export const NET_BP_THRESHOLD_PP = 3;
 const LEADER_BONUS = 2;
 const LEADER_BONUS_CAP = 5;
 
-/**
- * 治疗门槛：脱战自然回血会算进治疗面板，所以
- *   - 非奶妈：场均 < 22000 一律不参与计分（否则人人都是「高额治疗续航」）；
- *   - 奶妈：≥ 18000 才算真实治疗水准，才挂续航标签。
- */
-const HEALER_SUSTAIN_MIN = 18000;
+/** 脱战自然回血会计入面板：非奶妈场均低于 22000 时不计治疗分 */
 const SELF_HEAL_MIN = 22000;
 /** 非奶妈的治疗项只给「轻度」权重 */
 const SELF_HEAL_WEIGHT_FACTOR = 0.6;
@@ -387,15 +372,6 @@ const OBJECTIVE_TARGET: Record<ObjectiveKind, number> = {
   stars: 10, // 场均 10 星
   safeDamage: 20000, // 场均金库伤害 2 万
   gems: 10, // 场均 10 宝石
-};
-
-/** 领跑项 → 高光评语词条（模式指标按类型分叉，避免嵌套翻译） */
-const TOP_OBJECTIVE_NOTE: Record<ObjectiveKind, string> = {
-  goals: 'review.note.topGoals',
-  zoneSeconds: 'review.note.topZone',
-  stars: 'review.note.topStars',
-  safeDamage: 'review.note.topSafeDamage',
-  gems: 'review.note.topGems',
 };
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
@@ -492,7 +468,7 @@ export interface PlayerEvalInput {
   };
   /** 本局模式专属指标类型；null = 淘汰赛 / 未知模式 */
   objectiveKind?: ObjectiveKind | null;
-  /** 全场最高项（用于加分与高光评语） */
+  /** 全场最高项（用于加分与金框高亮） */
   leaders?: MetricKey[];
   /** 队内占比；只有三人伤害 / 击杀都录入时才有 */
   shares?: { damage: number; kills: number } | null;
@@ -505,8 +481,6 @@ export interface PlayerEvalInput {
   mapWinRate: number | null;
   /** 对敌方 3 人的平均残差（百分点），null = 无对位数据 */
   matchupDelta: number | null;
-  /** 大数值格式化（评语里输出「8.0万 / 80.2k」）；缺省用裸整数 */
-  formatBig?: (value: number) => string;
 }
 
 /** 单个计分项：权重 + 0~100 分 */
@@ -546,7 +520,6 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
   const archetype = input.archetype ?? archetypeFromClass(input.brawlerClass ?? 'DAMAGE');
   const objectiveKind = input.objectiveKind ?? null;
   const leaders = input.leaders ?? [];
-  const formatBig = input.formatBig ?? ((v: number) => String(Math.round(v)));
   const edgePp = bpEdgeOf(input.mapWinRate, input.matchupDelta);
   const bpContext = bpContextOf(edgePp);
 
@@ -559,10 +532,7 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
 
   const hasData = hasAnyStat(input.stat);
 
-  const base: Omit<
-    PlayerReview,
-    'grade' | 'score' | 'metrics' | 'comment' | 'notes' | 'highlights'
-  > = {
+  const base: Omit<PlayerReview, 'grade' | 'score' | 'metrics' | 'highlights'> = {
     brawlerId: input.brawlerId,
     side: input.side ?? 'ally',
     archetype,
@@ -584,8 +554,6 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
       score: null,
       metrics: null,
       highlights: [],
-      comment: { key: 'review.comment.noData', params: {} },
-      notes: [],
     };
   }
 
@@ -755,28 +723,12 @@ export function evaluatePlayer(input: PlayerEvalInput): PlayerReview {
     damageShare,
   });
 
-  // 评语里的伤害 / 阵亡统一用总局原值，与卡片 1:1 对应
-  const params: Record<string, string | number> = {
-    kd: metrics.displayKd ?? '—',
-    deaths: deaths === null ? '—' : deaths,
-    dmg: damage === null ? '—' : formatBig(damage),
-  };
-
   return {
     ...base,
     grade,
     score: score100,
     metrics,
     highlights: leaders.filter((key) => metricPresent(key, metrics, objectiveKind)),
-    comment: { key: commentKeyOf(grade, bpContext, objectiveWeak), params },
-    notes: notesOf({
-      leaders,
-      metrics,
-      objectiveKind,
-      archetype,
-      tankingScore,
-      healingPerGame,
-    }),
   };
 }
 
@@ -800,46 +752,6 @@ function metricPresent(
     default:
       return false;
   }
-}
-
-/**
- * 高光专项：最多 2 条，先领跑、再有效抗伤 / 高额治疗。
- *
- * 「前排有效抗伤」只发给阵地坦——射手 / 控场 / 刺客的高承伤通常是被抓，不该被表扬。
- * 「高额治疗续航」有硬门槛：脱战回血会计进面板，不放阈值会全员触发。
- */
-function notesOf(input: {
-  leaders: MetricKey[];
-  metrics: ReviewMetrics;
-  objectiveKind: ObjectiveKind | null;
-  archetype: BrawlerArchetype;
-  tankingScore: number | null;
-  healingPerGame: number | null;
-}): ReviewComment[] {
-  const { leaders, metrics, objectiveKind, archetype, tankingScore, healingPerGame } = input;
-  const notes: ReviewComment[] = [];
-
-  if (leaders.includes('damage') && metrics.damagePerGame !== null) {
-    notes.push({ key: 'review.note.topDamage', params: {} });
-  }
-  if (leaders.includes('healing') && metrics.healingPerGame !== null) {
-    notes.push({ key: 'review.note.topHealing', params: {} });
-  }
-  if (leaders.includes('objective') && objectiveKind !== null && metrics.objectivePerGame !== null) {
-    notes.push({ key: TOP_OBJECTIVE_NOTE[objectiveKind], params: {} });
-  }
-  if (archetype === 'frontline_tank' && tankingScore !== null && tankingScore >= 70) {
-    notes.push({ key: 'review.note.tanking', params: {} });
-  }
-
-  const sustainMin = archetype === 'healer' ? HEALER_SUSTAIN_MIN : SELF_HEAL_MIN;
-  const sustain =
-    healingPerGame !== null && healingPerGame >= sustainMin && !leaders.includes('healing');
-  if (notes.length < 2 && sustain) {
-    notes.push({ key: 'review.note.sustain', params: {} });
-  }
-
-  return notes.slice(0, 2);
 }
 
 /* ------------------------------------------------------------------ *
@@ -937,24 +849,6 @@ export function gradeOf(input: GradeContext): ReviewGrade {
   return 'mistake';
 }
 
-/** 评语 key：情境专属档位单独分叉，其余按档位取 */
-function commentKeyOf(grade: ReviewGrade, context: BpContext, objectiveWeak: boolean): string {
-  if (grade === 'brilliant') {
-    return context === 'disadvantaged'
-      ? 'review.comment.brilliant.disadvantaged'
-      : 'review.comment.brilliant.default';
-  }
-  if (grade === 'blunder') {
-    return context === 'advantaged'
-      ? 'review.comment.blunder.advantaged'
-      : 'review.comment.blunder.default';
-  }
-  if (grade === 'miss') {
-    return objectiveWeak ? 'review.comment.missObjective' : 'review.comment.miss';
-  }
-  return `review.comment.${grade}`;
-}
-
 /* ------------------------------------------------------------------ *
  * 整局复盘
  * ------------------------------------------------------------------ */
@@ -1044,7 +938,6 @@ function evaluateSide(
   sideScore: MatchScore,
   leaders: Map<string, MetricKey[]>,
   objectiveKind: ObjectiveKind | null,
-  formatBig: (value: number) => string,
 ): PlayerReview[] {
   const totalKills = stats.reduce((sum, s) => sum + (s.kills ?? 0), 0);
   const totalDamage = stats.reduce((sum, s) => sum + (s.damage ?? 0), 0);
@@ -1103,7 +996,6 @@ function evaluateSide(
       mode: record.mode,
       mapWinRate: mapStat ? baseRateOf(mapStat) : null,
       matchupDelta: counter.trustedCount > 0 ? counter.avgDelta : null,
-      formatBig,
     });
   });
 }
@@ -1115,11 +1007,6 @@ function averageOf(reviews: PlayerReview[]): number | null {
   return Math.round(rated.reduce((sum, p) => sum + (p.score ?? 0), 0) / rated.length);
 }
 
-export interface ReviewOptions {
-  /** 评语里的大数值格式化（中文「万」/ 英文「k」），由界面注入 */
-  formatBig?: (value: number) => string;
-}
-
 /**
  * 复盘一局（我方 + 敌方 6 人）。
  *
@@ -1129,11 +1016,7 @@ export interface ReviewOptions {
  * 敌方视角完全镜像：我方 win → 敌方 loss，2:0 → 0:2，对位对象换成我方 3 人。
  * 旧记录没有敌方战绩时，敌方 3 人按「未录入」处理，不影响我方评级。
  */
-export function reviewMatch(
-  idx: MetaIndex,
-  record: MatchRecord,
-  options: ReviewOptions = {},
-): MatchReview {
+export function reviewMatch(idx: MetaIndex, record: MatchRecord): MatchReview {
   const eligible = record.result === 'win' || record.result === 'loss';
   if (!eligible || record.score === null) {
     return {
@@ -1153,7 +1036,6 @@ export function reviewMatch(
   const result = record.result as 'win' | 'loss';
   const score = record.score;
   const objectiveKind = objectiveKindOf(record.mode);
-  const formatBig = options.formatBig ?? ((v: number) => String(Math.round(v)));
   const idsOf = (picks: MatchRecord['allyPicks']): number[] =>
     picks.map((pick) => Number(pick.brawlerId)).filter((id) => Number.isFinite(id));
 
@@ -1182,7 +1064,6 @@ export function reviewMatch(
     score,
     leaders,
     objectiveKind,
-    formatBig,
   );
 
   const enemyReviews = evaluateSide(
@@ -1196,7 +1077,6 @@ export function reviewMatch(
     flipScore(score),
     leaders,
     objectiveKind,
-    formatBig,
   );
 
   return {

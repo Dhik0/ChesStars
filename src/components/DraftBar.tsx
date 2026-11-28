@@ -3,14 +3,12 @@ import { RotateCcw, Undo2 } from 'lucide-react';
 import type { MetaIndex } from '../data/metaIndex';
 import type { ActiveSlot, BanValue, DraftState, Side } from '../utils/draftEngine';
 import {
-  BAN_SLOTS,
   BAN_SLOTS_PER_TEAM,
   TEAM_SLOTS,
   banCount,
   banSideOfIndex,
   isEmptyBan,
   matchupCell,
-  pickNumber,
   slotBase,
   slotPickNumbers,
 } from '../utils/draftEngine';
@@ -60,7 +58,7 @@ function isActive(active: ActiveSlot, kind: ActiveSlot['kind'], index: number): 
 /**
  * 「蓝先 / 红先」大按钮：等宽两列，蓝=己方先选，红=敌方先选。
  * 不配图标——排位开局的投硬币（Coin Flip）图标在 Brawlify 上没有清晰的独立资源，
- * 与其用交叉双剑误导，不如只留大号粗体文字 + 顺位说明。
+ * 与其用交叉双剑误导，不如只留大号粗体文字。
  */
 function FirstPickButton({
   side,
@@ -75,20 +73,18 @@ function FirstPickButton({
   const { t } = useTranslation();
   const ally = side === 'ally';
   const label = t(ally ? 'draft.firstAlly' : 'draft.firstEnemy');
-  const hint = t(ally ? 'draft.firstAllyHint' : 'draft.firstEnemyHint');
   return (
     <button
       type="button"
       onClick={() => onPick(side)}
-      className={`flex ${fill ? 'h-full min-h-0' : 'h-[104px]'} flex-col items-center justify-center gap-1.5 rounded-xl border-2 transition-colors ${
+      className={`flex ${fill ? 'h-full min-h-0' : 'h-[104px]'} items-center justify-center rounded-xl border-2 transition-colors ${
         ally
           ? 'border-ally/60 bg-ally/15 text-ally active:bg-ally/25'
           : 'border-enemy/60 bg-enemy/15 text-enemy active:bg-enemy/25'
       }`}
-      aria-label={`${label}：${hint}`}
+      aria-label={label}
     >
       <span className="text-[26px] font-bold leading-none tracking-wide">{label}</span>
-      <span className="text-[10px] font-medium opacity-75">{hint}</span>
     </button>
   );
 }
@@ -155,7 +151,10 @@ function SlotCell({
   const portrait = (
     <span className="relative h-full w-[var(--slot-avatar-w)] shrink-0 overflow-hidden">
       {info && id !== undefined ? (
-        <Avatar id={id} name={info.name} fill rounded="rounded-none" />
+        // key 跟随英雄 id：落子 / 换人 / 撤回重选都会重播一次弹性入场
+        <span key={id} className="block h-full w-full animate-slot-drop motion-reduce:animate-none">
+          <Avatar id={id} name={info.name} fill rounded="rounded-none" />
+        </span>
       ) : (
         <span
           className={`flex h-full items-center justify-center text-[15px] font-semibold tabular-nums ${
@@ -263,7 +262,7 @@ function SlotCell({
     <button
       type="button"
       {...press}
-      className={`relative flex w-full select-none items-stretch overflow-hidden rounded-lg border transition-all ${
+      className={`relative flex w-full select-none items-stretch overflow-hidden rounded-lg border transition-all duration-200 motion-reduce:transition-none ${
         fill ? 'h-full min-h-0 flex-1' : 'h-[var(--slot-h)]'
       } ${tint} ${ringOf(kind, active)}`}
       aria-label={`${t('draft.slotAria', {
@@ -325,7 +324,7 @@ function BanCell({ index, value, active, getBrawler, onActivate, onClear }: BanC
     <button
       type="button"
       onClick={() => (filled ? onClear() : onActivate())}
-      className={`relative flex aspect-square min-w-0 max-w-[var(--ban-max)] flex-1 items-center justify-center overflow-hidden rounded border transition-all ${
+      className={`relative flex aspect-square min-w-0 max-w-[var(--ban-max)] flex-1 items-center justify-center overflow-hidden rounded border transition-all duration-200 motion-reduce:transition-none ${
         active
           ? 'border-body bg-raised ring-2 ring-fg/80 ban-active-glow'
           : blank
@@ -342,7 +341,10 @@ function BanCell({ index, value, active, getBrawler, onActivate, onClear }: BanC
       title={blank ? t('draft.banEmptyTitle', { side: sideLabel }) : undefined}
     >
       {info && typeof value === 'number' ? (
-        <>
+        <span
+          key={value}
+          className="absolute inset-0 flex animate-slot-drop motion-reduce:animate-none"
+        >
           <Avatar
             id={value}
             name={info.name}
@@ -354,7 +356,7 @@ function BanCell({ index, value, active, getBrawler, onActivate, onClear }: BanC
             <span className="h-[1.5px] w-[70%] rotate-45 bg-enemy/90" />
             <span className="absolute h-[1.5px] w-[70%] -rotate-45 bg-enemy/90" />
           </span>
-        </>
+        </span>
       ) : blank ? (
         <span className="text-[13px] font-bold leading-none text-muted" aria-hidden>
           Ø
@@ -458,10 +460,6 @@ export default function DraftBar({
   if (!state.firstPick) {
     return (
       <footer className={shell}>
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-body">{t('draft.chooseFirst')}</span>
-          <span className="text-[10px] text-faint">{t('draft.chooseFirstHint')}</span>
-        </div>
         <div className={`grid grid-cols-2 gap-2 ${landscape ? 'min-h-0 flex-1' : ''}`}>
           <FirstPickButton side="ally" fill={landscape} onPick={onChooseFirst} />
           <FirstPickButton side="enemy" fill={landscape} onPick={onChooseFirst} />
@@ -472,36 +470,13 @@ export default function DraftBar({
   }
 
   /* ---------------- 正式 BP 态 ---------------- */
-  const banPhase = state.active.kind === 'ban';
   /** 蛇形顺位：先手方 1/4/5，后手方 2/3/6 */
   const pickNos = slotPickNumbers(state);
-  const filledBans = banCount(state);
-  const phaseTop = banPhase ? t('draft.banLabel') : t('draft.pickNo', { n: pickNumber(state) });
-  const phaseBottom = banPhase
-    ? `${filledBans}/${BAN_SLOTS}`
-    : state.active.kind === 'ally'
-      ? t('draft.sideAlly')
-      : t('draft.sideEnemy');
 
   return (
     <footer className={shell}>
       {/* Ban 行：6 个 Ban 位（前 3 己方 / 后 3 敌方）+ 最右侧先手切换 */}
       <div className="flex shrink-0 items-center gap-1.5">
-        <span className={`shrink-0 leading-tight ${landscape ? 'w-9' : 'w-11'}`}>
-          <span
-            className={`block text-[9px] ${banPhase ? 'text-ban' : 'text-subtle'}`}
-          >
-            {phaseTop}
-          </span>
-          <span
-            className={`block text-[10px] font-semibold ${
-              banPhase ? 'text-ban' : 'text-muted'
-            }`}
-          >
-            {phaseBottom}
-          </span>
-        </span>
-
         <div className="flex min-w-0 flex-1 items-center gap-1">
           {[0, BAN_SLOTS_PER_TEAM].map((start, group) => (
             <Fragment key={start}>

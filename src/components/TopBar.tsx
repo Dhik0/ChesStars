@@ -1,4 +1,4 @@
-import { ChevronDown, Map as MapIcon } from 'lucide-react';
+import { ArrowLeft, ChevronDown } from 'lucide-react';
 import { modeColor } from '../data/localization';
 import { useTranslation } from '../i18n';
 import { themeAccent } from '../utils/display';
@@ -6,6 +6,14 @@ import { useTheme } from '../utils/useTheme';
 import FullscreenToggle from './FullscreenToggle';
 import MapThumb from './MapThumb';
 import ModeIcon from './ModeIcon';
+
+/**
+ * 地图卡右下两个按钮共用的视觉基线：与 FullscreenToggle 的按钮样式逐项一致
+ * （底色、细描边、圆角、高度、字色、过渡与按压态）。
+ * 固定正方形宽度属于左侧全屏按钮自身，自适应内边距属于「返回」按钮自身，均不放入基线。
+ */
+const mapHeaderBtnBase =
+  'flex h-9 shrink-0 items-center rounded-lg border border-line-strong bg-surface/80 text-body transition-colors active:bg-press active:text-fg';
 
 interface TopBarProps {
   mapName: string;
@@ -33,7 +41,7 @@ interface TopBarProps {
  * 往下滑就自然滚出视野，把整个上半屏让给英雄池（不再吸顶）。
  * 横屏下退化成单行地图条，省出的高度全给左栏的 Ban / 选角槽。
  *
- * 这里**不再有设置入口**：设置已升级为底部导航的一级页面，顶栏只负责「换地图」。
+ * 这里**不再有设置入口**：设置已升级为底部导航的一级页面，顶栏只负责「返回选图」。
  */
 export default function TopBar({
   mapName,
@@ -90,7 +98,7 @@ export default function TopBar({
   /* ---------------- 竖屏：完整详情卡（随列表滚动） ---------------- */
   return (
     <div className="shrink-0 px-2 pb-1.5 pt-1.5 safe-top">
-      <div className="relative h-[160px] rounded-xl border border-line bg-surface/80 p-1.5 shadow-card">
+      <div className="relative h-[160px] rounded-xl bg-[var(--card-bg)] p-1.5 shadow-card">
         <button
           type="button"
           onClick={onOpenMap}
@@ -106,7 +114,7 @@ export default function TopBar({
             className="h-full w-[97px] shrink-0 rounded-lg"
           />
 
-          {/* 右侧：名称 / 模式 / 样本量 / 门槛（底部留出换图按钮的位置） */}
+          {/* 右侧：名称 / 模式 / 样本量 / 门槛（底部留出返回按钮的位置） */}
           <span className="flex min-w-0 flex-1 flex-col pb-11 pr-1 pt-0.5">
             <span className="truncate text-[17px] font-bold leading-tight text-fg">
               {mapLabel(mapName)}
@@ -145,17 +153,17 @@ export default function TopBar({
           </span>
         </button>
 
-        {/* 右下角操作区：全屏横屏 + 换图。两者同为 36px 高，不挤占文字区的留白 */}
+        {/* 右下角操作区：全屏横屏 + 返回。共用同一套视觉基线，只在宽度上区分 */}
         <div className="absolute bottom-2 right-2 flex items-center gap-1.5">
-          <FullscreenToggle />
+          <FullscreenToggle className={mapHeaderBtnBase} />
           <button
             type="button"
             onClick={onOpenMap}
-            className="flex h-9 items-center gap-1.5 rounded-[14px] border border-accent/45 bg-accent-soft px-3 text-[12px] font-semibold text-accent transition-colors active:bg-press/60"
-            aria-label={t('topbar.switchMap')}
+            className={`${mapHeaderBtnBase} gap-1.5 px-3.5 text-sm font-medium`}
+            aria-label={t('topbar.back')}
           >
-            <MapIcon size={14} />
-            {t('topbar.switchMap')}
+            <ArrowLeft size={14} strokeWidth={2.2} />
+            {t('topbar.back')}
           </button>
         </div>
       </div>
