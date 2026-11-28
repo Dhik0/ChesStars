@@ -4,5 +4,5 @@
   "apkUrl": "https://github.com/Dhik0/ChesStars/releases/download/v2.0.0/ChesStars-v2.0.0.apk",
   "mirrorPrefixes": ["https://ghfast.top/", "https://gh-proxy.com/"],
   "qqGroupUrl": "https://qm.qq.com/q/yJm7ocJ5fO",
-  "notes": "## 更新\n- 全面升级 Material 3 Expressive 分段卡片界面，精简设置与关于页冗余信息\n- 新增四档主题（自动 / 浅色 / 深色 / 纯黑 OLED），全面适配 Monet 自定义配色\n- 重构关于页：新增动态主题流光、滚动视差与「引用 / 隐私政策」二级子页\n- 移除进阶功能开关，「空 Ban」与「查看算分明细」回归默认常驻\n- 精简战绩复盘卡片，双列高度更紧凑对齐"
+  "notes": "## 更新\n- 精简设置与关于页冗余信息\n- 升级UI界面\n- 新增复盘功能"
 }
